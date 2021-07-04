@@ -1,0 +1,145 @@
+// PAGES
+// Page Header
+
+$page-header-min-height:            100vh !default;
+$page-header-max-height:            1000px !default;
+$page-header-height:                100% !default;
+$page-header-display:               flex !default;
+$page-header-position:              relative !default;
+$page-header-bg-position:           center center !default;
+$page-header-bg-size:               cover !default;
+$page-header-align-items:           center !default;
+
+// Page Header Image
+$page-header-image-position:        absolute !default;
+$page-header-image-bg-size:         $page-header-bg-size !default;
+$page-header-image-bg-position:     $page-header-bg-position !default;
+$page-header-image-height:          $page-header-height !default;
+$page-header-image-width:           $page-header-height !default;
+$page-header-image-z-index:         -1 !default;
+
+$header-small-height:               65vh !default;
+$header-small-min-height:           $header-small-height !default;
+$header-iframe-width:               $page-header-image-width !default;
+$header-iframe-box-shadow:          0 16px 38px -12px rgba(0, 0, 0, 0.56),
+                                    0 4px 25px 0 rgba(0, 0, 0, 0.12),
+                                    0 8px 10px -5px rgba(0, 0, 0, 0.2) !default;
+$header-filter-position:            relative !default;
+$header-filter-after-position:      $page-header-image-position !default;
+$header-data-animation-transition:  all 300ms cubic-bezier(0.34, 1.61, 0.7, 1) !default;
+
+$content-center-position:           $page-header-image-position !default;
+$content-center-sizing:             50% !default;
+$content-center-transition:         translate(-50%, -50%) !default;
+$content-center-text-align:         center !default;
+$content-center-z-index:            2 !default;
+$content-center-padding:            0 15px !default;
+$content-center-width:              $page-header-height !default;
+$content-center-min-width:          880px !default;
+
+// Wrapper
+
+$wrapper-height:                    100vh !default;
+$wrapper-display:                   table !default;
+$wrapper-position:                  relative !default;
+$wrapper-clear:                     both !default;
+$wrapper-top:                       0 !default;
+$wrapper-fullpage-height:           auto !default;
+$wrapper-fullpage-min-height:       $page-header-min-height !default;
+
+// Login Page
+
+$login-page-card-header-mt:         -40px !default;
+$login-page-card-header-mb:         20px !default;
+$login-page-card-body-padding:      0 30px 0 10px !default;
+$login-page-input-grup-padding:     15px 15px 0 !default;
+$login-page-form-control-margin:    17px 0 0 !default;
+$login-page-form-padding-bottom:    10px !default;
+
+// Lock Page
+
+$lock-page-card-profile-width:      240px !default;
+$lock-page-card-profile-margin:     60px auto 0 !default;
+$lock-page-card-avatar-width:       90px !default;
+$lock-page-card-avatar-height:      $lock-page-card-avatar-width !default;
+$lock-page-card-avatar-mt:          -45px !default;
+$lock-page-content-padding-top:     18vh !default;
+$lock-page-card-profile-left:       0 !default;
+$lock-page-card-profile-right:      $lock-page-card-profile-left !default;
+$lock-page-card-hidden-opacity:     0 !default;
+$lock-page-card-footer-padding:     0.9375rem 1.875rem !default;
+$lock-page-card-footer-margin:      0 !default;
+$lock-page-card-footer-pt:          0 !default;
+$lock-page-form-group-mt:           15px !default;
+
+// Signup Page
+
+$signup-page-container-padding:     20vh !default
+$card-signup-margin-bottom:         6.25rem !default
+$card-signup-padding-y:             2.5rem !default
+$card-signup-padding-x:             0 !default
+$signup-info-h-padding:             0 0 20px !default
+$signup-social-h4-margin-top:       20px !default
+$signup-social-btn-margin:          20px !default
+
+// Register Page
+
+$register-card-signup-mb:           100px !default;
+$register-card-signup-mt:           15vh !default;
+$register-card-signup-padding:      40px 0 !default;
+$register-card-signup-info-margin:  30px 0 15px !default;
+
+$register-check-margin:             20px !default;
+$register-check-padding:            $register-check-margin !default;
+$register-label-margin:             27px !default;
+
+$register-info-horizontal-mt:       24px !default;
+$register-info-horizontal-mr:       10px !default;
+$register-info-icon-size:           2.6em !default;
+$register-form-check-label-ml:      27px !default;
+$register-form-check-label-pl:      34px !default;
+$register-form-group-margin:        27px 0 0 7px !default;
+$register-card-signup-info-width:   360px !default;
+
+
+// Pricing Page
+
+$pricing-page-padding:              120px 0 !default;
+$pricing-page-title-mt:             5vh !default;
+$pricing-fullpage-before-bg-color:  rgba(0, 0, 0, 0.65) !default;
+$pricing-section-space-height:      70px !default;
+$pricing-footer-z-index:            2 !default;
+
+// FullPage
+
+$fullpage-after-display:            block !default;
+$fullpage-after-position:           absolute !default;
+$fullpage-after-width:              100% !default;
+$fullpage-after-height:             $fullpage-after-width !default;
+$fullpage-after-top:                0 !default;
+$fullpage-after-left:               $fullpage-after-top !default;
+$fullpage-after-z-index:            2 !default;
+$fullpage-after-img-opacity:        .8 !default;
+$fullpage-before-bg-color:          rgba(0, 0, 0, .5) !default;
+
+$fullpage-content-position:         relative !default;
+$fullpage-content-z-index:          4 !default;
+$fullpage-content-min-height:       calc(100vh - 80px) !default;
+
+// FullPage Background
+
+$fullpage-bg-position:              $fullpage-after-position !default;
+$fullpage-bg-z-index:               1 !default;
+$fullpage-bg-height:                $fullpage-after-height !default;
+$fullpage-bg-width:                 $fullpage-after-width !default;
+$fullpage-bg-display:               block !default;
+$fullpage-bg-top:                   $fullpage-after-top !default;
+$fullpage-bg-left:                  $fullpage-after-left !default;
+
+// Off Canvas Sidebar
+
+$canvas-nav-li-margin:              0 15px !default;
+$canvas-nav-li-bg:                  rgba(200, 200, 200, 0.2) !default;
+$canvas-after-bg-color:             #282828 !default;
+$canvas-header-media-pt:            70px !default;
+$canvas-header-media-pb:            200px !default;

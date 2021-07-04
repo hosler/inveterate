@@ -1,0 +1,124 @@
+.card-pricing {
+  &:after {
+    background-color: $card-pricing-after-bg !important;
+  }
+  text-align: $card-pricing-text-align;
+
+  .card-title {
+    margin-top: $card-pricing-title-mt;
+  }
+
+  .card-body {
+    padding: $card-pricing-body-padding !important;
+    margin: 0 !important;
+  }
+
+  .card-icon {
+    padding: $card-pricing-icon-padding;
+
+    i {
+      font-size: $card-pricing-icon-font-size;
+      border: $card-pricing-icon-border;
+      border-radius: $card-pricing-icon-radius;
+      width: $card-pricing-icon-width;
+      line-height: $card-pricing-icon-line-height;
+      height: $card-pricing-icon-height;
+      color: $black-color;
+    }
+
+    &.icon-primary i {
+      color: $primary;
+    }
+
+    &.icon-info i {
+      color: $info;
+    }
+
+    &.icon-success i {
+      color: $success;
+    }
+
+    &.icon-warning i {
+      color: $warning;
+    }
+
+    &.icon-danger i {
+      color: $danger;
+    }
+
+    &.icon-rose i {
+      color: $rose;
+    }
+
+    &.icon-white i {
+      color: $white;
+    }
+  }
+
+  h1 {
+    small {
+      font-size: $card-pricing-h1-small-font-size;
+      display: $card-pricing-h1-small-display;
+      height: $card-pricing-h1-small-height;
+
+      &:first-child {
+        position: $card-pricing-h1-position;
+        top: $card-pricing-h1-top;
+        font-size: $card-pricing-h1-font-size;
+      }
+    }
+  }
+
+  ul {
+    list-style: $card-pricing-ul-style;
+    padding: 0;
+    max-width: $card-pricing-ul-max-width;
+    margin: $card-pricing-ul-margin;
+
+    li {
+      color: $gray;
+      text-align: $card-pricing-li-text-align;
+      padding: $card-pricing-li-padding;
+      border-bottom: $card-pricing-li-border;
+
+      &:last-child {
+        border: 0;
+      }
+
+      b {
+        color: $black;
+      }
+
+      i {
+        top: $card-pricing-icon-top;
+        position: $card-pricing-h1-position;
+      }
+    }
+  }
+
+  &.card-background,
+  &[class*="bg-"] {
+    ul {
+      li {
+        color: $white;
+        border-color: rgba($white,.3);
+
+        b {
+          color: $white;
+          font-weight: $font-weight-bolder;
+        }
+      }
+    }
+
+    [class*="text-"],
+    .card-category {
+      color: $white !important;
+    }
+  }
+
+  .card-footer {
+    z-index: 2;
+  }
+
+
+}

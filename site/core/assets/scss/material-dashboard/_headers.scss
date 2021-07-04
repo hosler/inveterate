@@ -1,0 +1,134 @@
+.page-header {
+  min-height: $page-header-min-height;
+  max-height: $page-header-max-height;
+  display: $page-header-display !important;
+  height: $page-header-height;
+  background-position: $page-header-bg-position;
+  background-size: $page-header-bg-size;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  color: $white;
+  position: $page-header-position;
+  align-items: $page-header-align-items;
+
+  .page-header-image {
+    position: $page-header-image-position;
+    background-size: $page-header-image-bg-size;
+    background-position: $page-header-image-bg-position;
+    width: $page-header-image-width;
+    height: $page-header-image-height;
+    z-index: $page-header-image-z-index;
+  }
+
+  .content-center {
+    position: $content-center-position;
+    top: $content-center-sizing;
+    left: $content-center-sizing;
+    z-index: $content-center-z-index;
+    -ms-transform: $content-center-transition;
+    -webkit-transform: $content-center-transition;
+    transform: $content-center-transition;
+    text-align: $content-center-text-align;
+    color: $white;
+    padding: $content-center-padding;
+    width: $content-center-width;
+    max-width: $content-center-min-width;
+  }
+
+  footer {
+    position: absolute;
+    bottom: 0;
+  }
+
+  .container {
+    z-index: 1;
+  }
+
+  &.header-small {
+    height: $header-small-height;
+    min-height: $header-small-min-height;
+  }
+
+  .iframe-container {
+    iframe {
+      width: $header-iframe-width;
+      box-shadow: $header-iframe-box-shadow;
+    }
+  }
+}
+
+.header-filter {
+  position: $header-filter-position;
+
+  &:after,
+  &:before {
+    position: absolute;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: block;
+    left: 0;
+    top: 0;
+    content: "";
+  }
+
+  &::before {
+    background: rgba(0,0,0,.5);
+  }
+
+  .container {
+    z-index: 2;
+    position: relative;
+  }
+}
+
+.header-filter {
+  &[filter-color="purple"],
+  &[filter-color="primary"] {
+    &:after {
+      @include linear-gradient(rgba($purple-100,.56), rgba($purple-300,.95));
+    }
+  }
+
+  &[filter-color="blue"],
+  &[filter-color="info"] {
+    &:after {
+      @include linear-gradient(rgba($cyan-100,.56), rgba($cyan-300,.95));
+    }
+  }
+
+  &[filter-color="green"],
+  &[filter-color="success"] {
+    &:after {
+      @include linear-gradient(rgba($green-200,.56), rgba($green-400,.95));
+    }
+  }
+
+  &[filter-color="orange"],
+  &[filter-color="warning"] {
+    &:after {
+      @include linear-gradient(rgba($orange-100,.56), rgba($orange-300,.95));
+    }
+  }
+
+  &[filter-color="red"],
+  &[filter-color="danger"] {
+    &:after {
+      @include linear-gradient(rgba($red-200,.56), rgba($red-400,.95));
+    }
+  }
+
+  &[filter-color="rose"] {
+    &:after {
+      @include linear-gradient(rgba($pink-100,.56), rgba($pink-300,.95));
+    }
+  }
+}
+
+.clear-filter {
+  &:before {
+    background: none;
+    display: none;
+  }
+}

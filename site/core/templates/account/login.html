@@ -1,0 +1,72 @@
+{% extends 'store_base.html' %}
+{% load static %}
+{% load account_tags %}
+{% load i18n %}
+{% load bootstrap4 %}
+{% load crispy_forms_tags %}
+{% block body %}
+    <div class="page-header login-page header-filter" filter-color="black"
+         style="background-image: url('{% static 'img/digital-world-map-1170292-1918x1315.jpg' %}'); background-size: cover; background-position: top center;">
+        <!--   you can change the color of the filter page using: data-color="blue | purple | green | orange | red | rose " -->
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-4 col-md-6 col-sm-8 ml-auto mr-auto">
+                    <form method="POST" action="{% url "account_login" %}" autocapitalize="off"
+                            {% if form.is_multipart %} enctype="multipart/form-data"{% endif %}>
+                        {% csrf_token %}
+                        <div class="card card-signup">
+                            <div class="card-signup-bg"></div>
+                            <div class="card-signup-bg"></div>
+                            <h2 class="card-title text-center">Login</h2>
+
+                            <div class="card-body ">
+                                {% for field in form %}
+
+                                    {% if field.label == 'Remember Me' %}
+                                        <div id="div_id_remember" class="form-check">
+                        <label for="id_remember" class="form-check-label">
+                          <input class="form-check-input" id="id_remember" type="checkbox" value="" checked="">
+                          <span class="form-check-sign">
+                            <span class="check"></span>
+                          </span>
+                          Remember Me
+                        </label>
+                      </div>
+                                        {% else %}
+                                        {{ field|as_crispy_field }}
+                                    {% endif %}
+                                {% endfor %}
+                                {% if redirect_field_value %}
+                                    <input type="hidden" name="{{ redirect_field_name }}"
+                                           value="{{ redirect_field_value }}"/>
+                                {% endif %}
+                            </div>
+                            <div class="card-footer justify-content-center">
+                                {% buttons %}
+                                    <button type="submit" class="btn btn-primary">{% trans "Log in" %}</button>
+                                {% endbuttons %}
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% load footer %}
+        {% footer %}
+    </div>
+{% endblock %}
+{% block scripts %}
+    <script src="{% static 'js/core/jquery.min.js' %}"></script>
+    <script src="{% static 'js/core/popper.min.js' %}"></script>
+    <script src="{% static 'js/core/bootstrap-material-design.min.js' %}"></script>
+    <script src="{% static 'js/material-dashboard.min.js' %}?v=1.0.1" type="text/javascript"></script>
+    <script>
+        $(document).ready(function () {
+            md.checkFullPageBackgroundImage();
+            setTimeout(function () {
+                // after 1000 ms we add the class animated to the login/register card
+                $('.card').removeClass('card-hidden');
+            }, 700);
+        });
+    </script>
+{% endblock %}

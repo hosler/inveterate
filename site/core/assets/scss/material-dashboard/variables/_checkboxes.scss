@@ -1,0 +1,65 @@
+// Variables for checkboxes
+
+$checkbox-margin-bottom:                .5rem !default;
+$checkbox-padding-left:                 0 !default;
+$checkbox-label-padding-left:           $checkbox-padding-left !default;
+
+$checkbox-input-opacity:                0 !default;
+$checkbox-input-position:               absolute !default;
+$checkbox-input-margin:                 0 !default;
+$checkbox-input-z-index:                -1 !default;
+$checkbox-input-width:                  0 !default;
+$checkbox-input-height:                 $checkbox-input-width !default;
+$checkbox-input-overflow:               hidden !default;
+$checkbox-input-left:                   0 !default;
+$checkbox-input-pointer:                none !default;
+
+$checkbox-sign-vertical-align:          middle !default;
+$checkbox-sign-position:                relative !default;
+$checkbox-sign-top:                     -2px !default;
+$checkbox-sign-float:                   left !default;
+$checkbox-sign-padding-right:           10px !default;
+$checkbox-sign-display:                 inline-block !default;
+$checkbox-sign-before-display:          block !default;
+$checkbox-sign-before-bg-color:         rgba(0, 0, 0, .84) !default;
+$checkbox-sign-before-radius:           100% !default;
+$checkbox-sign-before-z-index:          1 !default;
+$checkbox-sign-before-top:              0 !default;
+
+$checkbox-check-postition:              0 !default;
+$checkbox-check-before-transform:       rotate(45deg) !default;
+$checkbox-check-before-mt:              -3px !default;
+$checkbox-check-before-ml:              7px !default;
+$checkbox-check-before-box-shadow:      0 0 0 0, 0 0 0 0, 0 0 0 0, 0 0 0 0, 0 0 0 0, 0 0 0 0, 0 0 0 0 inset !default;
+$checkbox-check-before-box-shadow-checked:      0 0 0 10px, 10px -10px 0 10px, 32px 0 0 20px, 0 32px 0 20px, -5px 5px 0 10px, 20px -12px 0 11px !default;
+
+// disabled state
+
+$checkbox-disabled-input-opacity:       .5 !default;
+$checkbox-disabled-opacity:             .26 !default;
+
+$md-label-color:                       unquote("rgba(#{$rgb-black}, 0.26)") !default;
+$md-label-color-toggle-focus:          unquote("rgba(#{$rgb-black}, .54)") !default;
+
+$checkbox-size:                         20px !default;
+$checkbox-animation-ripple:             500ms !default;
+$checkbox-animation-check:              0.3s !default;
+$checkbox-checked-color:                $primary !default;
+
+$checkbox-label-color:                  $md-label-color !default;
+$checkbox-border-color:                 $md-label-color-toggle-focus !default;
+$dark-checkbox-border-color:            unquote("rgba(96,100,119,.5)") !default;
+
+$md-text-color-light:                  $white !default;
+$md-text-color-light-hex:              $white !default; // for contrast function in inverse
+$md-text-color-primary:                unquote("rgba(#{$rgb-black}, 0.87)") !default;
+$md-text-color-primary-hex:            $black !default; // for contrast function in inverse
+$icon-color:                            rgba(0,0,0,0.5) !default;
+
+$check-input-box-shadow:                unquote("0 0 0 10px, 10px -10px 0 10px, 32px 0 0 20px, 0 32px 0 20px, -5px 5px 0 10px, 20px -12px 0 11px") !default;
+
+// checkboxes variables
+$checkbox-border-color:                 rgba(96,100,119, .5) !default;
+$checkbox-active-border-color:          #40475a !default;
+$checkbox-active-sign-gradient:         #ca9dd2 !default;
+$checkbox-active-sign-color:            linear-gradient(60deg, $white, $checkbox-active-sign-gradient) !default;

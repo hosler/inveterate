@@ -1,0 +1,139 @@
+
+// SIDEBAR
+
+$sidebar-position:                  fixed !default;
+$sidebar-z-index:                   2 !default;
+$sidebar-width:                     260px !default;
+
+$sidebar-caret-display:             inline-block !default;
+$sidebar-caret-margin-left:         2px !default;
+$sidebar-caret-border:              4px !default;
+
+$sidebar-wrapper-height:            calc(100vh - 75px) !default;
+$sidebar-wrapper-width:             $sidebar-width !default;
+$sidebar-wrapper-padding-bottom:    30px !default;
+
+$sidebar-input-group-font-size:     1.7em !default;
+$sidebar-input-group-height:        36px !default;
+$sidebar-input-group-width:         78% !default;
+$sidebar-input-padding-left:        17px !default;
+
+$sidebar-mini-width:                30px !default;
+$sidebar-mini-margin-right:         15px !default;
+$sidebar-mini-letter-spacing:       1px !default;
+
+$sidebar-user-icon-font-size:       17px !default;
+$sidebar-user-icon-line-height:     20px !default;
+$sidebar-user-icon-width:           26px !default;
+
+$sidebar-user-line-height:          18px !default;
+$sidebar-user-font-size:            14px !default;
+$sidebar-user-caret-position:       absolute !default;
+$sidebar-user-caret-top:            8px !default;
+
+$sidebar-logo-tim-radius:           50% !default;
+$sidebar-logo-tim-border:           1px solid #333 !default;
+$sidebar-logo-tim-display:          block !default;
+$sidebar-logo-tim-height:           61px !default;
+$sidebar-logo-tim-width:            $sidebar-logo-tim-height !default;
+$sidebar-logo-tim-float:            left !default;
+$sidebar-logo-tim-overflow:         hidden !default;
+$sidebar-logo-tim-img-height:       60px !default;
+$sidebar-logo-tim-img-width:        $sidebar-logo-tim-img-height !default;
+
+$sidebar-logo-padding:              15px 0 !default;
+$sidebar-logo-margin:               0 !default;
+$sidebar-logo-display:              block !default;
+$sidebar-logo-position:             relative !default;
+$sidebar-logo-z-index:              4 !default;
+
+$sidebar-logo-mini-opacity:         1 !default;
+$sidebar-logo-mini-float:           left !default;
+$sidebar-logo-mini-margin-left:     23px !default;
+$sidebar-logo-after-position:       $sidebar-user-caret-position !default;
+$sidebar-logo-after-bottom:         0 !default;
+$sidebar-logo-after-right:          15px !default;
+$sidebar-logo-after-height:         1px !default;
+$sidebar-logo-after-width:          calc(100% - 30px) !default;
+
+$sidebar-nav-margin-top:            15px !default;
+$sidebar-nav-display:               block !default;
+$sidebar-nav-caret-margin-top:      13px !default;
+$sidebar-nav-caret-position:        absolute !default;
+$sidebar-nav-caret-right:           6px !default;
+
+$sidebar-dropdown-active-bg-color:  rgba(200, 200, 200, 0.2) !default;
+$sidebar-dropdown-active-i-color:   #a9afbb !default;
+
+$sidebar-separator-margin:          15px 0 !default;
+$sidebar-separator-after-width:     $sidebar-logo-after-width !default;
+$sidebar-separator-position:        absolute !default;
+$sidebar-separator-height:          $sidebar-logo-after-height !default;
+$sidebar-separator-left:            $sidebar-logo-after-right !default;
+$sidebar-separator-bg-color:        rgba(180,180,180, .3) !default;
+$sidebar-separator-li-margin-top:   31px !default;
+
+$sidebar-photo-width:               34px !default;
+$sidebar-photo-height:              34px !default;
+$sidebar-photo-overflow:            hidden !default;
+$sidebar-photo-position:            relative !default;
+$sidebar-photo-top:                 -8px !default;
+$sidebar-photo-float:               $sidebar-logo-mini-float !default;
+$sidebar-photo-z-index:             5 !default;
+$sidebar-photo-margin-right:        11px !default;
+$sidebar-photo-img-width:           100% !default;
+
+$sidebar-image-after-opacity:       .77 !default;
+$sidebar-collapse-link-margin:      0 15px !default;
+
+$sidebar-a-padding:                 .5rem .9375 !default;
+$sidebar-p-margin:                  0 !default;
+$sidebar-p-line-height:             30px !default;
+$sidebar-p-font-size:               14px !default;
+
+$sidebar-icon-font-size:            24px !default;
+$sidebar-icon-float:                left !default;
+$sidebar-icon-margin-right:         15px !default;
+$sidebar-icon-line-height:          30px !default;
+$sidebar-icon-width:                $sidebar-icon-line-height !default;
+$sidebar-icon-text-align:           center !default;
+$sidebar-icon-color:                #a9afbb !default;
+
+$sidebar-nav-li-a-margin:           10px 15px 0 !default;
+$sidebar-nav-li-a-radius:           3px !default;
+$sidebar-nav-li-a-padding-left:     10px !default;
+$sidebar-nav-li-a-padding-right:    $sidebar-nav-li-a-padding-left !default;
+$sidebar-nav-li-a-font-size:        13px !default;
+
+$sidebar-background-position:       absolute !default;
+$sidebar-background-z-index:        1 !default;
+$sidebar-background-height:         100% !default;
+$sidebar-background-width:          $sidebar-background-height !default;
+$sidebar-background-display:        block !default;
+$sidebar-background-top:            0 !default;
+$sidebar-background-left:           $sidebar-background-top !default;
+$sidebar-background-bg-size:        cover !default;
+$sidebar-background-bg-position:    center center !default;
+
+$sidebar-bg-after-position:         absolute !default;
+$sidebar-bg-after-z-index:          3 !default;
+$sidebar-bg-after-height:           $sidebar-background-height !default;
+$sidebar-bg-after-width:            $sidebar-bg-after-height !default;
+$sidebar-bg-after-display:          block !default;
+$sidebar-bg-after-opacity:          .93 !default;
+
+
+// sidebar button active color
+
+$sidebar-default-button-active:     linear-gradient(60deg, $navbar-color-links, $default-light) !default;
+$sidebar-primary-button-active:     $header-purple-gradient;
+$sidebar-info-button-active:        $header-info-gradient;
+$sidebar-success-button-active:     $header-success-gradient;
+$sidebar-warning-button-active:     $header-warning-gradient;
+$sidebar-danger-button-active:      $header-danger-gradient;
+$sidebar-rose-button-active:        $header-rose-gradient;
+
+// sidebar separator
+$sidebar-separator-color:           rgba(180,180,180, .1) !default;
+$sidebar-bg-opacity:                .94 !default;
+$sidebar-background:                #1f283e !default;

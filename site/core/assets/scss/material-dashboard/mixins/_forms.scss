@@ -1,0 +1,67 @@
+// Toggle Button Mixin
+@mixin label-color-toggle-focus() {
+  // override bootstrap focus and keep all the standard color (could be multiple radios in the form group)
+  .form-group.is-focused & {
+    color: $label-color;
+    // on focus just darken the specific labels, do not turn them to the brand-primary
+    &:focus,
+    &:hover {
+      color: $label-color-toggle-focus;
+    }
+    // correct the above focus color for disabled items
+    fieldset[disabled] & {
+      color: $label-color;
+    }
+  }
+}
+// Tagsinput Mixin
+@mixin badges-color($color) {
+  .tag {
+    background-color: $color;
+    color: $white;
+
+    .tagsinput-remove-link {
+      color: $white;
+    }
+  }
+}
+@mixin create-colored-badges() {
+  &.primary-badge {
+    @include badges-color($primary);
+  }
+
+  &.info-badge {
+    @include badges-color($info);
+  }
+
+  &.success-badge {
+    @include badges-color($success);
+  }
+
+  &.warning-badge {
+    @include badges-color($warning);
+  }
+
+  &.danger-badge {
+    @include badges-color($danger);
+  }
+
+  &.rose-badge {
+    @include badges-color($rose);
+  }
+}
+
+// Placeholder text
+@mixin material-placeholder() {
+  &::-moz-placeholder {@content; } // Firefox
+  &:-ms-input-placeholder {@content; } // Internet Explorer 10+
+  &::-webkit-input-placeholder  {@content; } // Safari and Chrome
+}
+
+@mixin transform-scale3d($value) {
+  -webkit-transform: scale3d($value);
+  -moz-transform: scale3d($value);
+  -o-transform: scale3d($value);
+  -ms-transform: scale3d($value);
+  transform: scale3d($value);
+}

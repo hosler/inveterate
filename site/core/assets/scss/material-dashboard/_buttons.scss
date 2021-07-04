@@ -1,0 +1,217 @@
+.btn {
+  text-transform: uppercase;
+  margin: 0.3125rem 1px;
+  will-change: box-shadow, transform;
+  @include undo-bs-tab-focus();
+  //--
+  // Colors
+  @include raised-button-color();
+
+  &.btn-white {
+    &,
+    &:focus,
+    &:hover {
+      background-color: $white;
+      color: $gray;
+    }
+  }
+  &.btn-rose {
+    &,
+    &:focus,
+    &:hover {
+      background-color: $rose;
+      color: $white;
+    }
+  }
+
+  &.btn-warning {
+    color: $white;
+  }
+
+  &.btn-link {
+    color: $white;
+    background: transparent;
+    box-shadow: none;
+    text-decoration: none;
+
+    &:active,
+    &:focus,
+    &:hover {
+      text-decoration: none !important;
+    }
+  }
+  @include hover-focus();
+
+
+  // btn-raised
+  &.btn-raised,
+  .btn-group-raised & {
+    // baseline shadow
+    @include box-shadow($shadow-2dp);
+    // reverse any of the above for links
+    &.btn-link {
+      box-shadow: none;
+      @include hover-focus-active() {
+        box-shadow: none;
+      }
+    }
+    @include disabled() {
+      box-shadow: none;
+    }
+  }
+
+  // btn-outline
+  @include outline-button-color();
+
+  &.btn-round {
+    border-radius: $border-radius-extreme;
+  }
+
+  &.btn-fab,
+  &.btn-just-icon {
+    // see above for color variations
+    font-size: $btn-fab-font-size;
+    height: $btn-fab-size;
+    min-width: $btn-fab-size;
+    width: $btn-fab-size;
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+    line-height: $btn-fab-size;
+
+    &.btn-round {
+      border-radius: 50%;
+    }
+
+    &.btn-lg {
+      font-size: $btn-fab-font-size;
+      height: $btn-fab-size;
+      min-width: $btn-fab-size;
+      width: $btn-fab-size;
+    }
+
+    &.btn-fab-mini,
+    &.btn-sm,
+    .btn-group-sm & {
+      height: $btn-fab-size-mini + 1;
+      min-width: $btn-fab-size-mini + 1;
+      width: $btn-fab-size-mini + 1;
+
+      .fa,
+      .material-icons {
+        font-size: $btn-icon-size-mini;
+        line-height: $btn-fab-size-mini;
+      }
+    }
+
+    &.btn-lg,
+    .btn-group-lg & {
+      height: $btn-fab-size-lg + 1;
+      min-width: $btn-fab-size-lg + 1;
+      width: $btn-fab-size-lg + 1;
+      line-height: $btn-fab-size-lg;
+
+      .fa,
+      .material-icons {
+        font-size: $btn-icon-size;
+        line-height: $btn-fab-size-lg;
+      }
+    }
+
+    .fa,
+    .material-icons {
+      margin-top: 0;
+      position: absolute;
+      width: 100%;
+      transform: none;
+      left: 0;
+      top: 0;
+      height: 100%;
+      line-height: $btn-fab-size;
+      font-size: $btn-just-icon-font-size;
+    }
+  }
+}
+
+.input-group-btn > .btn {
+  border: 0;
+}
+// Align icons inside buttons with text
+.btn .material-icons,
+.btn:not(.btn-just-icon):not(.btn-fab) .fa {
+  position: relative;
+  display: inline-block;
+  top: 0;
+  margin-top: -1em;
+  margin-bottom: -1em;
+  font-size: 1.1rem;
+  vertical-align: middle;
+}
+
+// btn-group variations
+.btn-group,
+.btn-group-vertical {
+  position: relative;
+  margin: 10px 1px;
+
+  .dropdown-menu {
+    border-radius: 0 0 $border-radius $border-radius;
+  }
+
+  &.btn-group-raised {
+    @include box-shadow($shadow-2dp);
+  }
+
+  .btn + .btn,
+  .btn,
+  .btn:active,
+  .btn-group {
+    margin: 0;
+  }
+
+  // remove margin from nested btn-group(s) to properly align them with the outer buttons
+  > .btn-group {
+    margin: 0;
+  }
+}
+
+.btn-group-vertical {
+  & >.btn {
+    &:first-child:not(.dropdown-toggle) {
+      border-top-right-radius: $border-radius-xs;
+    }
+    &.btn-round {
+      &:first-child:not(.dropdown-toggle) {
+        border-top-right-radius: $border-radius-extreme;
+      }
+    }
+  }
+  .btn {
+    &:last-child {
+      border-bottom-left-radius: $border-radius-xs;
+    }
+
+    &.btn-round{
+      &:last-child {
+        border-bottom-left-radius: $border-radius-extreme;
+      }
+    }
+  }
+}
+
+a {
+  &:hover {
+    text-decoration: none;
+  }
+}
+
+// caret rotation
+
+.btn-group.bootstrap-select.open .caret,
+.dropdown.open .caret,
+.dropup.open .caret,
+a[aria-expanded=true] .caret,
+a[data-toggle=collapse][aria-expanded=true] .caret {
+  filter: progid:DXImageTransform.Microsoft.BasicImage(rotation=2);
+  transform: rotate(180deg);
+}

@@ -1,0 +1,45 @@
+.card-signup {
+  .card-header {
+    @include shadow-big();
+    margin-left: $card-signup-header-margin;
+    margin-right: $card-signup-header-margin;
+    margin-top: $card-signup-header-margin-top;
+    padding: $card-signup-header-padding 0;
+    width: 100%;
+    margin-bottom: $card-signup-header-margin-bottom;
+  }
+
+  .text-divider {
+    margin-top: $card-signup-divider-margin;
+    margin-bottom: 0;
+    text-align: center;
+  }
+
+  .card-body {
+    padding: $card-signup-body-padding;
+  }
+
+  .form-check {
+    padding-top: $card-signup-check-padding;
+
+    label {
+      margin-left: $card-signup-label-margin;
+    }
+
+    .form-check-sign {
+      padding-right: $card-signup-check-padding;
+    }
+  }
+
+  .social-line {
+    margin-top: $md-label-top-margin-base;
+    text-align: center;
+    padding: 0;
+
+    .btn {
+      color: $white;
+      margin-left: $card-signup-social-btn-margin;
+      margin-right: $card-signup-social-btn-margin;
+    }
+  }
+}

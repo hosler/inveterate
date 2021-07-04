@@ -1,0 +1,72 @@
+// RTL page
+
+$rtl-sidebar-right:                 0 !default;
+$rtl-sidebar-left:                  auto !default;
+
+$rtl-notification-float:            right !default;
+$rtl-notification-mr:               0 !default;
+$rtl-notification-ml:               8px !default;
+
+$rtl-nav-icon-float:                $rtl-notification-float !default;
+$rtl-nav-icon-ml:                   15px !default;
+$rtl-nav-icon-mr:                   0 !default;
+$rtl-nav-p-text-align:              right !default;
+$rtl-nav-caret-left:                11px !default;
+$rtl-nav-caret-right:               auto !default;
+
+$rtl-logo-text-align:               right !default;
+$rtl-logo-mini-float:               $rtl-logo-text-align !default;
+$rtl-logo-mini-mr:                  30px !default;
+$rtl-logo-mini-ml:                  10px !default;
+
+$rtl-user-text-align:               $rtl-logo-text-align !default;
+$rtl-user-display:                  block !default;
+$rtl-user-photo-float:              $rtl-notification-float !default;
+$rtl-user-photo-ml:                 12px !default;
+$rtl-user-photo-mr:                 23px !default;
+
+$rtl-user-caret-left:               22px !default;
+$rtl-user-caret-right:              auto !default;
+
+$rtl-sidebar-mini-float:            right !default;
+$rtl-sidebar-mini-ml:               15px !default;
+$rtl-sidebar-mini-mr:               0 !default;
+
+$rtl-navbar-minimize-mr:            15px !default;
+$rtl-navbar-toggle-margin:          10px 0 10px 15px !default;
+$rtl-navbar-icon-left:              5px !default;
+
+$rtl-navbar-icon-left:              5px !default;
+$rtl-navbar-brand-mr:               10px !default;
+$rtl-main-panel-float:              left !default;
+$rtl-dropdown-right:                auto !default;
+$rtl-dropdown-left:                 0 !default;
+$rtl-dropdown-after-right:          auto !default;
+$rtl-dropdown-after-left:           12px !default;
+
+$rtl-form-label-pt:                 16px !default;
+$rtl-form-label-text-align:         left !default;
+$rtl-form-label-right-text-align:   right !default;
+$rtl-form-label-right-pt:           17px !default;
+$rtl-form-span-right:               2px !default;
+$rtl-form-check-mr:                 11px !default;
+$rtl-form-check-pr:                 0 !default;
+$rtl-form-check-mt:                 5px !default;
+$rtl-radio-label-pr:                28px !default;
+
+$rtl-nav-tabs-float:                right !default;
+$rtl-nav-tabs-padding:              10px 0 10px 10px !default;
+
+$rtl-card-footer-display:           flex !default;
+$rtl-card-footer-align:             center !default;
+$rtl-card-footer-direction:         row-reverse !default;
+$rtl-card-footer-justify:           space-between !default;
+
+$rtl-alert-close-left:              10px !default;
+$rtl-alert-close-right:             auto !default;
+$rtl-alert-span-right:              15px !default;
+$rtl-alert-span-left:               auto !default;
+$rtl-alert-icon-pr:                 65px !default;
+$rtl-alert-icon-pl:                 15px !default;
+$rtl-alert-icon-right:              15px !default;
+$rtl-alert-icon-left:               auto !default;

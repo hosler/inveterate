@@ -1,0 +1,88 @@
+.togglebutton {
+  vertical-align: middle;
+  &,
+  label,
+  input,
+  .toggle {
+    user-select: none;
+  }
+  label {
+    cursor: pointer;
+    color: $toggle-label-color;
+    @include label-color-toggle-focus();
+
+    // Hide original checkbox
+    input[type=checkbox] {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle {
+      text-align: left; // Issue #737 horizontal form
+      margin-left: $toggle-margin-left;
+    }
+    // Switch bg off and disabled
+    .toggle,
+    input[type=checkbox][disabled] + .toggle {
+      content: "";
+      display: inline-block;
+      width: $toggle-width;
+      height: $toggle-height;
+      background-color: $toggle-background;
+      border-radius: $toggle-border-radius;
+      margin-right: $toggle-margin-right;
+      transition: $toggle-transition;
+      vertical-align: middle;
+    }
+    // Handle off
+    .toggle:after {
+      content: "";
+      display: inline-block;
+      width: $toggle-after-width;
+      height: $toggle-after-height;
+      background-color: $white;
+      border-radius: $toggle-after-radius;
+      position: relative;
+      box-shadow: $toggle-after-box-shadow;
+      left: -$toggle-margin-left;
+      top: $toggle-after-top;
+      border: 1px solid $checkbox-border-color;
+      transition: $toggle-after-transition;
+    }
+    input[type=checkbox] {
+      // Handle disabled
+      &[disabled] {
+        & + .toggle:after,
+        &:checked + .toggle:after {
+          background-color: $toggle-after-background;
+        }
+      }
+
+      & + .toggle:active:after,
+      &[disabled] + .toggle:active:after {
+        box-shadow: $toggle-active-box-shadow;
+      }
+
+      // Ripple off and disabled
+      &:checked + .toggle:after {
+        left: $toggle-after-left;
+      }
+    }
+
+    // set bg when checked
+    input[type=checkbox]:checked {
+      + .toggle {
+        background-color: rgba($primary, (70/100)); // Switch bg on
+      }
+
+      + .toggle:after {
+        border-color: $primary; // Handle on
+      }
+
+      + .toggle:active:after {
+        box-shadow: $toggle-checked-box-shadow; // Ripple on
+      }
+    }
+  }
+}

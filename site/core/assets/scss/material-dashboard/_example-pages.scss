@@ -1,0 +1,124 @@
+.card-signup {
+  .card-header {
+    .social-line {
+      .btn {
+        color: $white;
+      }
+    }
+  }
+
+  .text-divider {
+    margin-top: $card-signup-divider-margin;
+    margin-bottom: 0;
+    text-align: center;
+  }
+}
+
+.login-page {
+  .card-login {
+    .card-header {
+      margin-top: $card-login-header-margin-top !important;
+      margin-bottom: $card-login-header-margin-bottom;
+    }
+
+    .social-line {
+      padding: 0;
+      margin-top: $card-login-social-margin;
+    }
+
+    .card-title {
+      margin-top: $card-login-title-margin;
+      margin-bottom: $card-login-title-margin;
+      font-weight: $font-weight-bolder;
+    }
+  }
+}
+
+.register-page {
+  .page-header {
+    background-position: top center;
+  }
+}
+@media all and (max-width: 991px) {
+  .page-header {
+    &.pricing-page,
+    &.register-page {
+      min-height: fit-content !important;
+    }
+  }
+}
+
+.index-page,
+.login-page,
+.reset-page {
+  .squares {
+    animation: move-left-right 1s infinite;
+    @include linear-gradient($primary-states, $primary);
+    position: absolute;
+    transition: 0.5s ease-out;
+    overflow: hidden;
+    border-radius: 20%;
+    &.square1 {
+      animation: move-left-right 4s infinite;
+      height: 300px;
+      width: 300px;
+      opacity: 0.5;
+      left: 3%;
+      top: -21%;
+    }
+
+    &.square2 {
+      animation: move-left-right 6s infinite;
+      height: 400px;
+      width: 400px;
+      opacity: 0.4;
+      right: -5%;
+      top: -12%;
+    }
+
+    &.square3{
+      animation: move-left-right 5s infinite;
+      height: 200px;
+      width: 200px;
+      opacity: 0.1;
+      left: -5%;
+      bottom: 0%;
+    }
+
+    &.square4 {
+      animation: move-left-right 10s infinite;
+      height: 100px;
+      width: 100px;
+      opacity: 0.9;
+      right: 27%;
+      top: 70%;
+    }
+
+    &.square5 {
+      animation: move-left-right 6s infinite;
+      height: 250px;
+      width: 250px;
+      opacity: 0.1;
+      left: 32%;
+      bottom: 29%;
+    }
+
+    &.square6 {
+      animation: move-left-right 9s infinite;
+      left: 10%;
+      top: 35%;
+      height: 80px;
+      width: 80px;
+      opacity: 0.8;
+    }
+
+    &.square7 {
+      animation: move-left-right 3s infinite;
+      width: 300px;
+      height: 300px;
+      right: -5%;
+      bottom: 0%;
+      opacity: 0.1;
+    }
+  }
+}

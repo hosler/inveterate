@@ -1,0 +1,57 @@
+.card-product {
+  margin-top: $card-product-mt;
+
+  .btn-simple.btn-just-icon {
+    padding: 0;
+  }
+
+  .card-body {
+    .card-title {
+      a {
+        color: $white;
+      }
+    }
+  }
+
+  .card-footer {
+    justify-content: space-between;
+    
+    .price {
+      h4 {
+        margin-bottom: 0;
+      }
+    }
+
+    .btn {
+      margin: 0;
+    }
+  }
+
+  .card-category,
+  .card-description,
+  .card-title {
+    text-align: $card-product-text-align;
+  }
+
+  .category {
+    margin-bottom: 0;
+  }
+
+  .category ~ .card-title {
+    margin-top: 0;
+  }
+
+  .price {
+    font-size: $card-product-price-font-size;
+  }
+
+  .price-old {
+    text-decoration: $card-product-price-old-decoration;
+    font-size: $card-product-price-old-font-size;
+    color: $card-product-price-color;
+  }
+
+  .price-new {
+    color: $danger;
+  }
+}

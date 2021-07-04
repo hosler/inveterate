@@ -1,0 +1,51 @@
+.card-stats {
+  .card-header {
+    &.card-header-icon,
+    &.card-header-text {
+      text-align: $card-stats-header-text-align;
+    }
+
+    .card-icon + .card-category,
+    .card-icon + .card-title {
+      padding-top: $card-stats-category-padding-top;
+    }
+
+    &.card-header-icon .card-category,
+    &.card-header-icon .card-title,
+    &.card-header-text .card-category,
+    &.card-header-text .card-title {
+      margin: 0;
+    }
+
+    .card-category {
+      margin-bottom: 0;
+      margin-top: 0;
+
+      &:not([class*="text-"]) {
+        color: $gray-color;
+        font-size: $font-paragraph;
+      }
+    }
+
+    & + .card-footer {
+      border-top: 1px solid $card-footer-border-color;
+      margin-top: $card-stats-footer-margin-top;
+    }
+
+    &.card-header-icon i {
+      font-size: $h2-font-size;
+      line-height: $card-stats-header-line-height;
+      width: $card-stats-header-width;
+      height: $card-stats-header-height;
+      text-align: center;
+    }
+
+    .card-title {
+      color: $white !important;
+    }
+  }
+
+  .card-body {
+    text-align: right;
+  }
+}

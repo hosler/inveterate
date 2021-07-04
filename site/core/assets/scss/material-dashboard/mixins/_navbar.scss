@@ -1,0 +1,29 @@
+@mixin shadow-navbar-color($color) {
+  // new box shadow optimized for Tablets and Phones
+
+  @if($color == $white) {
+    box-shadow: 0 4px 18px 0px rgba(0, 0, 0, .12),
+                  0 7px 10px -5px rgba(0,0,0, 0.15);
+  } @else{
+      box-shadow: 0 4px 20px 0px rgba(0, 0, 0, .14),
+                  0 7px 12px -5px rgba($color, 0.46);
+  }
+}
+
+@mixin shadow-small-color($color){
+  // new box shadow optimized for Tablets and Phones
+  box-shadow: 0 4px 20px 0px rgba(0, 0, 0, .14),
+  0 7px 10px -5px rgba($color, 0.4)
+}
+
+@mixin navbar-colors($color, $link-color) {
+  color: $link-color;
+  background-color: $color !important;
+  @include shadow-navbar-color($color);
+
+  .navbar-toggler {
+    .navbar-toggler-icon {
+      background-color: $link-color;
+    }
+  }
+}

@@ -1,0 +1,43 @@
+// Timeline
+
+$timeline-padding-y:                20px !default;
+$timeline-padding-x:                0 !default;
+$timeline-list-style:               none !default;
+$timeline-margin-top:               30px !default;
+$timeline-position:                 relative !default;
+$timeline-before-width:             3px !default;
+$timeline-before-top:               50px !default;
+$timeline-before-left:              50% !default;
+$timeline-before-margin-left:       -1px !default;
+$timeline-h6-margin:                10px 0 0 !default;
+
+$timeline-simple-margin-top:        30px !default;
+$timeline-simple-padding:           0 0 20px !default;
+$timeline-simple-left:              5% !default;
+$timeline-simple-panel-width:       86% !default;
+$timeline-simple-badge-left:        5% !default;
+$timeline-simple-li-mb:             20px !default;
+
+$timeline-panel-width:              45% !default;
+$timeline-panel-spacing:            20px !default;
+$timeline-panel-caret-top:          26px !default;
+$timeline-panel-caret-value:        15px !default;
+$timeline-panel-after-top:          27px !default;
+$timeline-panel-after-value:        14px !default;
+
+$timeline-badge-width:              50px !default;
+$timeline-badge-height:             $timeline-badge-width !default;
+$timeline-badge-line-height:        51px !default;
+$timeline-badge-font-size:          1.4em !default;
+$timeline-badge-top:                1rem !default;
+$timeline-badge-left:               50% !default;
+$timeline-badge-margin-left:        -24px !default;
+$timeline-badge-border-radius:      50% !default;
+
+$timeline-inverted-panel-before:    15px !default;
+$timeline-inverted-panel-after:     14px !default;
+
+$timeline-heading-margin:           $timeline-inverted-panel-before !default;
+$timeline-body-hr-margin-top:       10px !default;
+$timeline-body-hr-margin-bottom:    5px !default;
+$timeline-body-p-margin-top:        $timeline-body-hr-margin-bottom !default;

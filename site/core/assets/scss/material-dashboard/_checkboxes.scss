@@ -1,0 +1,222 @@
+.form-check {
+  margin-bottom: $checkbox-margin-bottom;
+  padding-left: $checkbox-padding-left;
+
+  .form-check-label {
+    cursor: pointer;
+    padding-left: $checkbox-label-padding-left; // Reset for Bootstrap rule
+    @include label-color-toggle-focus();
+  }
+  // Hide native checkbox
+  .form-check-input {
+    opacity: $checkbox-input-opacity;
+    position: $checkbox-input-position;
+    margin: $checkbox-input-margin;
+    z-index: $checkbox-input-z-index;
+    width: $checkbox-input-width;
+    height: $checkbox-input-height;
+    overflow: $checkbox-input-overflow;
+    left: $checkbox-input-left;
+    pointer-events: $checkbox-input-pointer;
+  }
+
+  .form-check-sign {
+    vertical-align: $checkbox-sign-vertical-align;
+    position: $checkbox-sign-position;
+    top: $checkbox-sign-top;
+    float: $checkbox-sign-float;
+    padding-right: $checkbox-sign-padding-right;
+    display: $checkbox-sign-display;
+
+    &:before {
+      display: $checkbox-sign-before-display;
+      position: $checkbox-input-position;
+      left: $checkbox-input-left;
+      content: "";
+      background-color: $checkbox-sign-before-bg-color;
+      height: $checkbox-size;
+      width: $checkbox-size;
+      border-radius: $checkbox-sign-before-radius;
+      z-index: $checkbox-sign-before-z-index;
+      opacity: $checkbox-input-opacity;
+      margin: $checkbox-input-margin;
+      top: $checkbox-sign-before-top;
+      @include transform-scale3d(unquote('2.3,2.3,1'));
+    }
+
+    .check {
+      position: $checkbox-sign-position;
+      display: $checkbox-sign-display;
+      width: $checkbox-size;
+      height: $checkbox-size;
+      border: 1px solid $checkbox-border-color;
+      overflow: $checkbox-input-overflow;
+      z-index: $checkbox-sign-before-z-index;
+      border-radius: $border-radius;
+
+      &:before {
+        position: $checkbox-input-position;
+        content: "";
+        transform: $checkbox-check-before-transform;
+        display: $checkbox-sign-before-display;
+        margin-top: $checkbox-check-before-mt;
+        margin-left: $checkbox-check-before-ml;
+        width: $checkbox-input-width;
+        color: $white;
+        height: $checkbox-input-height;
+        box-shadow: $checkbox-check-before-box-shadow;
+        animation: checkboxOff $checkbox-animation-check forwards;
+      }
+    }
+  }
+
+  .form-check-input {
+    &:focus + .form-check-sign .check:after {
+      opacity: 0.2;
+    }
+
+    &:checked {
+      & + .form-check-sign .check:before {
+        color: $white;
+        box-shadow: $checkbox-check-before-box-shadow-checked;
+        animation: checkboxOn $checkbox-animation-check forwards;
+      }
+
+      & + .form-check-sign:before {
+        animation: rippleOn $checkbox-animation-ripple;
+      }
+
+      & + .form-check-sign .check:after {
+        animation: rippleOn $checkbox-animation-ripple forwards;
+      }
+    }
+
+    &:not(:checked) {
+      & + .form-check-sign:before {
+        animation: rippleOff $checkbox-animation-ripple;
+      }
+
+      & + .form-check-sign .check:after {
+        animation: rippleOff $checkbox-animation-ripple; // Ripple effect on uncheck
+      }
+    }
+  }
+
+  .rtl {
+    .form-check {
+      .form-check-sign {
+        .check::before {
+          margin-right: 10px;
+        }
+      }
+    }
+  }
+  // Style for disabled inputs
+  .form-check-input[disabled] + .circle,
+  .form-check-input[disabled] ~ .form-check-sign .check,
+  fieldset[disabled] &,
+  fieldset[disabled] & .form-check-input {
+    opacity: $checkbox-disabled-opacity;
+  }
+
+  .form-check-input[disabled] ~ .form-check-sign .check {
+    border-color: $black;
+    opacity: $checkbox-disabled-opacity;
+  }
+
+  .form-check-input[disabled] + .form-check-sign .check:after {
+    background-color: $md-text-color-primary;
+    transform: rotate(-45deg);
+  }
+
+  .form-check-input[disabled][checked] + .form-check-sign .check {
+    background-color: $black;
+  }
+}
+@keyframes checkboxOn {
+  0% {
+    box-shadow:
+      0 0 0 10px,
+      10px -10px 0 10px,
+      32px 0 0 20px,
+      0px 32px 0 20px,
+      -5px 5px 0 10px,
+      15px 2px 0 11px;
+  }
+  50% {
+    box-shadow:
+      0 0 0 10px,
+      10px -10px 0 10px,
+      32px 0 0 20px,
+      0px 32px 0 20px,
+      -5px 5px 0 10px,
+      20px 2px 0 11px;
+  }
+  100% {
+    box-shadow:
+      0 0 0 10px,
+      10px -10px 0 10px,
+      32px 0 0 20px,
+      0px 32px 0 20px,
+      -5px 5px 0 10px,
+      20px -12px 0 11px;
+  }
+}
+
+@keyframes rippleOn {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes rippleOff {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+// dark edition
+.dark-edition {
+  .form-check {
+    .form-check-sign {
+      .check {
+        border-color: $form-check-border-color;
+      }
+
+      &:before {
+        left: -1px;
+        top: -1px;
+      }
+    }
+
+    .form-check-input[disabled] ~ .form-check-sign .check {
+      border-color: $checkbox-border-color;
+    }
+
+    .form-check-input:checked + .form-check-sign .check {
+      border-color: $checkbox-active-border-color !important;
+      background: $checkbox-active-sign-color;
+
+      &:before {
+        color: $card-color;
+      }
+    }
+
+    label {
+      font-size: $font-paragraph;
+      line-height: $btn-line-height;
+      color: $form-check-label-color;
+      font-weight: 400;
+    }
+  }
+}

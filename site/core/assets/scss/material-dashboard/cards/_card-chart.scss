@@ -1,0 +1,68 @@
+.card {
+  &.card-chart {
+    .card-header {
+      z-index: 1;
+    }
+
+    .card-footer i:nth-child(1n+2) {
+      width: $card-chart-footer-icon-width;
+      text-align: center;
+    }
+
+    .card-category {
+      margin: 0;
+    }
+
+    .ct-chart {
+      .card-title {
+        color: $white;
+      }
+
+      .card-category {
+        margin-bottom: 0;
+        color: $ct-chart-category-color;
+      }
+
+      .ct-label {
+        color: $ct-chart-label-color;
+      }
+
+      .ct-grid {
+        stroke: $ct-chart-grid-stroke;
+      }
+
+      .ct-series-a .ct-bar,
+      .ct-series-a .ct-line,
+      .ct-series-a .ct-point,
+      .ct-series-a .ct-slice-donut {
+        stroke: $ct-chart-lines-stroke;
+      }
+
+      .ct-series-a .ct-area,
+      .ct-series-a .ct-slice-pie {
+        fill: $ct-chart-area-fill;
+      }
+
+      .ct-series-a .ct-bar {
+        stroke-width: $ct-chart-bar-stroke-width;
+      }
+
+      .ct-point {
+        stroke-width: $ct-chart-bar-stroke-width;
+        stroke-linecap: round;
+      }
+
+      .ct-line {
+        fill: none;
+        stroke-width: $ct-chart-bar-line-width;
+      }
+    }
+  }
+}
+
+.card-chart,
+.card-product {
+  .card-body + .card-footer {
+    border-top: 1px solid $card-footer-border-color;
+  }
+}

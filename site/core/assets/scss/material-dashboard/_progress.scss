@@ -1,0 +1,52 @@
+.progress {
+  margin-bottom: $progress-margin-bottom;
+
+  .progress-bar {
+    box-shadow: $progress-box-shadow;
+
+    &.progress-bar-primary {
+      background: $primary !important;
+    }
+
+    &.progress-bar-info {
+      background: $info;
+    }
+
+    &.progress-bar-success {
+      background: $success;
+    }
+
+    &.progress-bar-warning {
+      background: $warning;
+    }
+
+    &.progress-bar-danger {
+      background: $danger;
+    }
+
+    &.progress-bar-striped {
+      background-size: $progress-bar-striped-height $progress-bar-striped-height !important;
+      background-image: $progress-bar-striped;
+    }
+  }
+
+  &.progress-line-primary {
+    background: rgba($primary,.2);
+  }
+
+  &.progress-line-info {
+    background: rgba($info,.2);
+  }
+
+  &.progress-line-success {
+    background: rgba($success,.2);
+  }
+
+  &.progress-line-warning {
+    background: rgba($warning,.2);
+  }
+
+  &.progress-line-danger {
+    background: rgba($danger,.2);
+  }
+}

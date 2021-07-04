@@ -1,0 +1,24 @@
+// Toggle Button
+
+$toggle-base:                 1.875rem !default;
+$toggle-after-base:           1.25rem !default;
+$toggle-width:                $toggle-base !default;
+$toggle-height:               0.9375rem !default;
+$toggle-border-radius:        $toggle-base !default;
+$toggle-margin-right:         $toggle-base !default;
+$toggle-margin-left:          5px !default;
+$toggle-background:           rgba(80, 80, 80, 0.7) !default;
+$toggle-transition:           background 0.3s ease !default;
+$label-color:                 unquote("rgba(#{$rgb-white}, 0.26)") !default;
+$label-color-toggle-focus:    unquote("rgba(#{$rgb-black}, .54)") !default;
+$toggle-label-color:          $label-color !default;
+$toggle-after-width:          $toggle-after-base !default;
+$toggle-after-height:         $toggle-after-base !default;
+$toggle-after-radius:         $toggle-after-base !default;
+$toggle-after-left:           $toggle-height !default;
+$toggle-after-box-shadow:     0 1px 3px 1px rgba(0, 0, 0, 0.4) !default;
+$toggle-after-top:            -2.5px !default;
+$toggle-after-background:     #BDBDBD !default;
+$toggle-after-transition:     left 0.3s ease, background 0.3s ease, box-shadow 0.1s ease !default;
+$toggle-active-box-shadow:    0 1px 3px 1px rgba(0, 0, 0, 0.4), 0 0 0 15px rgba(0, 0, 0, 0.1) !default;
+$toggle-checked-box-shadow:   0 1px 3px 1px rgba(0, 0, 0, 0.4), 0 0 0 15px rgba($primary, (10/100)) !default;

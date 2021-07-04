@@ -1,0 +1,133 @@
+.nav-pills {
+  border: 0;
+  border-radius: $border-radius-xs;
+  padding: $nav-pills-padding-y $nav-pills-padding-x;
+
+  &:not(.flex-column) .nav-item + .nav-item:not(:first-child) {
+    margin-left: $nav-pills-margin;
+  }
+
+  &.flex-column {
+    .nav-item + .nav-item {
+      margin-top: $nav-pills-margin;
+    }
+  }
+
+  .nav-item {
+    .nav-link {
+      line-height: $btn-font-size * 2;
+      text-transform: uppercase;
+      font-size: $btn-font-size;
+      font-weight: $font-weight-bold;
+      min-width: 100px;
+      text-align: center;
+      color: $pills-color;
+      transition: $pagination-transition;
+
+      &:hover {
+        color: $white;
+        background-color: $nav-pills-link-hover-bg;
+      }
+
+      &.active {
+        color: $white;
+        @include shadow-big-color($primary);
+        background-color: $primary !important;
+      }
+    }
+
+    i {
+      display: block;
+      font-size: $nav-pills-icon-font-size;
+      padding: $nav-pills-icon-padding-y $nav-pills-icon-padding-x;
+    }
+  }
+
+  &.nav-pills-info {
+    .nav-item {
+      .nav-link.active {
+        &,
+        &:focus,
+        &:hover {
+          background-color: $info;
+          @include shadow-big-color($info);
+          color: $white;
+        }
+      }
+    }
+  }
+
+  &.nav-pills-rose {
+    .nav-item {
+      .nav-link.active {
+        &,
+        &:focus,
+        &:hover {
+          background-color: $rose;
+          @include shadow-big-color($rose);
+          color: $white;
+        }
+      }
+    }
+  }
+
+  &.nav-pills-success {
+    .nav-item {
+      .nav-link.active {
+        &,
+        &:focus,
+        &:hover {
+          background-color: $success;
+          @include shadow-big-color($success);
+          color: $white;
+        }
+      }
+    }
+  }
+
+  &.nav-pills-warning {
+    .nav-item {
+      .nav-link.active {
+        &,
+        &:focus,
+        &:hover {
+          background-color: $warning;
+          @include shadow-big-color($warning);
+          color: $white;
+        }
+      }
+    }
+  }
+
+  &.nav-pills-danger {
+    .nav-item {
+      .nav-link.active {
+        &,
+        &:focus,
+        &:hover {
+          background-color: $danger;
+          @include shadow-big-color($danger);
+          color: $white;
+        }
+      }
+    }
+  }
+
+  &.nav-pills-icons {
+    .nav-item {
+      .nav-link {
+        border-radius: $nav-pills-icon-radius;
+      }
+    }
+  }
+}
+
+.tab-space {
+  padding: $nav-pills-tab-space-padding;
+}
+
+.card {
+  .tab-content.tab-space {
+    padding: $nav-tab-content-padding;
+  }
+}

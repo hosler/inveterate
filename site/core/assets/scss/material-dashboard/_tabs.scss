@@ -1,0 +1,57 @@
+.nav-tabs {
+  border: 0;
+  border-radius: $border-radius;
+  padding: $nav-tabs-padding-y $nav-tabs-padding-x;
+
+  .nav-item {
+    .nav-link {
+      position: relative;
+      color: $white;
+      border: 0;
+      margin: 0;
+      border-radius: $border-radius;
+      line-height: $btn-font-size * 2;
+      text-transform: uppercase;
+      font-size: $btn-font-size;
+      padding: $nav-tabs-link-padding-y $nav-tabs-link-padding-x;
+      background-color: transparent;
+      transition: $nav-tabs-link-transition;
+
+      &:hover {
+        border: 0;
+      }
+    }
+
+    .nav-link,
+    .nav-link:focus,
+    .nav-link:hover {
+      border: 0 !important;
+      color: $white !important;
+      font-weight: $font-weight-bold;
+    }
+
+    &.disabled .nav-link,
+    &.disabled .nav-link:hover {
+      color: $nav-tabs-link-disabled-hover;
+    }
+
+    .nav-link.active {
+      background-color: $nav-tabs-link-active-bg;
+      transition: $nav-tabs-link-active-transition;
+    }
+  }
+}
+
+.card-nav-tabs {
+  margin-top: $nav-tabs-margin-top;
+
+  .card-header {
+    margin-top: -$nav-tabs-card-header-margin !important;
+  }
+}
+
+.tab-content .tab-pane .td-actions {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+}

@@ -1,0 +1,32 @@
+
+// Variables for datetimepicker //
+$padding-default-vertical:          10px !default;
+$medium-pale-bg:                    #F1EAE0 !default;
+$pale-bg:                           #F9F7F3 !default;
+
+$input-bg:                          rgba($black, 0) !default; // #fff !default;
+$input-bg-disabled:                 rgba($black, 0) !default; // $gray-lighter !default;
+//
+$input-color:                       $gray !default;
+$input-border-color-white:          $white !default;
+
+//$input-btn-border-width:          $border-width !default; // For form controls and buttons
+$input-box-shadow:                  none !default; //inset 0 1px 1px rgba(0,0,0,.075) !default;
+$input-border-radius:               0 !default; // $border-radius !default;
+$input-box-shadow-focus:            none !default; // rgba(102,175,233,.6) !default;
+$input-color-placeholder:           $md-label-color !default; // #999 !default;
+
+$input-padding-x:                   0 !default; // .75rem !default;
+$input-padding-y:                   .4375rem !default; // spec 8px // .375rem !default;
+
+$input-padding-x-sm:                0 !default; // .75rem !default;
+$input-padding-y-sm:                .25rem !default; // spec 4px //.275rem !default;
+
+$input-padding-x-lg:                0 !default; //   1.25rem !default;
+$input-padding-y-lg:                .5625rem !default; // no-spec 9px // .75rem !default;
+
+$input-group-addon-bg:              transparent !default; //$gray-lighter !default;
+$input-group-addon-border-color:    transparent !default; //$input-border-color !default;
+
+$input-group-text-padding:          0 15px !default;
+$input-group-text-color:            $white !default;

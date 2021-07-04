@@ -1,0 +1,36 @@
+
+// Radio:
+$radio-label-color:                     $md-label-color !default;
+$radio-color-off:                       $md-label-color-toggle-focus !default;
+$radio-color-on:                        $checkbox-active-sign-color !default;
+$dark-radio-border-color:               $dark-checkbox-border-color !default;
+
+$radio-border:                          .0625rem !default; // 1px
+$radio-size:                            1rem !default;
+$radio-ripple-offset:                   1em !default;
+$radio-label-padding:                   .3125rem !default; // 5px
+
+$radio-color-off:                       $md-label-color-inner-focus !default;
+$radio-color-on:                        $primary !default;
+$radio-color-disabled:                  $gray-lighter; //
+$radio-color-disabled-inverse:          rgba($white, 0.30); // dark theme spec: Disabled: #FFFFFF, Opacity  30%
+
+$radio-label-padding-left:              25px !default;
+$radio-label-span-left:                 -1px !default;
+$radio-label-span-top:                  $radio-label-span-left !default;
+$radio-label-span-transition-time:      .2s !default;
+$radio-label-circle-border:             1px solid $radio-color-off !default;
+$radio-label-circle-height:             15px !default;
+$radio-label-circle-width:              $radio-label-circle-height !default;
+$radio-label-circle-radius:             100% !default;
+$radio-label-circle-top:                1px !default;
+$radio-label-check-height:              15px !default;
+$radio-label-check-width:               $radio-label-check-height !default;
+$radio-check-sign-top:                  -2px !default;
+$radio-check-sign-padding-right:        10px !default;
+$radio-label-circle-before-top:         -1px !default;
+$radio-label-circle-before-left:        $radio-label-circle-before-top !default;
+$radio-label-circle-before-bg-color:    rgba(0, 0, 0, 0.84) !default;
+$radio-label-circle-before-height:      $radio-label-check-height !default;
+$radio-label-circle-before-width:       $radio-label-check-height !default;
+$radio-label-circle-before-transform:   scale3d(2.3,2.3,1) !default;

@@ -1,0 +1,31 @@
+.pagination {
+  > .page-item > span,
+  > .page-item > .page-link {
+    border: 0;
+    border-radius: $pagination-border-radius !important;
+    transition: $pagination-transition;
+    margin: $pagination-margin;
+    min-width: $pagination-width;
+    height: $pagination-height;
+    font-weight: $font-weight-normal;
+    font-size: $btn-font-size;
+    text-transform: uppercase;
+    text-align: center;
+  }
+}
+
+.material-datatables {
+  .table {
+    .disabled-sorting:after,
+    .disabled-sorting:before {
+      display: none;
+    }
+  }
+
+  .dataTables_paginate .pagination {
+    .paginate_button .page-link {
+      padding: $datatable-pagination-padding;
+      margin: 0;
+    }
+  }
+}

@@ -1,0 +1,190 @@
+.timeline {
+  list-style: $timeline-list-style;
+  padding: $timeline-padding-y $timeline-padding-x;
+  position: $timeline-position;
+  margin-top: $timeline-margin-top;
+
+  &:before {
+    top: $timeline-before-top;
+    bottom: 0;
+    position: absolute;
+    content: " ";
+    width: $timeline-before-width;
+    background-color: $card-color;
+    left: $timeline-before-left;
+    margin-left: $timeline-before-margin-left;
+  }
+
+  h6 {
+    color: $navbar-color-links;
+    font-weight: $font-weight-normal;
+    margin: $timeline-h6-margin;
+  }
+
+  &.timeline-simple {
+    margin-top: $timeline-simple-margin-top;
+    padding: $timeline-simple-padding;
+
+    &:before {
+      left: $timeline-simple-left;
+      background-color: $card-color;
+    }
+
+    > li > .timeline-panel {
+      width: $timeline-simple-panel-width;
+    }
+
+    > li > .timeline-badge {
+      left: $timeline-simple-badge-left;
+    }
+  }
+
+  > li {
+    margin-bottom: $timeline-simple-li-mb;
+    position: relative;
+
+    &:after,
+    &:before {
+      content: " ";
+      display: table;
+    }
+
+    &:after {
+      clear: both;
+    }
+  }
+
+  > li > .timeline-panel {
+    width: $timeline-panel-width;
+    float: left;
+    padding: $timeline-panel-spacing;
+    margin-bottom: $timeline-panel-spacing;
+    position: relative;
+    border-radius: $border-radius-lg;
+    color: $md-text-color-primary;
+    background: $card-color;
+    @include box-shadow($shadow-2dp);
+
+    &:before {
+      position: absolute;
+      top: $timeline-panel-caret-top;
+      right: -$timeline-panel-caret-value;
+      display: inline-block;
+      border-top: $timeline-panel-caret-value solid transparent;
+      border-left: $timeline-panel-caret-value solid $card-color;
+      border-right: 0 solid $card-color;
+      border-bottom: $timeline-panel-caret-value solid transparent;
+      content: " ";
+    }
+
+    &:after {
+      position: absolute;
+      top: $timeline-panel-after-top;
+      right: -$timeline-panel-after-value;
+      display: inline-block;
+      border-top: $timeline-panel-caret-value solid transparent;
+      border-left: $timeline-panel-caret-value solid $card-color;
+      border-right: 0 solid $card-color;
+      border-bottom: $timeline-panel-caret-value solid transparent;
+      content: " ";
+    }
+  }
+
+  > li > .timeline-badge {
+    color: $white;
+    width: $timeline-badge-width;
+    height: $timeline-badge-height;
+    line-height: $timeline-badge-line-height;
+    font-size: $timeline-badge-font-size;
+    text-align: center;
+    position: absolute;
+    top: $timeline-badge-top;
+    left: $timeline-badge-left;
+    margin-left: $timeline-badge-margin-left;
+    z-index: 100;
+    border-top-right-radius: $timeline-badge-border-radius;
+    border-top-left-radius: $timeline-badge-border-radius;
+    border-bottom-right-radius: $timeline-badge-border-radius;
+    border-bottom-left-radius: $timeline-badge-border-radius;
+
+    &.primary {
+      @include timeline-badge-color($primary);
+    }
+
+    &.success {
+      @include timeline-badge-color($success);
+    }
+
+    &.warning {
+      @include timeline-badge-color($warning);
+    }
+
+    &.info {
+      @include timeline-badge-color($info);
+      padding: 0;
+    }
+
+    &.danger {
+      @include timeline-badge-color($danger);
+    }
+
+    [class^="ti-"],
+    [class*=" ti-"],
+    [class="material-icons"] {
+      line-height: inherit;
+    }
+  }
+
+  > li.timeline-inverted > .timeline-panel {
+    float: right;
+    background-color: $card-color;
+
+    &:before {
+      border-left-width: 0;
+      border-right-width: $timeline-inverted-panel-before;
+      left: -$timeline-inverted-panel-before;
+      right: auto;
+    }
+
+    &:after {
+      border-left-width: 0;
+      border-right-width: $timeline-inverted-panel-after;
+      left: -$timeline-inverted-panel-after;
+      right: auto;
+    }
+  }
+}
+
+.timeline-heading {
+  margin-bottom: $timeline-heading-margin;
+}
+
+.timeline-title {
+  margin-top: 0;
+  color: inherit;
+}
+
+.timeline-body {
+  hr {
+    margin-top: $timeline-body-hr-margin-top;
+    margin-bottom: $timeline-body-hr-margin-bottom;
+  }
+
+  .btn {
+    margin-bottom: 0;
+  }
+}
+
+.timeline-body > p,
+.timeline-body > ul {
+  margin-bottom: 0;
+  color: $card-category-color;
+}
+
+.timeline-body > p + p {
+  margin-top: $timeline-body-p-margin-top;
+}
+
+[class*="col-"].cards {
+  float: left;
+}

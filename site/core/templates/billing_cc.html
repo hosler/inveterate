@@ -1,0 +1,151 @@
+{#{% load static %}#}
+{#<meta name="viewport" content="width=device-width, initial-scale=1" />#}
+{#<script src="{% static 'js/core/jquery.min.js' %}"></script>#}
+{#<script src="{% static 'js/core/popper.min.js' %}"></script>#}
+{#{{ pay_form |safe }}#}
+
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="/staticfiles/js/core/jquery.min.js"></script>
+<script src="/staticfiles/js/core/popper.min.js"></script>
+<div id="stripe-cc-form">
+    <div id="card-element">
+      <!-- A Stripe Element will be inserted here. -->
+    </div>
+
+    <!-- Used to display form errors. -->
+    <div id="card-errors" role="alert"></div>
+    <input type="hidden" name="reference_id" value="" id="reference_id" />
+
+    <script src="https://js.stripe.com/v3/"></script>
+    <script>
+        // Create a Stripe client.
+        var stripe = Stripe('pk_test_51IAeMABTTOfES3wkzf4lVJYhFPOrCF58g6eCA7T7yJDpy1xqvpYptQQHzirTWN2lTvzm6oy0A8haXMzbug6Fmo2v007xkgRUw0');
+
+        // Create an instance of Elements.
+        var elements = stripe.elements();
+
+        // Custom styling passed when creating the card Element.
+        var style = {
+            base: {
+                color: '#32325d',
+                fontFamily: '"Helvetica Neue", Helvetica, sans-serif',
+                fontSmoothing: 'antialiased',
+                fontSize: '16px',
+                width: '250px',
+                '::placeholder': {
+                    color: '#aab7c4'
+                }
+            },
+            invalid: {
+                color: '#fa755a',
+                iconColor: '#fa755a'
+            }
+        };
+
+        // Create an instance of the card Element.
+        var card = elements.create('card', {style: style});
+
+        $(document).ready(function() {
+            // $(this).blestaSetHeadTag("link", {media:"screen", type:"text/css", rel:"stylesheet", href: "/components/gateways/merchant/stripe_payments/views/default/css/styles.css"});
+
+            // Add an instance of the card Element into the `card-element` <div>.
+            card.mount('#card-element');
+
+            // Handle real-time validation errors from the card Element.
+            card.on('change', function(event) {
+                var displayError = document.getElementById('card-errors');
+                if (event.error) {
+                    displayError.textContent = event.error.message;
+                } else {
+                    displayError.textContent = '';
+                }
+               //  $(this).blestaEnableFormSubmission($('#card-element').closest('form'));
+
+                // If payment details changed setup a new card
+                $('#reference_id').val('');
+                // Reset submission events by triggering a payment detail change
+                $('#reference_id').change();
+            });
+
+            // Handle form submission.
+            $('#card-element').closest('form').on('submit', submitCard);
+
+            // If payment details changed setup a new card
+            $('#payment_details, #account, #details').on('change', function() {
+                $('#card-element').closest('form').off('submit', submitCard);
+                $('#card-element').closest('form').on('submit', submitCard);
+            });
+        });
+
+        function submitCard(event) {
+            // Paying with an existing payment account
+            let accountVisible = ($('#account:visible').length || ($('#pay_with_account').prop('checked') && $('select[name=payment_account]').length));
+            // Paying with a new payment account
+            let detailsVisible = ($('#details:visible').length || ($('#pay_with_details').prop('checked') && $('select[name=payment_type]').length));
+            let ccDetails = detailsVisible && ($('#details').val() === 'cc' || $('select[name=payment_type]').val() === 'cc');
+            // Add/update only the payment account (i.e. no payment)
+            let name = $('#first_name:visible').length;
+
+            // Only process adding new payment accounts
+            if (ccDetails || (name && !accountVisible && !detailsVisible)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                var payment_method_data = {
+                    'billing_details': {
+                        'name': $('#first_name').val() + ' ' + $('#last_name').val(),
+                        'address': {
+                            'city': $('#city').val(),
+                            'country': $('#country').val(),
+                            'line1': $('#address1').val(),
+                            'line2': $('#address2').val(),
+                            'postal_code': $('#zip').val(),
+                            'state': $('#state').val()
+                        }
+                    }
+                };
+
+                if ($('input[name="save_details"]').prop('checked') === false
+                    || $('input[name="save_details"]').not('#client_method input').not('#admin_clients_makepayment input').length > 0
+                ) {
+                    // Create PaymentMethod that is not associated with a SetupIntent
+                    stripe.createPaymentMethod('card', card, payment_method_data).then(function(result) {
+                        if (result.error) {
+                            var errorElement = document.getElementById('card-errors');
+                            errorElement.textContent = result.error.message;
+                            $(this).blestaEnableFormSubmission($('#card-element').closest('form'));
+                        } else {
+                            // Store the PaymentMethod ID as the reference_id and resubmit the form, bypassing this handler
+                            storeReferenceAndSubmit(result.paymentMethod.id);
+                        }
+                    });
+                } else {
+                    var setup_secret = 'seti_1IaVoaBTTOfES3wkfh0v6FVW_secret_JCvf9ArJ4I5TxM9w0pI5NfBfbrzSVkf';
+                    var setup_data = {'payment_method_data': payment_method_data};
+
+                    // Create a PaymentMethod that is associated with a SetupIntent
+                    stripe.handleCardSetup(setup_secret, card, setup_data).then(function(result) {
+                        if (result.error) {
+                            var errorElement = document.getElementById('card-errors');
+                            errorElement.textContent = result.error.message;
+                            $(this).blestaEnableFormSubmission($('#card-element').closest('form'));
+                        } else {
+                            // Store the PaymentMethod ID as the reference_id and resubmit the form, bypassing this handler
+                            storeReferenceAndSubmit(result.setupIntent.payment_method);
+                        }
+                    });
+                }
+            }
+        }
+
+        function storeReferenceAndSubmit(reference_id)
+        {
+            $('#reference_id').val(reference_id);
+            $('#card-element').closest('form').off('submit', submitCard);
+            $(this).blestaEnableFormSubmission($('#card-element').closest('form'));
+            $('#card-element').closest('form').submit();
+        }
+    </script>
+</div>
+
+

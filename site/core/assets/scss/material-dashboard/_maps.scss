@@ -1,0 +1,15 @@
+.map {
+  height: $google-map-height;
+  border-radius: $border-radius-lg;
+  margin-top: $google-map-margin-top;
+
+  &.map-big {
+    height: $google-map-big-height;
+  }
+}
+
+.fullscreen-map {
+  z-index: 2;
+  height: $fullscreen-map-height;
+  margin-top: $fullscreen-map-margin-top;
+}

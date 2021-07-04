@@ -1,0 +1,47 @@
+.card-wizard {
+  .nav.nav-pills {
+    .nav-item {
+      margin: 0;
+
+      .nav-link {
+        padding: $card-wizard-nav-link-padding !important;
+      }
+    }
+  }
+
+  .nav-pills:not(.flex-column) .nav-item + .nav-item:not(:first-child) {
+    margin-left: 0;
+  }
+
+  .nav-item .nav-link.active,
+  .nav-item .nav-link:focus,
+  .nav-item .nav-link:hover {
+    background-color: inherit !important;
+    box-shadow: none !important;
+  }
+
+  .input-group-text {
+    padding: $card-wizard-input-padding !important;
+  }
+
+  .card-footer {
+    border-top: $card-wizard-footer-border-top !important;
+  }
+
+  .input-group .form-group {
+    width: $card-wizard-form-group-width;
+  }
+  // Fix placement for selectpicker in a Wizzard
+  .select-wizard {
+    label {
+      position: $card-wizard-label-position;
+      margin-top: $card-wizard-label-mt;
+    }
+
+    .bootstrap-select {
+      .btn.select-with-transition {
+        margin-top: $card-wizard-btn-select-mt;
+      }
+    }
+  }
+}

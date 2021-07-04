@@ -1,0 +1,231 @@
+
+// Cards
+
+$card-spacer-y:                     .75rem !default;
+$card-spacer-x:                     1.25rem !default;
+$card-margin-y:                     1.875rem !default;
+$card-border-width:                 $border-width !default;
+$card-border-radius:                $border-radius !default;
+$card-border-color:                 rgba($black, .125) !default;
+$card-inner-border-radius:          subtract($card-border-radius, $card-border-width) !default;
+$card-cap-bg:                       rgba($black, .03) !default;
+$card-cap-color:                    $white !default;
+$card-height:                       null !default;
+$card-color:                        null !default;
+$card-bg:                           $white !default;
+
+$card-img-overlay-padding:          $card-spacer-x !default;
+
+$card-group-margin:                 $grid-gutter-width / 2 !default;
+$card-deck-margin:                  $card-group-margin !default;
+
+$card-columns-count:                3 !default;
+$card-columns-gap:                  $card-spacer-x !default;
+$card-columns-margin:               $card-spacer-y !default;
+
+// card color
+$card-color:                        $card-dark-background !default;
+$card-category-color:               #8b92a9 !default;
+$card-body-color:                   $card-category-color !default;
+$card-list-item-color:              $card-category-color !default;
+$card-title-color:                  #8b92a9 !default;
+$card-description-color:            $card-title-color !default;
+$stats-primary-link-color:          $sidebar-primary-button-active !default;
+$stats-info-link-color:             $sidebar-info-button-active !default;
+$stats-success-link-color:          $sidebar-success-button-active !default;
+$stats-warning-link-color:          $sidebar-warning-button-active !default;
+$stats-danger-link-color:           $sidebar-danger-button-active !default;
+
+// card header
+
+$card-header-position:              relative !default;
+$card-header-margin:                0 15px !default;
+$card-header-icon-margin:           -20px !default;
+$card-header-title-shadow:          0 2px 5px rgba(33, 33, 33, 0.5) !default;
+$card-header-title-position:        absolute !default;
+$card-header-category-color:        rgba(255, 255, 255, 0.8) !default;
+$card-header-icon-width:            33px !default;
+$card-header-icon-height:           $card-header-icon-width !default;
+$card-header-icon-line-height:      $card-header-icon-width !default;
+$card-header-tabs-title-padding:    10px 10px 10px 0 !default;
+$card-header-tabs-title-line-height: 24px !default;
+
+// card-body
+
+// card-footer
+$card-footer-border-color:          hsla(0,0%,71%,.1) !default;
+$card-footer-material-icon-top:     2px !default;
+$card-footer-material-icon-margin:  3px !default;
+$card-footer-material-icon-size:    $h4-font-size !default;
+$card-body-footer-padding:          10px 0 0 !default;
+$card-body-footer-margin:           0 15px 10px !default;
+$card-body-footer-line-height:      22px !default;
+$card-body-footer-category-padding: 7px !default;
+$card-body-footer-icon-top:         3px !default;
+$card-actions-top:                  -50px !default;
+$card-actions-width:                calc(100% - 30px) !default;
+$card-actions-left:                 17px !default;
+$card-actions-right:                $card-actions-left !default;
+$card-actions-btn-padding:          12px !default;
+$card-actions-broken-card-top:      -65px !default;
+
+// card chart
+
+$card-chart-category-color:         #606477 !default;
+$card-chart-grid-color:             $card-footer-border-color !default;
+$card-chart-label-color:            $card-category-color !default;
+$card-chart-footer-icon-width:      18px !default;
+
+$ct-chart-grid-stroke:              rgba(255, 255, 255, .2) !default;
+$ct-chart-lines-stroke:             rgba(255, 255, 255, .8) !default;
+$ct-chart-area-fill:                rgba(255, 255, 255, .4) !default;
+$ct-chart-bar-line-width:           4px !default;
+$ct-chart-bar-stroke-width:         10px !default;
+$ct-chart-category-color:           rgba($white, .62) !default;
+$ct-chart-label-color:              rgba($white, .7) !default;
+
+// card signup/register
+
+$card-signup-header-margin:         1.25rem !default;
+$card-signup-header-margin-top:     -2.5rem !default;
+$card-signup-header-margin-bottom:  .9375rem !default;
+$card-signup-header-padding:        $card-signup-header-margin !default;
+$card-signup-body-padding:          0 30px 0 10px !default;
+$card-signup-social-btn-margin:     5px !default;
+$card-signup-divider-margin:        1.875rem !default;
+$card-signup-check-padding:         1.6875rem !default;
+$card-signup-label-margin:          1.125rem !default;
+
+// card login
+
+$card-login-header-margin-top:      -2.5rem !default;
+$card-login-header-margin-bottom:   $card-signup-header-margin !default;
+$card-login-social-margin:          $card-signup-header-margin-bottom !default;
+$card-login-title-margin:           .625rem !default;
+
+// card profile
+
+$card-profile-header-bg:            transparent !default;
+$card-profile-avatar-max-width:     130px !default;
+$card-profile-avatar-max-height:    $card-profile-avatar-max-width !default;
+
+// card pricing
+
+$card-pricing-after-bg:             rgba(0, 0, 0, 0.7) !default;
+$card-pricing-text-align:           center !default;
+$card-pricing-title-mt:             30px !default;
+
+$card-pricing-body-padding:         15px !default;
+$card-pricing-icon-padding:         10px 0 0 !default;
+
+$card-pricing-icon-font-size:       55px !default;
+$card-pricing-icon-top:             6px !default;
+$card-pricing-icon-border:          1px solid #E5E5E5 !default;
+$card-pricing-icon-radius:          50% !default;
+$card-pricing-icon-width:           130px !default;
+$card-pricing-icon-height:          $card-pricing-icon-width !default;
+$card-pricing-icon-line-height:     $card-pricing-icon-width !default;
+
+$card-pricing-h1-small-font-size:   18px !default;
+$card-pricing-h1-small-display:     inline-flex !default;
+$card-pricing-h1-small-height:      0 !default;
+
+$card-pricing-h1-position:          relative !default;
+$card-pricing-h1-top:               -17px !default;
+$card-pricing-h1-font-size:         26px !default;
+
+$card-pricing-ul-style:             none !default;
+$card-pricing-ul-max-width:         240px !default;
+$card-pricing-ul-margin:            10px auto !default;
+
+$card-pricing-li-text-align:        center !default;
+$card-pricing-li-padding:           12px 0 !default;
+$card-pricing-li-border:            1px solid rgba($gray,.3) !default;
+
+// card product
+
+$card-product-mt:                   30px !default;
+$card-product-text-align:           center !default;
+$card-product-price-font-size:      18px !default;
+$card-product-price-color:          #9A9A9A !default;
+
+$card-product-price-old-font-size:  1rem !default;
+$card-product-price-old-decoration: line-through !default;
+
+// card stats
+
+$card-stats-header-text-align:      right !default;
+$card-stats-category-padding-top:   10px !default;
+$card-stats-footer-margin-top:      20px !default;
+$card-stats-header-line-height:     56px !default;
+$card-stats-header-width:           $card-stats-header-line-height !default;
+$card-stats-header-height:          $card-stats-header-line-height !default;
+
+// card collapse
+
+$card-testimonial-mt:               30px !default;
+$card-testimonial-text-align:       center !default;
+
+$card-testimonial-avatar-margin:    -50px auto 0 !default;
+$card-testimonial-avatar-radius:    50% !default;
+$card-testimonial-avatar-overflow:  hidden !default;
+$card-testimonial-avatar-padding:   0 !default;
+$card-testimonial-avatar-body-mt:   15px !default;
+$card-testimonial-avatar-img-width:   100% !default;
+$card-testimonial-avatar-img-height:  auto !default;
+
+$card-testimonial-footer-display:   block !default;
+$card-testimonial-footer-mt:        -15px !default;
+$card-testimonial-footer-btn-icon:  20px !default;
+$card-testimonial-footer-padding:   12px !default;
+$card-testimonial-footer-line-height: 1em !default;
+
+$card-testimonial-avatar-max-width: 100px !default;
+$card-testimonial-avatar-max-height: 100px !default;
+$card-testimonial-avatar-mt:        10px !default;
+$card-testimonial-avatar-mb:        -60px !default;
+
+$card-testimonial-description-style: italic !default;
+$card-testimonial-title-mt:         30px !default;
+$card-testimonial-icon-font-size:   40px !default;
+
+// card collapse
+
+$card-collapse-box-shadow:          none !default;
+$card-collapse-bg-color:            transparent !default;
+$card-collapse-radius:              0 !default;
+
+$card-collapse-header-border:       1px solid $border-color !default;
+$card-collapse-padding:             25px 10px 5px 0 !default;
+$card-collapse-font-size:           .9375rem !default;
+$card-collapse-text-display:        block !default;
+$card-collapse-text-decoration:     none !default;
+
+$card-collapse-icon-float:          right !default;
+$card-collapse-icon-top:            4px !default;
+$card-collapse-icon-position:       relative !default;
+$card-collapse-icon-transition:     all .15s ease 0s !default;
+$card-collapse-body-padding:        15px 0 5px !default;
+
+// card wizard
+
+$card-wizard-nav-link-padding:      6px 15px !default;
+$card-wizard-input-padding:         6px 15px 0 !default;
+$card-wizard-form-group-width:      80% !default;
+$card-wizard-footer-border-top:     none !default;
+$card-wizard-label-position:        absolute !default;
+$card-wizard-label-mt:              7px !default;
+$card-wizard-btn-select-mt:         16px !default;
+
+// colored-shadow
+
+$colored-shadow-transform:          scale(0.94) !default;
+$colored-shadow-placement:          12px !default;
+$colored-shadow-filter:             blur(12px) !default;
+$colored-shadow-position:           $card-header-title-position !default;
+$colored-shadow-background-size:    cover !default;
+$colored-shadow-transition:         opacity 0.45s !default;
+
+// footer card
+$footer-card-line-color:            1px solid $sidebar-separator-color !default;
+$footer-text-color:                 $navbar-color-links !default;

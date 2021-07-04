@@ -1,0 +1,601 @@
+.wrapper {
+  position: $wrapper-position;
+  top: $wrapper-top;
+  height: $wrapper-height;
+}
+
+.sidebar {
+  position: $sidebar-position;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: $sidebar-z-index;
+  width: $sidebar-width;
+  @include shadow-big();
+
+  .caret {
+    display: $sidebar-caret-display;
+    width: 0;
+    height: 0;
+    margin-left: $sidebar-caret-margin-left;
+    vertical-align: middle;
+    border-top: $sidebar-caret-border dashed;
+    border-top: $sidebar-caret-border solid\9;
+    border-right: $sidebar-caret-border solid transparent;
+    border-left: $sidebar-caret-border solid transparent;
+  }
+
+  .sidebar-wrapper {
+    position: relative;
+    height: $sidebar-wrapper-height;
+    overflow: auto;
+    width: $sidebar-wrapper-width;
+    z-index: $sidebar-z-index * 2;
+    padding-bottom: $sidebar-wrapper-padding-bottom;
+
+    .dropdown .dropdown-backdrop {
+      display: none !important;
+    }
+
+    .navbar-form {
+      border: none;
+      box-shadow: none;
+
+      .input-group {
+        font-size: $sidebar-input-group-font-size;
+        height: $sidebar-input-group-height;
+        width: $sidebar-input-group-width;
+        padding-left: $sidebar-input-padding-left;
+      }
+    }
+
+    .user .user-info,
+    > .nav {
+      [data-toggle="collapse"] ~ div > ul > li > a {
+        span {
+          display: inline-block;
+          @extend .animation-transition-general;
+        }
+
+        .sidebar-normal {
+          margin: 0;
+          position: relative;
+          transform: translateX(0px);
+          opacity: 1;
+          white-space: nowrap;
+          display: block;
+        }
+
+        .sidebar-mini {
+          text-transform: uppercase;
+          width: $sidebar-mini-width;
+          margin-right: $sidebar-mini-margin-right;
+          text-align: center;
+          letter-spacing: $sidebar-mini-letter-spacing;
+          position: relative;
+          float: left;
+          display: inherit;
+        }
+
+        i {
+          font-size: $sidebar-user-icon-font-size;
+          line-height: $sidebar-user-icon-line-height;
+          width: $sidebar-user-icon-width;
+        }
+      }
+    }
+  }
+
+  .logo-tim {
+    border-radius: $sidebar-logo-tim-radius;
+    border: $sidebar-logo-tim-border;
+    display: $sidebar-logo-tim-display;
+    height: $sidebar-logo-tim-height;
+    width: $sidebar-logo-tim-width;
+    float: $sidebar-logo-tim-float;
+    overflow: $sidebar-logo-tim-overflow;
+
+    img {
+      width: $sidebar-logo-tim-img-width;
+      height: $sidebar-logo-tim-img-height;
+    }
+  }
+
+  .logo-inveterate-icon {
+    img {
+      width: 50px;
+      height: 45px;
+      overflow: hidden;
+    }
+  }
+
+  .logo-inveterate-text {
+    img {
+      width: auto;
+      height: 60px;
+      overflow: hidden;
+    }
+  }
+
+  .nav {
+    margin-top: $sidebar-nav-margin-top;
+    display: $sidebar-nav-display;
+
+    .caret {
+      margin-top: $sidebar-nav-caret-margin-top;
+      position: $sidebar-nav-caret-position;
+      right: $sidebar-nav-caret-right;
+    }
+
+    li {
+      > a {
+        &:focus,
+        &:hover {
+          background-color: transparent;
+          outline: none;
+        }
+      }
+
+      &:first-child > a {
+        margin: 0 15px;
+      }
+
+      & .dropdown-menu a:focus,
+      & .dropdown-menu a:hover,
+      &.active > [data-toggle="collapse"],
+      &:hover > a {
+        background-color: $sidebar-dropdown-active-bg-color;
+        color: $black;
+        box-shadow: none;
+      }
+
+      &.active > [data-toggle="collapse"] {
+        i {
+          color: $sidebar-dropdown-active-i-color;
+        }
+      }
+
+      &.active > a,
+      &.active > a i {
+        color: $white;
+      }
+
+      &.separator {
+        margin: $sidebar-separator-margin;
+
+        &:after {
+          width: $sidebar-separator-after-width;
+          content: "";
+          position: $sidebar-separator-position;
+          height: $sidebar-separator-height;
+          left: $sidebar-separator-left;
+          background-color: $sidebar-separator-bg-color;
+        }
+
+        & + li {
+          margin-top: $sidebar-separator-li-margin-top;
+        }
+      }
+    }
+
+    p {
+      margin: $sidebar-p-margin;
+      line-height: $sidebar-p-line-height;
+      font-size: $sidebar-p-font-size;
+      position: relative;
+      display: block;
+      height: auto;
+      white-space: nowrap;
+      @extend .animation-transition-general;
+    }
+
+    i {
+      font-size: $sidebar-icon-font-size;
+      float: $sidebar-icon-float;
+      margin-right: $sidebar-icon-margin-right;
+      line-height: $sidebar-icon-line-height;
+      width: $sidebar-icon-line-height;
+      text-align: $sidebar-icon-text-align;
+      color: $sidebar-icon-color;
+    }
+  }
+
+  .nav li .dropdown-menu a,
+  .nav li a {
+    margin: $sidebar-nav-li-a-margin;
+    border-radius: $sidebar-nav-li-a-radius;
+    color: $black;
+    padding-left: $sidebar-nav-li-a-padding-left;
+    padding-right: $sidebar-nav-li-a-padding-right;
+    text-transform: capitalize;
+    font-size: $sidebar-nav-li-a-font-size;
+  }
+
+  .sidebar-background {
+    position: $sidebar-background-position;
+    z-index: $sidebar-background-z-index;
+    height: $sidebar-background-height;
+    width: $sidebar-background-width;
+    display: $sidebar-background-display;
+    top: $sidebar-background-top;
+    left: $sidebar-background-left;
+    background-size: $sidebar-background-bg-size;
+    background-position: $sidebar-background-bg-position;
+
+    &:after {
+      position: $sidebar-bg-after-position;
+      z-index: $sidebar-bg-after-z-index;
+      width: $sidebar-bg-after-width;
+      height: $sidebar-bg-after-height;
+      content: "";
+      display: $sidebar-bg-after-display;
+      background: $white;
+      opacity: $sidebar-bg-after-opacity;
+    }
+  }
+
+  .logo {
+    padding: $sidebar-logo-padding;
+    margin: $sidebar-logo-margin;
+    display: $sidebar-logo-display;
+    position: $sidebar-logo-position;
+    z-index: $sidebar-logo-z-index;
+
+    a.logo-mini,
+    a.logo-normal {
+      @extend .animation-transition-general;
+    }
+
+    a.logo-inveterate-text {
+      @extend .animation-transition-general;
+    }
+
+    a.logo-mini {
+      opacity: $sidebar-logo-mini-opacity;
+      float: $sidebar-logo-mini-float;
+      width: $sidebar-mini-width;
+      text-align: center;
+      margin-left: $sidebar-logo-mini-margin-left;
+      margin-right: $sidebar-mini-margin-right;
+    }
+
+    a.logo-normal {
+      display: block;
+      opacity: 1;
+      @include transform-translate-x(0px);
+    }
+
+    &:after {
+      content: '';
+      position: $sidebar-logo-after-position;
+      bottom: $sidebar-logo-after-bottom;
+      right: $sidebar-logo-after-right;
+      height: $sidebar-logo-after-height;
+      width: $sidebar-logo-after-width;
+      background-color: rgba(180,180,180, .3);
+    }
+
+    p {
+      float: left;
+      font-size: 20px;
+      margin: 10px;
+      color: $white;
+      line-height: 20px;
+    }
+
+    .simple-text {
+      text-transform: uppercase;
+      padding: 5px 0;
+      display: inline-block;
+      font-size: 18px;
+      color: $black;
+      white-space: nowrap;
+      font-weight: 400;
+      line-height: 30px;
+      overflow: hidden;
+    }
+  }
+
+  .logo-tim {
+    border-radius: 50%;
+    border: 1px solid #333;
+    display: block;
+    height: 61px;
+    width: 61px;
+    float: left;
+    overflow: hidden;
+
+    img {
+      width: 60px;
+      height: 60px;
+    }
+  }
+
+  .user {
+    padding-bottom: 20px;
+    margin: 20px auto 0;
+    position: relative;
+
+    &:after {
+      content: "";
+      position: $sidebar-separator-position;
+      bottom: $sidebar-logo-after-bottom;
+      right: $sidebar-logo-after-right;
+      height: $sidebar-logo-after-height;
+      width: $sidebar-logo-after-width;
+      background-color: $sidebar-separator-bg-color;
+    }
+
+    .photo {
+      width: $sidebar-photo-width;
+      height: $sidebar-photo-height;
+      overflow: $sidebar-photo-overflow;
+      float: $sidebar-photo-float;
+      position: $sidebar-photo-position;
+      top: $sidebar-photo-top;
+      z-index: $sidebar-photo-z-index;
+      margin-right: $sidebar-photo-margin-right;
+      border-radius: $sidebar-logo-tim-radius;
+      margin-left: $sidebar-logo-mini-margin-left;
+      @include shadow-big();
+      @extend .animation-transition-general;
+      img {
+        width: $sidebar-photo-img-width;
+      }
+    }
+
+    a {
+      color: $black;
+      padding: $sidebar-a-padding;
+      white-space: nowrap;
+    }
+
+    .user-info {
+      > a {
+        display: $sidebar-nav-display;
+        line-height: $sidebar-user-line-height;
+        font-size: $sidebar-user-font-size;
+
+        > span {
+          @extend .animation-transition-general;
+          display: block;
+          position: relative;
+          opacity: 1;
+        }
+      }
+
+      .caret {
+        position: $sidebar-user-caret-position;
+        top: $sidebar-user-caret-top;
+        right: $sidebar-mini-margin-right;
+      }
+
+      .collapsing,
+      .collapse {
+        width: 100%;
+        top: -16px;
+      }
+    }
+  }
+
+  &[data-background-color="lighter"] {
+    @include sidebar-background-color(#313b54, $white);
+  }
+
+  &[data-background-color="default"] {
+    @include sidebar-background-color($sidebar-background, $white);
+    .nav li .dropdown-menu .dropdown-item {
+      color: $white;
+    }
+  }
+
+  &[data-background-color="darker"] {
+    @include sidebar-background-color($dark-background, $white);
+    background-color: $dark-background;
+
+    .logo,
+    .nav li.separator,
+    .user {
+      &:after {
+        background-color: $white-transparency-3;
+      }
+    }
+
+    .nav {
+      li.active > [data-toggle="collapse"],
+      li:hover:not(.active) > a {
+        background-color: $white-transparency-1;
+      }
+    }
+  }
+  &[data-color="purple"]{
+      @include set-background-color-button($primary);
+  }
+  &[data-color="azure"]{
+      @include set-background-color-button($info);
+  }
+  &[data-color="green"]{
+      @include set-background-color-button($success);
+  }
+  &[data-color="orange"]{
+      @include set-background-color-button($warning);
+  }
+  &[data-color="danger"]{
+      @include set-background-color-button($danger);
+  }
+  &[data-color="rose"]{
+      @include set-background-color-button($rose);
+  }
+
+  &[data-color="white"]{
+      @include set-background-color-button($white);
+      @include sidebar-active-color($black);
+  }
+  &.has-image:after,
+  &[data-image]:after {
+    opacity: $sidebar-image-after-opacity;
+  }
+
+  // Gradient Active Color
+  @include dark-set-active-color-button($sidebar-primary-button-active, $primary, 'purple');
+  @include dark-set-active-color-button($sidebar-info-button-active, $info, 'azure');
+  @include dark-set-active-color-button($sidebar-success-button-active, $success, 'green');
+  @include dark-set-active-color-button($sidebar-warning-button-active, $warning, 'orange');
+  @include dark-set-active-color-button($sidebar-danger-button-active, $danger, 'danger');
+  @include dark-set-active-color-button($sidebar-rose-button-active, $rose, 'rose');
+}
+
+.off-canvas-sidebar .navbar-collapse {
+  .nav {
+    > li > a:hover,
+    > li > a {
+      color: $white;
+      margin: $sidebar-collapse-link-margin;
+    }
+
+    > li > a:hover,
+    > li > a:focus {
+      background: $sidebar-dropdown-active-bg-color;
+    }
+  }
+}
+
+.main-panel {
+  position: $main-panel-position;
+  float: $main-panel-float;
+  width: $main-panel-width;
+  transition: $main-panel-transition;
+
+  > .content {
+    margin-top: $main-panel-content-mt;
+    padding: $main-panel-content-padding;
+    min-height: $main-panel-content-min-height;
+  }
+
+  > .navbar {
+    margin-bottom: 0;
+  }
+
+  .header {
+    margin-bottom: $main-panel-header-mb;
+
+    .title {
+      margin-top: $main-panel-header-title-mt;
+      margin-bottom: $main-panel-header-title-mb;
+    }
+  }
+}
+
+.perfect-scrollbar-on {
+  .main-panel,
+  .sidebar {
+    height: 100%;
+    max-height: 100%;
+  }
+}
+
+.main-panel,
+.sidebar,
+.sidebar-wrapper {
+  -webkit-transition-property: $main-panel-transform-prop;
+          transition-property: $main-panel-transform-prop;
+  -webkit-transition-duration: $main-panel-transform-time;
+          transition-duration: $main-panel-transform-time;
+  -webkit-transition-timing-function: $main-panel-transform-function;
+          transition-timing-function: $main-panel-transform-function;
+  -webkit-overflow-scrolling: $main-panel-overflow-scroll;
+}
+
+.visible-on-sidebar-regular {
+  display: inline-block !important;
+}
+
+.visible-on-sidebar-mini {
+  display: none !important;
+}
+@media (min-width: 991px) {
+  .sidebar-mini {
+    .visible-on-sidebar-regular {
+      display: none !important;
+    }
+
+    .visible-on-sidebar-mini {
+      display: inline-block !important;
+    }
+
+    .sidebar,
+    .sidebar .sidebar-wrapper {
+      width: 80px;
+    }
+
+    .main-panel {
+      width: $main-panel-mini-width;
+    }
+
+    .sidebar {
+      display: block;
+      font-weight: 200;
+      z-index: 9999;
+
+      .logo {
+        a.logo-normal {
+          opacity: 0;
+          @include transform-translate-x(-25px);
+        }
+        a.logo-inveterate-text {
+          opacity: 0;
+          @include transform-translate-x(-25px);
+        }
+      }
+
+
+      .sidebar-wrapper {
+        > .nav [data-toggle="collapse"] ~ div > ul > li > a .sidebar-normal,
+        .user .user-info [data-toggle="collapse"] ~ div > ul > li > a .sidebar-normal,
+        .user .user-info > a > span,
+         > .nav li > a p {
+          @include transform-translate-x(-25px);
+          opacity: 0;
+        }
+      }
+    }
+
+    .sidebar:hover {
+      width: 260px;
+
+      .logo {
+        a.logo-normal {
+          opacity: 1;
+          @include transform-translate-x(0px);
+        }
+      }
+
+      .sidebar-wrapper {
+        width: 260px;
+
+        > .nav [data-toggle="collapse"] ~ div > ul > li > a .sidebar-normal,
+        .user .user-info [data-toggle="collapse"] ~ div > ul > li > a .sidebar-normal,
+        .user .user-info > a > span,
+        > .nav li > a p {
+          @include transform-translate-x(0px);
+          opacity: 1;
+        }
+      }
+    }
+  }
+}
+
+// styling for dark edition sidebar
+
+.dark-edition {
+  .sidebar[data-background-color="default"] {
+    background: $sidebar-background;
+    
+    .sidebar-background {
+      &:after {
+        background: $sidebar-background;
+        opacity: $sidebar-bg-opacity;
+      }
+    }
+  }
+}

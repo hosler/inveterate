@@ -1,0 +1,22 @@
+@mixin linear-gradient($color1, $color2) {
+  background: $color1;
+  /* For browsers that do not support gradients */
+  background: -webkit-linear-gradient(60deg, $color1 , $color2);
+  /* For Safari 5.1 to 6.0 */
+  background: -o-linear-gradient(60deg, $color1, $color2);
+  /* For Opera 11.1 to 12.0 */
+  background: -moz-linear-gradient(60deg, $color1, $color2);
+  /* For Firefox 3.6 to 15 */
+  background: linear-gradient(60deg, $color1 , $color2);
+  /* Standard syntax */
+}
+
+@mixin lock-page-input-color($color) {
+  &.lock-page {
+    .form-group {
+      .form-control {
+        background-image: linear-gradient($color, $color), linear-gradient($md-input-underline-color, $md-input-underline-color);
+      }
+    }
+  }
+}

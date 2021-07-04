@@ -1,0 +1,179 @@
+@mixin radio-color($color, $opacity) {
+  & ~ .check,
+  & ~ .circle {
+    opacity: $opacity;
+  }
+
+  & ~ .check {
+    background-color: $color;
+  }
+
+  & ~ .circle {
+    border-color: $color;
+  }
+}
+
+.form-check {
+  .form-check-label {
+    cursor: pointer;
+    padding-left: $radio-label-padding-left;
+    position: relative;
+    @include label-color-toggle-focus();
+
+    span {
+      display: block;
+      position: absolute;
+      left: $radio-label-span-left;
+      top: $radio-label-span-top;
+      transition-duration: $radio-label-span-transition-time;
+    }
+
+    .circle {
+      border: $radio-label-circle-border;
+      height: $radio-label-circle-height;
+      width: $radio-label-circle-width;
+      border-radius: $radio-label-circle-radius;
+      top: $radio-label-circle-top;
+
+      .check {
+        height: $radio-label-check-height;
+        width: $radio-label-check-width;
+        border-radius: $radio-label-circle-radius;
+        background-color: $radio-color-on;
+        @include transform-scale3d(unquote('0,0,0'));
+      }
+    }
+  }
+
+  .form-check-input {
+    opacity: 0;
+    height: 0;
+    width: 0;
+    overflow: hidden;
+
+    &:checked {
+      @include radio-color($radio-color-on, 1);
+
+      .check:before {
+        animation: checkboxOn 0.5s forwards;
+      }
+    }
+
+    &:checked ~ .circle .check {
+      @include transform-scale3d(unquote('0.65, 0.65, 1'));
+    }
+  }
+
+  .form-check-input[disabled] {
+    // light theme spec: Disabled: #000000, Opacity  26%
+    @include radio-color($black, 0.26);
+
+    & + .circle .check {
+      background-color: $black;
+    }
+  }
+
+  .form-check-sign {
+    vertical-align: middle;
+    position: relative;
+    top: $radio-check-sign-top;
+    float: left;
+    padding-right: $radio-check-sign-padding-right;
+    display: inline-block;
+  }
+}
+
+.form-check {
+  .form-check-label {
+    .circle {
+      &:before {
+        display: block;
+        position: absolute;
+        left: $radio-label-circle-before-left;
+        content: "";
+        background-color: $radio-label-circle-before-bg-color;
+        height: $radio-label-check-height;
+        width: $radio-label-check-width;
+        border-radius: $radio-label-circle-radius;
+        z-index: 1;
+        opacity: 0;
+        margin: 0;
+        top: $radio-label-circle-before-top;
+        -webkit-transform: $radio-label-circle-before-transform;
+        -moz-transform: $radio-label-circle-before-transform;
+        -o-transform: $radio-label-circle-before-transform;
+        -ms-transform: $radio-label-circle-before-transform;
+        transform: $radio-label-circle-before-transform;
+      }
+    }
+
+    .form-check-input:checked + .circle:before {
+      animation: rippleOn 0.5s;
+    }
+
+    .form-check-input:checked + .circle .check:before {
+      color: $white;
+      box-shadow: $check-input-box-shadow;
+      animation: checkboxOn 0.3s forwards;
+    }
+  }
+}
+
+.form-check + .form-check {
+  margin-top: 0;
+}
+@keyframes checkboxOn {
+  0% {
+    box-shadow: $check-input-box-shadow;
+  }
+
+  50% {
+    box-shadow: $check-input-box-shadow;
+  }
+
+  100% {
+    box-shadow: $check-input-box-shadow;
+  }
+}
+@keyframes rippleOn {
+  0% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 0.2;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes rippleOff {
+  0% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 0.2;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+// dark edition
+.dark-edition {
+  .form-check {
+    .form-check-input ~ .circle {
+      border-color: $dark-radio-border-color;
+    }
+
+    .form-check-label .circle .check {
+      background-color: $radio-color-on;
+    }
+  }
+  .form-check-input:checked + .circle .check {
+    border-color: $checkbox-active-border-color;
+    background: $white;
+  }
+}

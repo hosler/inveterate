@@ -1,0 +1,25 @@
+// MAIN PANEL
+
+$main-panel-position:               relative !default
+$main-panel-float:                  right !default
+$main-panel-width:                  calc(100% - 260px) !default
+$main-panel-mini-width:             calc(100% - 80px) !default
+$main-panel-transition:             0.33s,cubic-bezier(.685, .0473, .346, 1) !default
+$main-panel-content-mt:             70px !default
+$main-panel-content-padding:        30px 15px !default
+$main-panel-content-min-height:     calc(100vh - 123px) !default
+$main-panel-header-mb:              30px !default
+$main-panel-header-title-mt:        10px !default
+$main-panel-header-title-mb:        $main-panel-header-title-mt !default
+
+$main-panel-transform-prop:         top, bottom, width !default
+$main-panel-transform-time:         .2s, .2s, .35s !default
+$main-panel-transform-function:     linear, linear, ease !default
+$main-panel-overflow-scroll:        touch !default
+
+$topbar-x:                          topbar-x !default;
+$topbar-back:                       topbar-back !default;
+$bottombar-x:                       bottombar-x !default;
+$bottombar-back:                    bottombar-back !default;
+$margin-bottom:                     0 0 10px 0 !default;
+$margin-base-vertical:              15px !default;

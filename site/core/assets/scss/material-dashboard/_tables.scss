@@ -1,0 +1,169 @@
+.dark-edition {
+  .table > tbody > tr > td,
+  .table > tbody > tr > th,
+  .table > tfoot > tr > td,
+  .table > tfoot > tr > th,
+  .table > thead > tr > td,
+  .table > thead > tr > th {
+    color: $table-text-color;
+    border-color: $table-borders-color;
+    vertical-align: middle;
+  }
+
+  .table-hover tbody tr:hover {
+    background-color: $table-hover-bg;
+  }
+}
+
+.table {
+  > thead > tr > th {
+    border-bottom-width: 1px;
+    font-size: $h5-font-size;
+    font-weight: $font-weight-light;
+  }
+
+  > tbody > tr.table-success > td{
+    background-color: darken($success,10%);
+    color: $white;
+  }
+
+  > tbody > tr.table-info > td{
+    background-color: $info;
+    color: $white;
+  }
+
+  > tbody > tr.table-primary > td{
+    background-color: $primary;
+    color: $white;
+  }
+
+  > tbody > tr.table-warning > td{
+    background-color: $warning;
+    color: $white;
+  }
+  > tbody > tr.table-danger > td{
+    background-color: $danger;
+    color: $white;
+  }
+
+  .form-check {
+    margin-top: 0;
+
+    .form-check-sign {
+      top: $table-form-check-sign;
+      left: 0;
+      padding-right: 0;
+    }
+  }
+
+  .checkbox,
+  .radio {
+    margin-top: 0;
+    margin-bottom: 0;
+    padding: 0;
+    width: $table-checkbox-width;
+
+    .icons {
+      position: relative;
+    }
+  }
+
+  .flag {
+    img {
+      max-width: $table-flag-max-width;
+      margin-top: $table-flag-margin-top;
+    }
+  }
+
+  thead {
+    tr {
+      th {
+        font-size: $table-thead-description;
+      }
+    }
+  }
+
+  .th-description {
+    max-width: $table-th-description;
+  }
+
+  .td-price {
+    font-size: $table-td-price-font-size;
+    font-weight: $font-weight-light;
+    margin-top: $table-td-price-padding;
+    text-align: right;
+  }
+
+  .td-total {
+    font-weight: $font-weight-bold;
+    font-size: $h5-font-size;
+    padding-top: $table-th-total-padding;
+    text-align: right;
+  }
+
+  .td-actions .btn {
+    margin: 0;
+    padding: $table-td-price-padding;
+  }
+
+  > tbody > tr {
+    position: relative;
+  }
+}
+
+.table-shopping {
+  > thead > tr > th {
+    font-size: $h6-font-size;
+    text-transform: uppercase;
+  }
+
+  > tbody > tr > td {
+    font-size: $font-paragraph;
+
+    b {
+      display: block;
+      margin-bottom: $table-td-price-padding;
+    }
+  }
+
+  .td-name {
+    font-weight: $font-weight-normal;
+    font-size: $table-td-name-font-size;
+    line-height: $table-td-name-line-height;
+
+    small {
+      color: $gray-light;
+      font-size: $table-td-name-sm-font-size;
+      font-weight: $font-weight-light;
+    }
+  }
+
+  .td-number {
+    font-weight: $font-weight-light;
+    font-size: $h4-font-size;
+  }
+
+  .td-name {
+    min-width: $table-td-name-min-width;
+  }
+
+  .td-number {
+    text-align: right;
+    min-width: $table-th-description;
+
+    small {
+      margin-right: $table-td-number-mergin;
+    }
+  }
+
+  .img-container {
+    width: $table-td-img-width;
+    max-height: $table-td-img-max-height;
+    overflow: hidden;
+    display: block;
+
+    img {
+      width: 100%;
+    }
+  }
+}

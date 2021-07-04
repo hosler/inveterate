@@ -1,0 +1,98 @@
+html * {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.h1,
+.h2,
+.h3,
+.h4,
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: $font-family-sans-serif;
+  font-weight: 300;
+  line-height: 1.5em;
+}
+
+.h1,
+h1 {
+  font-size: $h1-font-size;
+  line-height: 1.15em;
+}
+
+.h2,
+h2 {
+  font-size: $h2-font-size;
+}
+
+.h3,
+h3 {
+  font-size: $h3-font-size;
+  line-height: 1.4em;
+  margin: 20px 0 10px;
+}
+
+.h4,
+h4 {
+  font-size: $h4-font-size;
+  line-height: 1.4em;
+  font-weight: 300;
+}
+
+.h5,
+h5 {
+  font-size: $h5-font-size;
+  line-height: 1.4em;
+  margin-bottom: 15px;
+}
+
+.h6,
+h6 {
+  font-size: $h6-font-size;
+  text-transform: uppercase;
+  font-weight: $font-weight-bold;
+}
+
+h2.title {
+  margin-bottom: $margin-base * 2;
+}
+
+.text-warning {
+  color: $warning !important;
+}
+
+.text-primary {
+  color: $primary !important;
+}
+
+.text-danger {
+  color: $danger !important;
+}
+
+.text-success {
+  color: $success !important;
+}
+
+.text-info {
+  color: $info !important;
+}
+
+.text-rose {
+  color: $rose !important;
+}
+
+.text-gray {
+  color: $gray-color !important;
+}
+
+.title {
+  color: $title-color;
+}
+.category {
+  color: $category-color;
+}

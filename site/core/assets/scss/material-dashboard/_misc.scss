@@ -1,0 +1,33 @@
+.dark-edition {
+  background-color: $dark-background;
+
+  .badge {
+    &.badge-warning {
+      color: $white !important;
+    }
+  }
+  &.off-canvas-sidebar {
+    .navbar-brand {
+      color: $white;
+    }
+  }
+}
+
+/*           Animations              */
+.animation-transition-general {
+  @include transition-all($general-transition-time, $transition-linear);
+}
+
+.animation-transition-slow {
+  @include transition-all($slow-transition-time, $transition-linear);
+}
+
+.animation-transition-fast {
+  @include transition-all($fast-transition-time, $transition-ease);
+}
+
+.animation-transition-fast-in,
+.caret,
+.sidebar a {
+  @include transition-all($fast-transition-time, $transition-ease-in);
+}

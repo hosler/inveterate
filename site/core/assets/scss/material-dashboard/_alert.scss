@@ -1,0 +1,131 @@
+.alert {
+  border: 0;
+  line-height: $alert-line-height;
+
+  b {
+    font-weight: $font-weight-bold;
+    text-transform: uppercase;
+    font-size: $font-size-xs;
+  }
+  // SASS conversion note: please mirror any content change in _mixins-shared.scss alert-variations-content
+  @include alert-variations(unquote(".alert"), unquote(""), $white);
+
+  &-danger,
+  &-info,
+  &-rose,
+  &-success,
+  &-warning {
+    color: $white;
+  }
+
+  &-default {
+    .alert-link,
+    a {
+      color: $text-color-primary;
+    }
+  }
+
+  span {
+    display: $alert-span-display;
+    max-width: $alert-span-width;
+  }
+
+  &.alert-danger {
+    @include shadow-alert-color($danger);
+    @include alert-icon-color($danger);
+  }
+
+  &.alert-warning {
+    @include shadow-alert-color($warning);
+    @include alert-icon-color($warning);
+  }
+
+  &.alert-success {
+    @include shadow-alert-color($success);
+    @include alert-icon-color($success);
+  }
+
+  &.alert-info {
+    @include shadow-alert-color($info);
+    @include alert-icon-color($info);
+  }
+
+  &.alert-primary {
+    @include shadow-alert-color($primary);
+    @include alert-icon-color($primary);
+  }
+
+  &.alert-rose {
+    @include shadow-alert-color($rose);
+    @include alert-icon-color($rose);
+  }
+
+  &.alert-with-icon {
+    padding-left: 66px;
+
+    i[data-notify="icon"] {
+      font-size: $alert-with-icon-size;
+      display: $alert-span-display;
+      left: $spacer-base;
+      position: $alert-with-icon-position;
+      top: $alert-with-icon-placement;
+      margin-top: -$spacer-base;
+      color: $white;
+    }
+  }
+
+  .close {
+    line-height: $alert-close-line-height;
+
+    i {
+      color: $white;
+      font-size: $alert-close-icon-size;
+    }
+  }
+
+  i[data-notify="icon"] {
+    display: none;
+  }
+
+  .alert-icon {
+    display: block;
+    float: left;
+    margin-right: $margin-base;
+
+    i {
+      margin-top: $alert-icon-margin-top;
+      top: $alert-icon-placement;
+      position: $alert-icon-position;
+    }
+  }
+
+  [data-notify="dismiss"] {
+    margin-right: $alert-icon-placement;
+  }
+}
+
+.places-buttons .btn {
+  margin-bottom: $spacer-lg;
+}
+
+.alert {
+  @include alert-gradient-color('info', $alert-info-gradient);
+  @include alert-gradient-color('warning', $alert-warning-gradient);
+  @include alert-gradient-color('success', $alert-success-gradient);
+  @include alert-gradient-color('danger', $alert-danger-gradient);
+  @include alert-gradient-color('primary', $alert-primary-gradient);
+
+  .close {
+    outline: 0;
+    text-shadow: none;
+    bottom: 0;
+    top: 0 !important;
+    margin-top: 0 !important;
+
+    &:hover,
+    &:focus {
+      color: $white;
+      opacity: 1;
+    }
+  }
+}

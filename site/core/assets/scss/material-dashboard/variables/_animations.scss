@@ -1,0 +1,18 @@
+// Animations
+
+$animation-curve-fast-out-slow-in:              cubic-bezier(0.4, 0, 0.2, 1) !default;
+$animation-curve-linear-out-slow-in:            cubic-bezier(0, 0, 0.2, 1) !default;
+$animation-curve-fast-out-linear-in:            cubic-bezier(0.4, 0, 1, 1) !default;
+$animation-curve-default:                       $animation-curve-fast-out-slow-in !default;
+$animation-dropdown-caret:                      150ms !default;
+$general-transition-time:                       300ms !default;
+
+$slow-transition-time:                          370ms !default;
+$fast-transition-time:                          150ms !default;
+
+$transition-linear:                             linear !default;
+$transition-bezier:                             cubic-bezier(0.34, 1.61, 0.7, 1) !default;
+$transition-bezier-rotating-card:               cubic-bezier(0.34, 1.45, 0.7, 1) !default;
+$transition-ease:                               ease 0s;
+$transition-ease-in:                            ease-in !default;
+$transition-ease-out:                           ease-out !default;

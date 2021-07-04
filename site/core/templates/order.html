@@ -1,0 +1,485 @@
+{% extends 'store_base.html' %}
+{% load static %}
+{% load crispy_forms_tags %}
+{% block head_title %}Order Service{% endblock %}
+{% block styles %}
+{% endblock %}
+{% block body %}
+    <div class="container">
+        <div class="row">
+            <hr /><hr /><hr /><hr />
+        </div>
+        <div class="row justify-content-center">
+            <div class="col-md-12 ml-auto mr-auto">
+                <!--      Wizard container        -->
+
+                <div class="wizard-container">
+                    <div class="card card-wizard" data-color="purple" id="wizardProfile">
+                        <form action="" method="POST" autocomplete="off">
+                            {% csrf_token %}
+                            <!--        You can switch " data-color="primary" "  with one of the next bright colors: "green", "orange", "red", "blue"       -->
+                            <div class="card-header text-center">
+                                <h3 class="card-title wizard-title">
+                                    Order new service
+                                </h3>
+                                <h5 class="card-description wizard-description">Choose a plan and customize</h5>
+                            </div>
+                            <div class="wizard-navigation">
+                                <ul class="nav nav-pills">
+                                    <li class="nav-item">
+                                        <a class="nav-link active" href="#profile" data-toggle="tab" role="tab">
+                                            Profile
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link" href="#packages" data-toggle="tab" role="tab">
+                                            Plan
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link" href="#customize" data-toggle="tab" role="tab">
+                                            Customize
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="card-body">
+                                <div class="tab-content">
+                                    <div class="tab-pane active" id="profile">
+                                        <h5 class="info-text"> Let's start with the basic information (with
+                                            validation)</h5>
+                                        <div class="row justify-content-center">
+                                            <div class="col-sm-10">
+                                                {{ profile_form|crispy }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="tab-pane" id="packages">
+                                        {{ package_form|crispy }}
+                                        <div class="radio-group row justify-content-center">
+                                            <div class="col-lg-3 col-md-6 cards">
+                                                <div class="card card-pricing radio card-raised" data-id="2">
+                                                    <h6 class="card-category"> LXC Lite</h6>
+                                                    <div class="card-body">
+                                                        <div class="card-icon icon-rose ">
+                                                            <i class="material-icons">home</i>
+                                                        </div>
+                                                        <h3 class="card-title">$2/Month</h3>
+                                                        <div class="col-sm-11 ml-auto card-description" align="left">
+                                                            <i class="fa fa-circle text-info"></i> 8GB SSD Storage<br>
+                                                            <i class="fa fa-circle text-info"></i> 1024 MB RAM<br>
+                                                            <i class="fa fa-circle text-info"></i> 500 GB Bandwidth<br>
+                                                            <i class="fa fa-circle text-info"></i> 1 vCPU Cores<br>
+                                                            <i class="fa fa-circle text-info"></i> 1 IPv6<br>
+                                                        </div>
+                                                    </div>
+                                                    <div class="card-footer justify-content-center ">
+                                                        <a href="#" class="btn btn-round btn-rose">Get Started</a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-lg-3 col-md-6 cards">
+                                                <div class="card card-pricing radio card-plain" data-id="3">
+                                                    <h6 class="card-category"> LXC Basic</h6>
+                                                    <div class="card-body">
+                                                        <div class="card-icon icon-primary ">
+                                                            <i class="material-icons">business</i>
+                                                        </div>
+                                                        <h3 class="card-title">$3/Month</h3>
+                                                        <div class="col-sm-11 ml-auto card-description" align="left">
+                                                            <i class="fa fa-circle text-info"></i> 16GB SSD Storage<br>
+                                                            <i class="fa fa-circle text-info"></i> 2048 MB RAM<br>
+                                                            <i class="fa fa-circle text-info"></i> 500 GB Bandwidth<br>
+                                                            <i class="fa fa-circle text-info"></i> 2 vCPU Cores<br>
+                                                            <i class="fa fa-circle text-info"></i> 1 IPv6<br>
+                                                        </div>
+                                                    </div>
+                                                    <div class="card-footer justify-content-center ">
+                                                        <a href="#" class="btn btn-round btn-rose">Get Started</a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-lg-3 col-md-6 cards">
+                                                <div class="card card-pricing radio card-plain" data-id="1">
+                                                    <h6 class="card-category"> LXC Plus</h6>
+                                                    <div class="card-body">
+                                                        <div class="card-icon icon-danger ">
+                                                            <i class="material-icons">account_balance</i>
+                                                        </div>
+                                                        <h3 class="card-title">$5/Month</h3>
+                                                        <div class="col-sm-11 ml-auto card-description" align="left">
+                                                            <i class="fa fa-circle text-info"></i> 32GB SSD Storage<br>
+                                                            <i class="fa fa-circle text-info"></i> 4096 MB RAM<br>
+                                                            <i class="fa fa-circle text-info"></i> 1000 GB Bandwidth<br>
+                                                            <i class="fa fa-circle text-info"></i> 4 vCPU Cores<br>
+                                                            <i class="fa fa-circle text-info"></i> 1 IPv6<br>
+                                                        </div>
+                                                    </div>
+                                                    <div class="card-footer justify-content-center ">
+                                                        <a href="#" class="btn btn-round btn-rose">Get Started</a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="tab-pane" id="customize">
+                                        <div class="row justify-content-center">
+                                            <div class="col-sm-10">
+                                                {{ customize_form|crispy }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-footer">
+                                <div class="mr-auto">
+                                    <input type="button" class="btn btn-previous btn-fill btn-secondary btn-wd disabled"
+                                           name="previous" value="Previous">
+                                </div>
+                                <div class="ml-auto">
+                                    <input type="button" class="btn btn-next btn-fill btn-primary btn-wd" name="next"
+                                           value="Next">
+                                    <input type="submit" class="btn btn-finish btn-fill btn-rose btn-wd" name="finish"
+                                           value="Finish" style="display: none;">
+                                </div>
+                                <div class="clearfix"></div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <!-- wizard container -->
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block scripts %}
+    <script src="{% static 'js/core/jquery.min.js' %}"></script>
+    <script src="{% static 'js/core/popper.min.js' %}"></script>
+    <!--  DataTables.net Plugin, full documentation here: https://datatables.net/  -->
+    <script src="{% static 'js/core/bootstrap-material-design.min.js' %}"></script>
+    <script src="{% static 'js/plugins/perfect-scrollbar.jquery.min.js' %}"></script>
+    <!--	Plugin for Select, full documentation here: http://silviomoreto.github.io/bootstrap-select -->
+    <script src="{% static 'js/plugins/bootstrap-selectpicker.js' %}"></script>
+    <!-- Forms Validations Plugin -->
+    <script src="{% static 'js/plugins/jquery.validate.min.js' %}"></script>
+    <!-- Plugin for the Wizard, full documentation here: https://github.com/VinceG/twitter-bootstrap-wizard -->
+    <script src="{% static 'js/plugins/jquery.bootstrap-wizard.js' %}"></script>
+    <!--	Plugin for Select, full documentation here: http://silviomoreto.github.io/bootstrap-select -->
+    <script src="{% static 'js/plugins/bootstrap-selectpicker.js' %}"></script>
+    <!-- Control Center for Material  parallax effects, scripts for the example pages etc -->
+    <script src="{% static 'js/material-dashboard.js' %}?v=1.0.1" type="text/javascript"></script>
+    <script
+            src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBwKD5FHl-u_Lng49CnjZcvORDU2wOLMRQ&callback=initAutocomplete&libraries=places&v=weekly"
+            async
+    ></script>
+    <script>
+        $(document).ready(function () {
+            md.checkFullPageBackgroundImage();
+            $('#id_package').val("2");
+            $('#id_package').change();
+            $('.radio-group .radio').click(function () {
+                $('.radio').removeClass('card-raised');
+                $('.radio').addClass('card-plain');
+                $(this).removeClass('card-plain');
+                $(this).addClass('card-raised');
+                $('#id_package').val($(this).data("id"));
+                $('#id_package').change();
+            });
+        });
+
+        function initMaterialWizard() {
+            // Code for the Validator
+            var $validator = $('.card-wizard form').validate({
+                rules: {
+                    firstname: {
+                        required: true,
+                        minlength: 3
+                    },
+                    lastname: {
+                        required: true,
+                        minlength: 3
+                    },
+                    email: {
+                        required: true,
+                        minlength: 3,
+                    }
+                },
+
+                highlight: function (element) {
+                    $(element).closest('.form-group').removeClass('has-success').addClass('has-danger');
+                },
+                success: function (element) {
+                    $(element).closest('.form-group').removeClass('has-danger').addClass('has-success');
+                },
+                errorPlacement: function (error, element) {
+                    $(element).append(error);
+                }
+            });
+
+
+            // Wizard Initialization
+            $('.card-wizard').bootstrapWizard({
+                'tabClass': 'nav nav-pills',
+                'nextSelector': '.btn-next',
+                'previousSelector': '.btn-previous',
+
+                onNext: function (tab, navigation, index) {
+                    var $valid = $('.card-wizard form').valid();
+                    if (!$valid) {
+                        $validator.focusInvalid();
+                        return false;
+                    }
+                },
+
+                onInit: function (tab, navigation, index) {
+                    //check number of tabs and fill the entire row
+                    var $total = navigation.find('li').length;
+                    var $wizard = navigation.closest('.card-wizard');
+
+                    $first_li = navigation.find('li:first-child a').html();
+                    $moving_div = $('<div class="moving-tab">' + $first_li + '</div>');
+                    $('.card-wizard .wizard-navigation').append($moving_div);
+
+                    refreshAnimation($wizard, index);
+
+                    $('.moving-tab').css('transition', 'transform 0s');
+                },
+
+                onTabClick: function (tab, navigation, index) {
+                    var $valid = $('.card-wizard form').valid();
+
+                    if (!$valid) {
+                        return false;
+                    } else {
+                        return true;
+                    }
+                },
+
+                onTabShow: function (tab, navigation, index) {
+                    var $total = navigation.find('li').length;
+                    var $current = index + 1;
+
+                    var $wizard = navigation.closest('.card-wizard');
+
+                    // If it's the last tab then hide the last button and show the finish instead
+                    if ($current >= $total) {
+                        $($wizard).find('.btn-next').hide();
+                        $($wizard).find('.btn-finish').show();
+                    } else {
+                        $($wizard).find('.btn-next').show();
+                        $($wizard).find('.btn-finish').hide();
+                    }
+
+                    button_text = navigation.find('li:nth-child(' + $current + ') a').html();
+
+                    setTimeout(function () {
+                        $('.moving-tab').text(button_text);
+                    }, 150);
+
+                    var checkbox = $('.footer-checkbox');
+
+                    if (!index == 0) {
+                        $(checkbox).css({
+                            'opacity': '0',
+                            'visibility': 'hidden',
+                            'position': 'absolute'
+                        });
+                    } else {
+                        $(checkbox).css({
+                            'opacity': '1',
+                            'visibility': 'visible'
+                        });
+                    }
+
+                    refreshAnimation($wizard, index);
+                }
+            });
+
+
+            // Prepare the preview for profile picture
+            $("#wizard-picture").change(function () {
+                readURL(this);
+            });
+
+            $('[data-toggle="wizard-radio"]').click(function () {
+                wizard = $(this).closest('.card-wizard');
+                wizard.find('[data-toggle="wizard-radio"]').removeClass('active');
+                $(this).addClass('active');
+                $(wizard).find('[type="radio"]').removeAttr('checked');
+                $(this).find('[type="radio"]').attr('checked', 'true');
+            });
+
+            $('[data-toggle="wizard-checkbox"]').click(function () {
+                if ($(this).hasClass('active')) {
+                    $(this).removeClass('active');
+                    $(this).find('[type="checkbox"]').removeAttr('checked');
+                } else {
+                    $(this).addClass('active');
+                    $(this).find('[type="checkbox"]').attr('checked', 'true');
+                }
+            });
+
+            $('.set-full-height').css('height', 'auto');
+
+            //Function to show image before upload
+
+            function readURL(input) {
+                if (input.files && input.files[0]) {
+                    var reader = new FileReader();
+
+                    reader.onload = function (e) {
+                        $('#wizardPicturePreview').attr('src', e.target.result).fadeIn('slow');
+                    }
+                    reader.readAsDataURL(input.files[0]);
+                }
+            }
+
+            $(window).resize(function () {
+                $('.card-wizard').each(function () {
+                    $wizard = $(this);
+
+                    index = $wizard.bootstrapWizard('currentIndex');
+                    refreshAnimation($wizard, index);
+
+                    $('.moving-tab').css({
+                        'transition': 'transform 0s'
+                    });
+                });
+            });
+
+            function refreshAnimation($wizard, index) {
+                $total = $wizard.find('.nav li').length;
+                $li_width = 100 / $total;
+
+                total_steps = $wizard.find('.nav li').length;
+                move_distance = $wizard.width() / total_steps;
+                index_temp = index;
+                vertical_level = 0;
+
+                mobile_device = $(document).width() < 600 && $total > 3;
+
+                if (mobile_device) {
+                    move_distance = $wizard.width() / 2;
+                    index_temp = index % 2;
+                    $li_width = 50;
+                }
+
+                $wizard.find('.nav li').css('width', $li_width + '%');
+
+                step_width = move_distance;
+                move_distance = move_distance * index_temp;
+
+                $current = index + 1;
+
+                if ($current == 1 || (mobile_device == true && (index % 2 == 0))) {
+                    move_distance -= 8;
+                } else if ($current == total_steps || (mobile_device == true && (index % 2 == 1))) {
+                    move_distance += 8;
+                }
+
+                if (mobile_device) {
+                    vertical_level = parseInt(index / 2);
+                    vertical_level = vertical_level * 38;
+                }
+
+                $wizard.find('.moving-tab').css('width', step_width);
+                $('.moving-tab').css({
+                    'transform': 'translate3d(' + move_distance + 'px, ' + vertical_level + 'px, 0)',
+                    'transition': 'all 0.5s cubic-bezier(0.29, 1.42, 0.79, 1)'
+
+                });
+            }
+        }
+
+        $(document).ready(function () {
+            // Initialise the wizard
+            initMaterialWizard();
+            setTimeout(function () {
+                $('.card.card-wizard').addClass('active');
+            }, 600);
+            $('.selectpicker').selectpicker();
+        });
+
+
+        let autocomplete;
+        let address1Field;
+        let address2Field;
+        let postalField;
+
+        function initAutocomplete() {
+            address1Field = document.querySelector("#id_address1");
+            address2Field = document.querySelector("#id_address2");
+            postalField = document.querySelector("#id_postcode");
+            // Create the autocomplete object, restricting the search predictions to
+            // addresses in the US and Canada.
+            autocomplete = new google.maps.places.Autocomplete(address1Field, {
+                componentRestrictions: {country: ["us", "ca"]},
+                fields: ["address_components", "geometry"],
+                types: ["address"],
+            });
+            address1Field.focus();
+            // When the user selects an address from the drop-down, populate the
+            // address fields in the form.
+            autocomplete.addListener("place_changed", fillInAddress);
+        }
+
+        function fillInAddress() {
+            // Get the place details from the autocomplete object.
+            const place = autocomplete.getPlace();
+            let address1 = "";
+            let postcode = "";
+
+            // Get each component of the address from the place details,
+            // and then fill-in the corresponding field on the form.
+            // place.address_components are google.maps.GeocoderAddressComponent objects
+            // which are documented at http://goo.gle/3l5i5Mr
+            for (const component of place.address_components) {
+                const componentType = component.types[0];
+
+                switch (componentType) {
+                    case "street_number": {
+                        address1 = `${component.long_name} ${address1}`;
+                        break;
+                    }
+
+                    case "route": {
+                        address1 += component.short_name;
+                        break;
+                    }
+
+                    case "postal_code": {
+                        postcode = `${component.long_name}${postcode}`;
+                        break;
+                    }
+
+                    case "postal_code_suffix": {
+                        postcode = `${postcode}-${component.long_name}`;
+                        break;
+                    }
+                    case "locality":
+                        document.querySelector("#id_city").value = component.long_name;
+                        break;
+
+                    case "administrative_area_level_1": {
+                        document.querySelector("#id_state").value = component.short_name;
+                        break;
+                    }
+                    case "country":
+                        document.querySelector("#id_country").value = component.long_name;
+                        break;
+                }
+            }
+            address1Field.value = address1;
+            postalField.value = postcode;
+            // After filling the form with address components from the Autocomplete
+            // prediction, set cursor focus on the second address line to encourage
+            // entry of subpremise information such as apartment, unit, or floor number.
+            address2Field.focus();
+        }
+    </script>
+
+
+
+
+{% endblock %}
+

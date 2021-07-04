@@ -1,0 +1,43 @@
+.card-collapse,
+.card-collapse .card-header {
+  box-shadow: $card-collapse-box-shadow;
+  background-color: $card-collapse-bg-color;
+  border-radius: $card-collapse-radius;
+  margin: 0;
+}
+
+.card-collapse {
+  & .card-header {
+    border-bottom: 1px solid $form-dark-border-color;
+    padding: $card-collapse-padding;
+    box-shadow: $card-collapse-box-shadow !important;
+
+    a {
+      color: $title-color;
+      font-size: $card-collapse-font-size;
+      display: $card-collapse-text-display;
+
+      &:active,
+      &:hover,
+      &[aria-expanded="true"] {
+        color: $white;
+        text-decoration: $card-collapse-text-decoration;
+      }
+
+      i {
+        float: $card-collapse-icon-float;
+        top: $card-collapse-icon-top;
+        position: $card-collapse-icon-position;
+        transition: $card-collapse-icon-transition;
+      }
+
+      &[aria-expanded="true"] i {
+        @include rotate-180();
+      }
+    }
+  }
+
+  .card-body {
+    padding: $card-collapse-body-padding;
+  }
+}

@@ -1,0 +1,40 @@
+// marker class (used as a selector for one-off elements to decorate)
+.ripple {
+  position: $ripple-position;
+}
+
+.ripple-container {
+  position: $ripple-container-position;
+  top: $ripple-container-top;
+  left: $ripple-container-left;
+  z-index: $ripple-container-z-index;
+  width: $ripple-container-width;
+  height: $ripple-container-height;
+  overflow: $ripple-container-overflow;
+  pointer-events: $ripple-container-pointer;
+  border-radius: $ripple-container-radius;
+
+  .ripple-decorator {
+    position: $ripple-decorator-position;
+    width: $ripple-decorator-width;
+    height: $ripple-decorator-height;
+    margin-top: $ripple-decorator-mt;
+    margin-left: $ripple-decorator-ml;
+    pointer-events: $ripple-decorator-pointer;
+    background-color: $ripple-decorator-bg-color;
+    border-radius: $ripple-decorator-radius;
+    opacity: $ripple-decorator-opacity;
+    transform: $ripple-decorator-transform;
+    transform-origin: $ripple-decorator-transform-origin;
+
+    &.ripple-on {
+      opacity: $ripple-on-opacity;
+      transition: $ripple-on-transition;
+    }
+
+    &.ripple-out {
+      opacity: $ripple-out-opacity;
+      transition: $ripple-out-transition !important;
+    }
+  }
+}
