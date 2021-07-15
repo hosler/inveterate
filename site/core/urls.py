@@ -18,6 +18,7 @@ router.register(r'nodes', viewsets.VMNodeViewSet, basename='node')
 router.register(r'inventory', viewsets.InventoryViewSet, basename='inventory')
 router.register(r'billing', viewsets.BillingTypeViewSet, basename='billing')
 router.register(r'blesta', viewsets.BlestaBackendViewSet, basename='blesta')
+router.register(r'domain', viewsets.DomainViewSet, basename='domain')
 
 dashboard_urls = [
     re_path('^configs/$', login_required(views.ConfigSettingsView.as_view()), name='configs'),

@@ -15,6 +15,7 @@ from celery.schedules import crontab
 from .celery import detect_tasks
 import os
 import environ
+from kombu import Exchange, Queue
 
 env = environ.Env(
     # set casting, default value
@@ -138,9 +139,19 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 CELERY_IMPORTS = detect_tasks(BASE_DIR)
+CELERY_QUEUES = (
+    Queue('default', Exchange('default', type='direct'), routing_key='default'),
+    Queue('acme', Exchange('acme', type='direct'), routing_key='acme'),
+)
+CELERY_DEFAULT_QUEUE = 'default'
+CELERY_DEFAULT_EXCHANGE = 'default'
+CELERY_DEFAULT_ROUTING_KEY = 'default'
 
-# Database
-# https://docs.djangoproject.com/en/3.1/ref/settings/#databases
+CELERY_ROUTES = ({'core.tasks.get_certs': {
+    'queue': 'acme',
+    'routing_key': 'acme'
+}},)
+
 
 DATABASES = {
     'default': {
@@ -211,10 +222,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/3.1/howto/static-files/
 
 STATIC_URL = "/staticfiles/"
-STATIC_ROOT = os.path.join(BASE_DIR, "../staticfiles")
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 MEDIA_URL = "/mediafiles/"
-MEDIA_ROOT = os.path.join(BASE_DIR, "../mediafiles")
+MEDIA_ROOT = os.path.join(BASE_DIR, "mediafiles")
 
 
 ACCOUNT_LOGIN_REDIRECT_URL = '/services/'

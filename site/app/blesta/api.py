@@ -49,14 +49,6 @@ class BlestaApi:
 
         return response_dict
 
-    def blestadate_to_pythondate(self, blestadate):
-        pythondate = datetime.strptime(str(blestadate), '%Y-%m-%d %H:%M:%S')
-        return pythondate
-
-    def blestacurrency_to_dollars(self, blestacurrency):
-        dollars = '$' + blestacurrency[:-2]
-        return dollars
-
     def flatten(self, d, parent_key=''):
         items = []
         for k, v in d.items():

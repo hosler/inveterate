@@ -8,6 +8,7 @@ from proxmoxer import ProxmoxAPI
 from django.contrib.auth.models import User
 from django.db import IntegrityError
 from .tasks import provision_service, provision_billing
+from nginx.config.api import Config, Section, Location
 
 class SelectFieldModelSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
@@ -37,6 +38,23 @@ class DomainSerializer(serializers.ModelSerializer):
     class Meta:
         model = Domain
         fields = '__all__'
+
+    def create(self, validated_data):
+        domain = super().create(validated_data)
+        name = validated_data.pop("name")
+        section = Section(
+            'server',
+            Location(
+                '/foo',
+                proxy_pass='upstream',
+            ),
+            server_name=name,
+            listen='80'
+        )
+        with open(f"/home/hosler/nfs/PycharmProjects/inveterate/conf/sites/{name}", "w") as f:
+            f.write(str(section))
+
+        return domain
 
 
 class IPPoolSerializer(serializers.ModelSerializer):

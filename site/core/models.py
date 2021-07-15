@@ -194,9 +194,9 @@ class Inventory(models.Model):
 
 
 class Domain(models.Model):
-    name = models.CharField(null=False)
+    name = models.CharField(null=False, max_length=255)
     ssl = models.BooleanField(default=False)
-    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='domain')
+    service = models.ForeignKey(Service, on_delete=models.SET_NULL, related_name='domain', null=True)
 
 # class UserAddress(models.Model):
 #     address = AddressField(null=True, blank=True)
