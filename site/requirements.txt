@@ -21,7 +21,7 @@ gevent==21.1.2
 supervisor==4.2.1
 certbot==1.11.0
 certbot-nginx==1.11.0
-django-debug-toolbar==3.2
+django-debug-toolbar==3.2.1
 django-user-accounts==3.0.2
 django-bootstrap4==2.3.1
 flower==0.9.7
