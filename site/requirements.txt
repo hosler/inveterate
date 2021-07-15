@@ -26,3 +26,4 @@ django-user-accounts==3.0.2
 django-bootstrap4==2.3.1
 flower==0.9.7
 dj-stripe==2.4.3
+nginx-config-builder==1.0.1
