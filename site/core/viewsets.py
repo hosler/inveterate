@@ -19,7 +19,8 @@ from .serializers import \
     BillingTypeSerializer, \
     InventorySerializer, \
     BlestaBackendSerializer, \
-    DomainSerializer
+    DomainSerializer, \
+    NodeDiskSerializer
 
 from .models import \
     IPPool, \
@@ -33,7 +34,9 @@ from .models import \
     VMNode, \
     BillingType, \
     Inventory, \
-    BlestaBackend
+    BlestaBackend, \
+    Domain, \
+    NodeDisk
 
 
 class ReadOnly(BasePermission):
@@ -63,7 +66,7 @@ class FormModelViewSet(viewsets.ModelViewSet):
 
 class DomainViewSet(FormModelViewSet):
     permission_classes = [IsAdminUser]
-    queryset = Config.objects.order_by('pk')
+    queryset = Domain.objects.order_by('pk')
     serializer_class = DomainSerializer
 
 
@@ -71,6 +74,12 @@ class ConfigSettingsViewSet(FormModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Config.objects.order_by('pk')
     serializer_class = ConfigSettingsSerializer
+
+
+class NodeDiskViewSet(FormModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = NodeDisk.objects.order_by('pk')
+    serializer_class = NodeDiskSerializer
 
 
 class BlestaBackendViewSet(FormModelViewSet):
@@ -162,7 +171,7 @@ class ServiceViewSet(FormModelViewSet):
 
     @action(detail=True)
     def provision(self, request, pk=None):
-        provision_service(pk)
+        provision_service(pk, password='default')
         return Response({'status': 'ok'})
 
     def get_queryset(self):

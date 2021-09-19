@@ -94,12 +94,8 @@ class Plan(PlanBase):
         return self.name
 
 
-class ServicePlan(PlanBase):
-    type = models.CharField(max_length=255, default="lxc", choices=VM_TYPES)
-    template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
 
-    def __str__(self):
-        return str(self.id)
+
 
 
 class VMNode(PlanBase):
@@ -115,6 +111,21 @@ class VMNode(PlanBase):
     def __str__(self):
         return self.name
 
+
+class NodeDisk(models.Model):
+    node = models.ForeignKey(VMNode, on_delete=models.CASCADE, related_name='node_disk')
+    name = models.CharField(max_length=255, null=False)
+    size = models.IntegerField()
+    primary = models.BooleanField(default=True)
+
+
+class ServicePlan(PlanBase):
+    type = models.CharField(max_length=255, default="lxc", choices=VM_TYPES)
+    template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
+    storage = models.ForeignKey(NodeDisk, null=True, on_delete=models.SET_NULL)
+
+    def __str__(self):
+        return str(self.id)
 
 class ServiceBandwidth(models.Model):
     bandwidth = models.IntegerField(default=0)
@@ -150,6 +161,8 @@ class Service(models.Model):
         super().delete(*args, **kwargs)
         if self.service_plan:
             self.service_plan.delete()
+        if self.bandwidth:
+            self.bandwidth.delete()
 
 
 class ServiceNetwork(models.Model):

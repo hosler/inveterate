@@ -17,6 +17,7 @@ import os
 import environ
 from kombu import Exchange, Queue
 
+
 env = environ.Env(
     # set casting, default value
     DEBUG=(bool, False),

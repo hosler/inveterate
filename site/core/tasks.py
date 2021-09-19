@@ -16,6 +16,7 @@ import traceback
 from requests.exceptions import ConnectionError
 import djstripe.settings
 import stripe
+import time
 
 from django.db.models import Sum
 logger = logging.getLogger()
@@ -35,7 +36,10 @@ def calculate_inventory():
                     services_value = 0
                 node_value = getattr(node, field)
                 plan_value = getattr(plan, field)
-                quantity = int((node_value-services_value)/plan_value)
+                try:
+                    quantity = int((node_value-services_value)/plan_value)
+                except ZeroDivisionError:
+                    quantity = float('inf')
                 if lowest is None:
                     lowest = quantity
                 elif quantity < lowest:
@@ -45,70 +49,167 @@ def calculate_inventory():
             inventory.save()
 
 
-
 @shared_task(base=Singleton, lock_expiry=60*15)
 def provision_service(service_id, password):
     service = Service.objects.get(pk=service_id)
     proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate', token_value=service.node.key,
-                         verify_ssl=False, port=8006)
+                         verify_ssl=False, port=8006, timeout=600)
     node = proxmox.nodes(service.node)
-    if service.service_plan.template.type == "lxc":
-        container = {
-            'ostemplate': f'local:vztmpl/{service.service_plan.template.file}',
-            'hostname': service.hostname,
-            'storage': 'local-lvm',
-            'memory': service.service_plan.ram,
-            'swap': service.service_plan.swap,
-            'cores': service.service_plan.cores,
-            'rootfs': f'{service.service_plan.size}',
-            'password': password,
-            'unprivileged': '1',
-            'onboot': '1',
-            'start': '1',
-            'searchdomain': service.hostname,
-            'pool': 'inveterate'
-        }
+    service.type = service.service_plan.template.type
+    try:
+        proxmox.pools.post(poolid="inveterate")
+    except ResourceException:
+        pass
+
+    service.machine_id = f"1{service.id:06}"
+    try:
+        if service.type == "kvm":
+            clone_data = {
+                'newid': service.machine_id,
+                'storage': service.service_plan.storage.name,
+                'full': 1,
+                #'pool': 'inveterate'
+            }
+            try:
+                node.qemu(service.service_plan.template.file).clone.post(**clone_data)
+            except ResourceException as e:
+                if "config file already exists" in str(e):
+                    pass
+                else:
+                    raise
+
+            vm_data = {
+                'onboot': 1,
+                'memory': service.service_plan.ram,
+                'vcpus': service.service_plan.cores,
+                'balloon': 0,
+                'name': service.hostname,
+            }
+        if service.type == "lxc":
+            vm_data = {
+                'ostemplate': f'local:vztmpl/{service.service_plan.template.file}',
+                'hostname': service.hostname,
+                'storage': 'local-lvm',
+                'memory': service.service_plan.ram,
+                'swap': service.service_plan.swap,
+                'cores': service.service_plan.cores,
+                'rootfs': f'{service.service_plan.size}',
+                'password': password,
+                'unprivileged': '1',
+                'onboot': '1',
+                'start': '1',
+                'searchdomain': service.hostname,
+                'pool': 'inveterate'
+            }
+
         for network in service.service_network.all():
             firewall = 0
             if network.ip.pool.internal is True:
                 firewall = 1
-            if network.ip.pool.type == "ipv4":
-                container[f'net{network.net_id}'] = \
-                    f'name=eth{network.net_id},bridge={network.ip.pool.interface},' \
-                    f'ip={network.ip.value}/{network.ip.pool.mask},' \
-                    f'gw={network.ip.pool.gateway},firewall={firewall}'
-            else:
-                container[f'net{network.net_id}'] = \
-                    f'name=eth{network.net_id},bridge={network.ip.pool.interface},' \
-                    f'ip6={network.ip.value}/{network.ip.pool.mask},' \
-                    f'gw6={network.ip.pool.gateway},firewall={firewall}'
+            net_data = {
+                'bridge': network.ip.pool.interface,
+                'firewall': firewall
+            }
+            if service.type == "kvm":
+                net_data['model'] = 'virtio'
+                if network.ip.pool.type == "ipv4":
+                    vm_data[f'ipconfig{network.net_id}'] = f'ip={network.ip.value}/{network.ip.pool.mask},' \
+                                                           f'gw={network.ip.pool.gateway}'
+                else:
+                    vm_data[f'ipconfig{network.net_id}'] = f'ip6={network.ip.value}/{network.ip.pool.mask},' \
+                                                           f'gw6={network.ip.pool.gateway}'
+            if service.type == "lxc":
+                net_data['name'] = f'eth{network.net_id}'
+                if network.ip.pool.type == "ipv4":
+                    net_data['ip'] = f'{network.ip.value}/{network.ip.pool.mask}'
+                    net_data['gw'] = f'{network.ip.pool.gateway}'
+                else:
+                    net_data['ip6'] = f'{network.ip.value}/{network.ip.pool.mask}'
+                    net_data['gw6'] = f'{network.ip.pool.gateway}'
 
-        now = datetime.now()
-        ServiceBandwidth.objects.create(service=service, renewal_dtm=now + relativedelta(months=1))
-        service.machine_id = f"1{service.id:06}"
-        try:
+            vm_data[f'net{network.net_id}'] = ",".join([f'{key}={value}' for key, value in net_data.items()])
+
+            now = datetime.now()
+            ServiceBandwidth.objects.create(service=service, renewal_dtm=now + relativedelta(months=1))
+
+        machine = None
+        if service.type == "kvm":
+            node.qemu(service.machine_id).config.post(**vm_data)
+            lock = True
+            while lock:
+                status = node.qemu(service.machine_id).status.current.get()
+                if "lock" not in status:
+                    lock = False
+                else:
+                    time.sleep(1)
+            node.qemu(service.machine_id).resize.put(disk='scsi0', size=f'{service.service_plan.size}G')
+            machine = node.qemu(service.machine_id)
+        if service.type == "lxc":
+            node.lxc.create(vmid=service.machine_id, **vm_data)
+            machine = node.lxc(service.machine_id)
+
+        for network in service.service_network.all():
             try:
-                proxmox.pools.post(poolid="inveterate")
-            except ResourceException:
-                pass
-            node.lxc.create(vmid=service.machine_id, **container)
-            node.lxc(service.machine_id).firewall.options.put(enable=1)
-        except Exception as e:
-            service.status = "error"
-            service.status_msg = str(e)
+                cidrs = machine.firewall.ipset(f'ipfilter-net{network.net_id}').get()
+                for cidr in cidrs:
+                    machine.firewall.ipset(f"ipfilter-net{network.net_id}/{cidr['cidr']}").delete()
+                machine.firewall.ipset(f'ipfilter-net{network.net_id}').delete()
+            except ResourceException as e:
+                if "no such IPSet" in str(e):
+                    pass
+                else:
+                    raise
+
+        machine.firewall.ipset.post(name=f'ipfilter-net{network.net_id}')
+        machine.firewall.ipset(f'ipfilter-net{network.net_id}').post(cidr=f'{network.ip.value}')
+        machine.firewall.options.put(enable=1, ipfilter=1)
+        for rule in machine.firewall.rules.get():
+            if rule['type'] == 'group' and rule['action'] == 'inveterate':
+                break
         else:
-            service.status = "active"
-        service.save()
+            machine.firewall.rules.post(type="group", action="inveterate")
+    except Exception as e:
+        service.status = "error"
+        service.status_msg = str(e)
+        raise
+    else:
+        service.status = "active"
+        service.status_msg = None
+    service.save()
 
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def suspend_service(service_id):
-    return True
+    service = Service.objects.get(pk=service_id)
+    proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate',
+                         token_value=service.node.key,
+                         verify_ssl=False, port=8006)
+    node = proxmox.nodes(service.node)
+    machine = None
+    if service.type == "kvm":
+        machine = node.qemu(service.machine_id)
+    if service.type == "lxc":
+        machine = node.lxc(service.machine_id)
+    machine.status.suspend.post(todisk=1)
+    service.status = "suspended"
+    service.save()
 
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def reinstate_service(service_id):
-    return True
+    service = Service.objects.get(pk=service_id)
+    proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate',
+                         token_value=service.node.key,
+                         verify_ssl=False, port=8006)
+    node = proxmox.nodes(service.node)
+    machine = None
+    if service.type == "kvm":
+        machine = node.qemu(service.machine_id)
+    if service.type == "lxc":
+        machine = node.lxc(service.machine_id)
+    machine.status.start.post()
+    service.status = "active"
+    service.save()
 
 
 @shared_task(base=Singleton, lock_expiry=60*15)

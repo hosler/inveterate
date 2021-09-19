@@ -19,9 +19,10 @@ from .serializers import \
     OrderNewServiceSerializer, \
     VMNodeSerializer, \
     BillingTypeSerializer, \
-    InventorySerializer
+    InventorySerializer, \
+    NodeDiskSerializer
 
-from .models import Service, BillingType
+from .models import Service, BillingType, Inventory
 
 from .forms import OrderProfileForm, OrderCustomizeVMForm, OrderPackageForm, NewServiceForm
 
@@ -43,6 +44,7 @@ from django.contrib.sites.models import Site
 
 #load hooks
 import core.stripe_hooks
+
 
 def get_field_headers(serializer, headers=None, name=None):
     if headers is None:
@@ -97,6 +99,14 @@ class ConfigSettingsView(SerializedAjaxFormView):
 class VMNodeView(SerializedAjaxFormView):
     serializer = VMNodeSerializer
     api = 'node'
+
+    def test_func(self):
+        return self.request.user.is_superuser
+
+
+class NodeDiskView(SerializedAjaxFormView):
+    serializer = NodeDiskSerializer
+    api = 'node-disk'
 
     def test_func(self):
         return self.request.user.is_superuser
@@ -197,7 +207,7 @@ class Console(APIView):
                                  port=8006)
             tokens = proxmox.get_tokens()
             response = Response(
-                {"username": f"{proxmox_user}@pve", "token": tokens[1], "type": "lxc", "node": service.node.name,
+                {"username": f"{proxmox_user}@pve", "token": tokens[1], "type": "kvm", "node": service.node.name,
                  "vmid": service.machine_id})
             response.set_cookie('PVEAuthCookie', urllib.parse.quote_plus(tokens[0]))
         return response
@@ -212,6 +222,8 @@ class Billing(View):
         except KeyError:
             raise
         service = Service.objects.get(id=service_id)
+        if service.billing_type is None:
+            return render(request, self.template_name)
         if service.billing_type.type == "blesta":
             billing_backend = service.billing_type.backend
             blesta = BlestaApi(billing_backend.host, billing_backend.user,
@@ -276,20 +288,63 @@ class Pricing(View):
     template_name = 'pricing.html'
 
     def get(self, request, *args, **kwargs):
-        return render(request, self.template_name)
+        calculate_inventory()
+        inventory = Inventory.objects.all()
+        plans = []
+        for item in inventory:
+            plan = {
+                "name": item.plan.name,
+                "price": item.plan.price,
+                "period": item.plan.period,
+                "ram": item.plan.ram,
+                "cores": item.plan.cores,
+                "bandwidth": item.plan.bandwidth,
+                "size": item.plan.size
+            }
+            if item.plan.ipv6_ips > 0:
+                plan["ipv6"] = item.plan.ipv6_ips
+            if item.plan.ipv4_ips > 0:
+                plan["ipv4"] = item.plan.ipv4_ips
+            if item.plan.internal_ips > 0:
+                plan["internal_ips"] = item.plan.internal_ips
+
+            plans.append(plan)
+        return render(request, self.template_name, {"plans": plans})
 
 
 class OrderForm(View):
     template_name = 'order.html'
 
     def get(self, request, *args, **kwargs):
+        inventory = Inventory.objects.all()
+        plans = []
+        for item in inventory:
+            plan = {
+                "id": item.plan.id,
+                "name": item.plan.name,
+                "price": item.plan.price,
+                "period": item.plan.period,
+                "ram": item.plan.ram,
+                "cores": item.plan.cores,
+                "bandwidth": item.plan.bandwidth,
+                "size": item.plan.size
+            }
+            if item.plan.ipv6_ips > 0:
+                plan["ipv6"] = item.plan.ipv6_ips
+            if item.plan.ipv4_ips > 0:
+                plan["ipv4"] = item.plan.ipv4_ips
+            if item.plan.internal_ips > 0:
+                plan["internal_ips"] = item.plan.internal_ips
+
+            plans.append(plan)
         profile_form = OrderProfileForm()
         customize_form = OrderCustomizeVMForm()
         package_form = OrderPackageForm()
         ctx = {
             'profile_form': profile_form,
             'customize_form': customize_form,
-            'package_form': package_form
+            'package_form': package_form,
+            'plans': plans
         }
         return render(request, self.template_name, ctx)
 
@@ -298,6 +353,10 @@ class OrderForm(View):
         customize_form = OrderCustomizeVMForm(request.POST)
         package_form = OrderPackageForm(request.POST)
         if profile_form.is_valid() and customize_form.is_valid() and package_form.is_valid():
+            try:
+                billing_type = BillingType.objects.get(name='Stripe').id
+            except BillingType.DoesNotExist:
+                billing_type = None
             data = {
                 'owner': request.user.username,
                 'plan': package_form.cleaned_data['package'],
@@ -305,7 +364,7 @@ class OrderForm(View):
                 'hostname': customize_form.cleaned_data['hostname'],
                 'password': customize_form.cleaned_data['password'],
                 'node': 'robo',
-                'billing_type': BillingType.objects.get(name='Stripe').id
+                'billing_type': billing_type
             }
             q = QueryDict(mutable=True)
             q.update(data)

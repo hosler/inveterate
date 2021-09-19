@@ -57,20 +57,29 @@
                                     <div class="tab-pane" id="packages">
                                         {{ package_form|crispy }}
                                         <div class="radio-group row justify-content-center">
+                                            {% for plan in plans %}
                                             <div class="col-lg-3 col-md-6 cards">
-                                                <div class="card card-pricing radio card-raised" data-id="2">
-                                                    <h6 class="card-category"> LXC Lite</h6>
+                                                <div class="card card-pricing radio card-raised" data-id="{{ plan.id }}">
+                                                    <h6 class="card-category"> {{ plan.name }}</h6>
                                                     <div class="card-body">
                                                         <div class="card-icon icon-rose ">
                                                             <i class="material-icons">home</i>
                                                         </div>
-                                                        <h3 class="card-title">$2/Month</h3>
+                                                        <h3 class="card-title">${{ plan.price }} {{ plan.period | capfirst }}</h3>
                                                         <div class="col-sm-11 ml-auto card-description" align="left">
-                                                            <i class="fa fa-circle text-info"></i> 8GB SSD Storage<br>
-                                                            <i class="fa fa-circle text-info"></i> 1024 MB RAM<br>
-                                                            <i class="fa fa-circle text-info"></i> 500 GB Bandwidth<br>
-                                                            <i class="fa fa-circle text-info"></i> 1 vCPU Cores<br>
-                                                            <i class="fa fa-circle text-info"></i> 1 IPv6<br>
+                                                            <i class="fa fa-circle text-info"></i> {{ plan.size }}GB SSD Storage<br>
+                                                            <i class="fa fa-circle text-info"></i> {{ plan.ram }} MB RAM<br>
+                                                            <i class="fa fa-circle text-info"></i> {{ plan.bandwidth }} GB Bandwidth<br>
+                                                            <i class="fa fa-circle text-info"></i> {{ plan.cores }} vCPU Cores<br>
+                                                            {% if plan.ipv6 %}
+                                                            <i class="fa fa-circle text-info"></i> {{ plan.ipv6 }} IPv6<br>
+                                                            {% endif %}
+                                                            {% if plan.ipv4 %}
+                                                            <i class="fa fa-circle text-info"></i> {{ plan.ipv4 }} IPv4<br>
+                                                            {% endif %}
+                                                            {% if plan.internal_ips %}
+                                                            <i class="fa fa-circle text-info"></i> {{ plan.internal_ips }} NAT IP<br>
+                                                            {% endif %}
                                                         </div>
                                                     </div>
                                                     <div class="card-footer justify-content-center ">
@@ -78,48 +87,7 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div class="col-lg-3 col-md-6 cards">
-                                                <div class="card card-pricing radio card-plain" data-id="3">
-                                                    <h6 class="card-category"> LXC Basic</h6>
-                                                    <div class="card-body">
-                                                        <div class="card-icon icon-primary ">
-                                                            <i class="material-icons">business</i>
-                                                        </div>
-                                                        <h3 class="card-title">$3/Month</h3>
-                                                        <div class="col-sm-11 ml-auto card-description" align="left">
-                                                            <i class="fa fa-circle text-info"></i> 16GB SSD Storage<br>
-                                                            <i class="fa fa-circle text-info"></i> 2048 MB RAM<br>
-                                                            <i class="fa fa-circle text-info"></i> 500 GB Bandwidth<br>
-                                                            <i class="fa fa-circle text-info"></i> 2 vCPU Cores<br>
-                                                            <i class="fa fa-circle text-info"></i> 1 IPv6<br>
-                                                        </div>
-                                                    </div>
-                                                    <div class="card-footer justify-content-center ">
-                                                        <a href="#" class="btn btn-round btn-rose">Get Started</a>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="col-lg-3 col-md-6 cards">
-                                                <div class="card card-pricing radio card-plain" data-id="1">
-                                                    <h6 class="card-category"> LXC Plus</h6>
-                                                    <div class="card-body">
-                                                        <div class="card-icon icon-danger ">
-                                                            <i class="material-icons">account_balance</i>
-                                                        </div>
-                                                        <h3 class="card-title">$5/Month</h3>
-                                                        <div class="col-sm-11 ml-auto card-description" align="left">
-                                                            <i class="fa fa-circle text-info"></i> 32GB SSD Storage<br>
-                                                            <i class="fa fa-circle text-info"></i> 4096 MB RAM<br>
-                                                            <i class="fa fa-circle text-info"></i> 1000 GB Bandwidth<br>
-                                                            <i class="fa fa-circle text-info"></i> 4 vCPU Cores<br>
-                                                            <i class="fa fa-circle text-info"></i> 1 IPv6<br>
-                                                        </div>
-                                                    </div>
-                                                    <div class="card-footer justify-content-center ">
-                                                        <a href="#" class="btn btn-round btn-rose">Get Started</a>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                            {% endfor %}
                                         </div>
                                     </div>
                                     <div class="tab-pane" id="customize">

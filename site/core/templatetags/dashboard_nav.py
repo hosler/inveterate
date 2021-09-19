@@ -17,8 +17,10 @@ class DashboardNav(template.Node):
                              'pools',
                              'ips',
                              'nodes',
+                             'node-disks',
                              'billing',
-                             'configs'])
+                             #'configs'
+                             ])
             #context['var'] = request.user
             return t.render({"pages": urls}, request)
         else:

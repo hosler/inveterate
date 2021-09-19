@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import IPPool, Inventory, IP, Plan, Service, \
-    ServicePlan, Template, ServiceNetwork, Config, \
-    BillingType, VMNode, BlestaBackend, Domain
+    ServicePlan, Template, ServiceNetwork, Config, NodeDisk,\
+    BillingType, VMNode, BlestaBackend, Domain, NodeDisk
 from django.db import transaction
 import ipaddress
 from proxmoxer import ProxmoxAPI
@@ -70,32 +70,31 @@ class IPPoolSerializer(serializers.ModelSerializer):
         generate_ips = validated_data.pop("generate_ips")
         start_address = validated_data.pop("start_address")
         end_address = validated_data.pop("end_address")
+        networks = ipaddress.summarize_address_range(
+            ipaddress.ip_address(start_address),
+            ipaddress.ip_address(end_address))
         ip_pool = super().create(validated_data)
         if generate_ips is True:
-            networks = ipaddress.summarize_address_range(
-                ipaddress.ip_address(start_address),
-                ipaddress.ip_address(end_address))
-
             for network in networks:
                 for ip in network:
                     try:
                         IP.objects.create(pool=ip_pool, value=str(ip))
                     except IntegrityError:
                         pass
-        if ip_pool.internal is True:
-            for node in ip_pool.nodes.all():
-                proxmox = ProxmoxAPI(node.host, user=node.user, token_name='inveterate',
-                                     token_value=node.key,
-                                     verify_ssl=False, port=8006)
-                node = proxmox.nodes(node.name)
-                node_rules = node.firewall.rules.get()
-                rules = {}
-                for node_rule in node_rules:
-                    rules[(node_rule["source"], node_rule["dest"])] = node_rule["action"]
-                rule_key = (f'{ip_pool.network}/{ip_pool.mask}', f'{ip_pool.network}/{ip_pool.mask}')
-                if rule_key in rules:
-                    if rules[rule_key] == "DROP":
-                        continue
+        # if ip_pool.internal is True:
+        #     for node in ip_pool.nodes.all():
+        #         proxmox = ProxmoxAPI(node.host, user=node.user, token_name='inveterate',
+        #                              token_value=node.key,
+        #                              verify_ssl=False, port=8006)
+        #         node = proxmox.nodes(node.name)
+        #         node_rules = node.firewall.rules.get()
+        #         rules = {}
+        #         for node_rule in node_rules:
+        #             rules[(node_rule["source"], node_rule["dest"])] = node_rule["action"]
+        #         rule_key = (f'{ip_pool.network}/{ip_pool.mask}', f'{ip_pool.network}/{ip_pool.mask}')
+        #         if rule_key in rules:
+        #             if rules[rule_key] == "DROP":
+        #                 continue
                 # TODO: add guest to guest blocking rule here
         return ip_pool
 
@@ -103,6 +102,12 @@ class IPPoolSerializer(serializers.ModelSerializer):
 class ConfigSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Config
+        fields = ('__all__')
+
+
+class NodeDiskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NodeDisk
         fields = ('__all__')
 
 
@@ -243,6 +248,8 @@ class ServiceSerializer(serializers.ModelSerializer):
         service_plan = sps.create(service_plan_data)
         password = validated_data.pop("password")
         service = super().create(validated_data)
+        service_plan.storage = service.node.node_disk.filter(primary=True).first()
+        service_plan.save()
         service.service_plan = service_plan
         service.save()
         for i in range(service_plan.internal_ips):
