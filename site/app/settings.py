@@ -43,7 +43,7 @@ INTERNAL_IPS = [
 
 ALLOWED_HOSTS = ['*']
 
-SIGNING_BACKEND = 'django_cryptography.core.signing.TimestampSigner'
+#SIGNING_BACKEND = 'django_cryptography.core.signing.TimestampSigner'
 
 
 AUTHENTICATION_BACKENDS = (
