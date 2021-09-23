@@ -3,7 +3,6 @@ from celery_singleton import Singleton
 from .models import VMNode, Plan, Inventory, Service, ServiceBandwidth, BillingType
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
-import string
 import logging
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
@@ -11,7 +10,6 @@ from django.utils import timezone
 from app.blesta.api import BlestaApi
 from app.blesta.objects import BlestaObject, BlestaUser, BlestaPlan
 from djstripe.models import Product, Price, Customer
-import random
 import traceback
 from requests.exceptions import ConnectionError
 import djstripe.settings
@@ -20,6 +18,7 @@ import time
 
 from django.db.models import Sum
 logger = logging.getLogger()
+
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def calculate_inventory():

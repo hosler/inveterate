@@ -357,13 +357,15 @@ class OrderForm(View):
                 billing_type = BillingType.objects.get(name='Stripe').id
             except BillingType.DoesNotExist:
                 billing_type = None
+
+            node = Inventory.objects.all().filter(plan=package_form.cleaned_data['package'], quantity__gt=0).first()['node']
             data = {
                 'owner': request.user.username,
                 'plan': package_form.cleaned_data['package'],
                 'template': customize_form.cleaned_data['template'],
                 'hostname': customize_form.cleaned_data['hostname'],
                 'password': customize_form.cleaned_data['password'],
-                'node': 'robo',
+                'node': node,
                 'billing_type': billing_type
             }
             q = QueryDict(mutable=True)
