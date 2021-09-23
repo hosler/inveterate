@@ -358,7 +358,7 @@ class OrderForm(View):
             except BillingType.DoesNotExist:
                 billing_type = None
 
-            node = Inventory.objects.all().filter(plan=package_form.cleaned_data['package'], quantity__gt=0).first()['node']
+            node = Inventory.objects.all().filter(plan_id=package_form.cleaned_data['package'].id, quantity__gt=0).first().node
             data = {
                 'owner': request.user.username,
                 'plan': package_form.cleaned_data['package'],
