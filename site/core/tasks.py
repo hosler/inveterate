@@ -71,6 +71,13 @@ def provision_service(service_id, password):
             }
             try:
                 node.qemu(service.service_plan.template.file).clone.post(**clone_data)
+                lock = True
+                while lock:
+                    status = node.qemu(service.machine_id).status.current.get()
+                    if "lock" not in status:
+                        lock = False
+                    else:
+                        time.sleep(1)
             except ResourceException as e:
                 if "config file already exists" in str(e):
                     pass
@@ -170,7 +177,6 @@ def provision_service(service_id, password):
     except Exception as e:
         service.status = "error"
         service.status_msg = str(e)
-        raise
     else:
         service.status = "active"
         service.status_msg = None
