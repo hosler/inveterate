@@ -161,7 +161,7 @@ CELERY_DEFAULT_QUEUE = 'default'
 CELERY_DEFAULT_EXCHANGE = 'default'
 CELERY_DEFAULT_ROUTING_KEY = 'default'
 
-CELERY_ROUTES = ({'core.tasks.get_certs': {
+CELERY_TASK_ROUTES = ({'core.tasks.get_certs': {
     'queue': 'acme',
     'routing_key': 'acme'
 }},)

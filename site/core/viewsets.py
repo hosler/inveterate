@@ -152,8 +152,8 @@ class InventoryViewSet(FormModelViewSet):
 
     @action(detail=False)
     def calculate(self, request):
-        calculate_inventory.delay()
-        return Response({'status': 'ok'})
+        task = calculate_inventory.delay()
+        return Response({"task_id": task.id}, status=202)
 
 
 class ServiceViewSet(FormModelViewSet):
@@ -171,8 +171,8 @@ class ServiceViewSet(FormModelViewSet):
 
     @action(detail=True)
     def provision(self, request, pk=None):
-        provision_service.delay(pk, password='default')
-        return Response({'status': 'ok'})
+        task = provision_service.delay(pk, password='default')
+        return Response({"task_id": task.id}, status=202)
 
     def get_queryset(self):
         if self.request.user.is_staff:
