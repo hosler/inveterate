@@ -144,6 +144,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'app.wsgi.application'
 
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'my_cache_table',
+    }
+}
+
 
 CELERY_BROKER_URL = f'redis://{REDIS_HOST}:6379'
 CELERY_RESULT_BACKEND = 'django-db'
