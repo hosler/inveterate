@@ -289,11 +289,11 @@ class ServiceSerializer(serializers.ModelSerializer):
                         break
 
         if service.billing_type is None:
-            provision_service(service.id, password)
+            provision_service.delay(service.id, password)
         else:
             provision_billing(service.id)
             if service.billing_type.type == "blesta":
-                provision_service(service.id, password)
+                provision_service.delay(service.id, password)
         return service
 
 

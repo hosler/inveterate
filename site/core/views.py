@@ -288,7 +288,6 @@ class Pricing(View):
     template_name = 'pricing.html'
 
     def get(self, request, *args, **kwargs):
-        calculate_inventory()
         inventory = Inventory.objects.all()
         plans = []
         for item in inventory:

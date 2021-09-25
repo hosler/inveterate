@@ -181,6 +181,7 @@ def provision_service(service_id, password):
         service.status = "active"
         service.status_msg = None
     service.save()
+    calculate_inventory.delay()
 
 
 @shared_task(base=Singleton, lock_expiry=60*15)
