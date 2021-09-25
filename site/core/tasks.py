@@ -48,7 +48,7 @@ def calculate_inventory():
             inventory.save()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(lock_expiry=60*15)
 def provision_service(service_id, password):
     service = Service.objects.get(pk=service_id)
     proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate', token_value=service.node.key,
