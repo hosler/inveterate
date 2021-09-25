@@ -48,6 +48,7 @@ ALLOWED_HOSTS = ['*']
 
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
 )
 
 # Application definition
@@ -63,10 +64,15 @@ INSTALLED_APPS = [
     'django_celery_results',
     'django_celery_beat',
     'debug_toolbar',
-    'account',
     'djstripe',
     'rest_framework',
     'rest_framework.authtoken',
+    'rest_auth', # new
+    'allauth', # new
+    'allauth.account', # new
+    'allauth.socialaccount', # new
+    'rest_auth.registration', # new
+    'corsheaders', # new
     'django_filters',
     'rest_framework_datatables',
     'bootstrap4',
@@ -79,6 +85,7 @@ CRISPY_TEMPLATE_PACK = 'bootstrap4'
 SITE_ID = 1
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -86,8 +93,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'account.middleware.LocaleMiddleware',
-    'account.middleware.TimezoneMiddleware',
+    #'account.middleware.LocaleMiddleware',
+    #'account.middleware.TimezoneMiddleware',
     'debug_toolbar.middleware.DebugToolbarMiddleware',
 ]
 
@@ -124,7 +131,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'account.context_processors.account',
+                #'account.context_processors.account',
             ],
         },
     },
@@ -168,6 +175,7 @@ DATABASES = {
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
         'app.auth.TokenAuthSupportQueryString',
     ],
     'DEFAULT_PERMISSION_CLASSES': [

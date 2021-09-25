@@ -3,7 +3,8 @@ import hmac
 import hashlib
 from urllib import parse
 
-from account.decorators import login_required
+#from account.decorators import login_required
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.conf import settings
 
