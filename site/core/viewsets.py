@@ -152,7 +152,7 @@ class InventoryViewSet(FormModelViewSet):
 
     @action(detail=False)
     def calculate(self, request):
-        calculate_inventory()
+        calculate_inventory.delay()
         return Response({'status': 'ok'})
 
 
@@ -171,7 +171,7 @@ class ServiceViewSet(FormModelViewSet):
 
     @action(detail=True)
     def provision(self, request, pk=None):
-        provision_service(pk, password='default')
+        provision_service.delay(pk, password='default')
         return Response({'status': 'ok'})
 
     def get_queryset(self):
