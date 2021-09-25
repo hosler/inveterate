@@ -4,7 +4,9 @@ import core.viewsets as viewsets
 from rest_framework import routers
 from django.urls import path, re_path
 from core.decorators.anonymouse_required import anonymous_required
-from account.decorators import login_required
+#from account.decorators import login_required
+from django.contrib.auth.decorators import login_required
+
 
 router = routers.DefaultRouter()
 router.register(r'plans', viewsets.PlanViewSet, basename='plan')
