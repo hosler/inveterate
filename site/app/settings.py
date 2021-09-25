@@ -67,22 +67,29 @@ INSTALLED_APPS = [
     'djstripe',
     'rest_framework',
     'rest_framework.authtoken',
-    'rest_auth', # new
-    'allauth', # new
-    'allauth.account', # new
-    'allauth.socialaccount', # new
-    'rest_auth.registration', # new
-    'corsheaders', # new
+    'rest_auth',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'rest_auth.registration',
+    'corsheaders',
     'django_filters',
     'rest_framework_datatables',
     'bootstrap4',
     'crispy_forms',
+    'users',
     'core',
 ]
 
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
 SITE_ID = 1
+
+REST_AUTH_SERIALIZERS = {
+    # Changed
+    'USER_DETAILS_SERIALIZER': 'users.serializers.UserDetailsSerializerWithType',
+}
+
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -93,8 +100,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    #'account.middleware.LocaleMiddleware',
-    #'account.middleware.TimezoneMiddleware',
     'debug_toolbar.middleware.DebugToolbarMiddleware',
 ]
 

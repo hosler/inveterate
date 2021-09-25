@@ -22,7 +22,6 @@ from .views import discourse_sso
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("stripe/", include("djstripe.urls", namespace="djstripe")),
-    #url(r'^account/', include("account.urls")),
     path('auth/', include('rest_auth.urls')),
     path('auth/register/', include('rest_auth.registration.urls')),
     path('', include('core.urls')),
