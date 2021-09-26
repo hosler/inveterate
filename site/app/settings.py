@@ -136,7 +136,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                #'account.context_processors.account',
             ],
         },
     },
@@ -160,18 +159,18 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 #CELERY_IMPORTS = detect_tasks(BASE_DIR)
-# CELERY_QUEUES = (
-#     Queue('default', Exchange('default', type='direct'), routing_key='default'),
-#     Queue('acme', Exchange('acme', type='direct'), routing_key='acme'),
-# )
-# CELERY_DEFAULT_QUEUE = 'default'
-# CELERY_DEFAULT_EXCHANGE = 'default'
-# CELERY_DEFAULT_ROUTING_KEY = 'default'
+CELERY_QUEUES = (
+    Queue('default', Exchange('default', type='direct'), routing_key='default'),
+    Queue('acme', Exchange('acme', type='direct'), routing_key='acme'),
+)
+CELERY_DEFAULT_QUEUE = 'default'
+CELERY_DEFAULT_EXCHANGE = 'default'
+CELERY_DEFAULT_ROUTING_KEY = 'default'
 #
-# CELERY_TASK_ROUTES = ({'core.tasks.get_certs': {
-#     'queue': 'acme',
-#     'routing_key': 'acme'
-# }},)
+CELERY_TASK_ROUTES = ({'core.tasks.get_certs': {
+    'queue': 'acme',
+    'routing_key': 'acme'
+}},)
 
 
 DATABASES = {
