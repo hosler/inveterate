@@ -67,10 +67,25 @@ def provision_service(service_id, password):
                 'newid': service.machine_id,
                 'storage': service.service_plan.storage.name,
                 'full': 1,
+                'target': service.node.name
                 #'pool': 'inveterate'
             }
+            clone_node = node
             try:
-                node.qemu(service.service_plan.template.file).clone.post(**clone_data)
+                kvm_templates = proxmox.pools('templates').get()
+            except ResourceException:
+                pass
+            else:
+                if "members" in kvm_templates:
+                    for member in kvm_templates["members"]:
+                        if member["vmid"] != service.service_plan.template.file:
+                            continue
+                        else:
+                            clone_node = proxmox.nodes(member["node"])
+                            break
+
+            try:
+                clone_node.qemu(service.service_plan.template.file).clone.post(**clone_data)
                 lock = True
                 while lock:
                     status = node.qemu(service.machine_id).status.current.get()

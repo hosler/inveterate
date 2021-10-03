@@ -174,6 +174,39 @@ class ServiceViewSet(FormModelViewSet):
         task = provision_service.delay(pk, password='default')
         return Response({"task_id": task.id}, status=202)
 
+    @action(detail=True)
+    def console_cookie(self, request, pk=None):
+        try:
+            service_id = pk
+        except KeyError:
+            raise
+        else:
+            service = Service.objects.get(id=pk)
+            proxmox_user = f'inveterate{service.owner_id}'
+            password = ''.join(
+                random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation) for _ in
+                range(10))
+            proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate',
+                                 token_value=service.node.key,
+                                 verify_ssl=False, port=8006)
+
+            try:
+                proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
+            except ResourceException as e:
+                if "already exists" in str(e):
+                    proxmox.access.users(f"{proxmox_user}@pve").delete()
+                    proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
+            proxmox.access.acl.put(path=f"/vms/{service.machine_id}", roles=["PVEVMConsole"],
+                                   users=[f"{proxmox_user}@pve"])
+
+            proxmox = ProxmoxAPI(service.node.host, user=f'{proxmox_user}@pve', password=password, verify_ssl=False,
+                                 port=8006)
+            tokens = proxmox.get_tokens()
+            response = Response(
+                {"username": f"{proxmox_user}@pve", "cookie": tokens[0], "token": tokens[1], "type": "kvm", "node": service.node.name,
+                 "vmid": service.machine_id})
+        return response
+
     def get_queryset(self):
         if self.request.user.is_staff:
             return Service.objects.all().exclude(status='destroyed').order_by('pk')
