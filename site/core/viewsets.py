@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
-from .tasks import provision_service, calculate_inventory
+from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, reset_vm, shutdown_vm
 
 from rest_framework.decorators import action
 from .serializers import \
@@ -168,6 +168,31 @@ class ServiceViewSet(FormModelViewSet):
         'retrieve': ServiceSerializer
     }
     default_serializer_class = serializer_class
+
+    @action(detail=True)
+    def start(self, request, pk=None):
+        task = start_vm.delay(pk)
+        return Response({"task_id": task.id}, status=202)
+
+    @action(detail=True)
+    def shutdown(self, request, pk=None):
+        task = shutdown_vm.delay(pk)
+        return Response({"task_id": task.id}, status=202)
+
+    @action(detail=True)
+    def reset(self, request, pk=None):
+        task = reset_vm.delay(pk)
+        return Response({"task_id": task.id}, status=202)
+
+    @action(detail=True)
+    def stop(self, request, pk=None):
+        task = stop_vm.delay(pk)
+        return Response({"task_id": task.id}, status=202)
+
+    @action(detail=True)
+    def reboot(self, request, pk=None):
+        task = reboot_vm.delay(pk)
+        return Response({"task_id": task.id}, status=202)
 
     @action(detail=True)
     def provision(self, request, pk=None):

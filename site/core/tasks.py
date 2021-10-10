@@ -199,8 +199,7 @@ def provision_service(service_id, password):
     calculate_inventory.delay()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
-def suspend_service(service_id):
+def get_vm(service_id):
     service = Service.objects.get(pk=service_id)
     proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate',
                          token_value=service.node.key,
@@ -211,6 +210,28 @@ def suspend_service(service_id):
         machine = node.qemu(service.machine_id)
     if service.type == "lxc":
         machine = node.lxc(service.machine_id)
+    return machine, service
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def start_vm(service_id):
+    machine, service = get_vm(service_id)
+    machine.status.start.post()
+
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def shutdown_vm(service_id):
+    machine, service = get_vm(service_id)
+    machine.status.shutdown.post()
+
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def reboot_vm(service_id):
+    machine, service = get_vm(service_id)
+    machine.status.reboot.post()
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def suspend_service(service_id):
+    machine, service = get_vm(service_id)
     machine.status.suspend.post(todisk=1)
     service.status = "suspended"
     service.save()
@@ -218,16 +239,7 @@ def suspend_service(service_id):
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def reinstate_service(service_id):
-    service = Service.objects.get(pk=service_id)
-    proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate',
-                         token_value=service.node.key,
-                         verify_ssl=False, port=8006)
-    node = proxmox.nodes(service.node)
-    machine = None
-    if service.type == "kvm":
-        machine = node.qemu(service.machine_id)
-    if service.type == "lxc":
-        machine = node.lxc(service.machine_id)
+    machine, service = get_vm(service_id)
     machine.status.start.post()
     service.status = "active"
     service.save()
@@ -235,13 +247,8 @@ def reinstate_service(service_id):
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def cancel_service(service_id, cancel_date=datetime.now()):
-    service = Service.objects.get(pk=service_id)
-    proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate',
-                         token_value=service.node.key,
-                         verify_ssl=False, port=8006)
-    node = proxmox.nodes(service.node)
-    if service.service_plan.template.type == "lxc":
-        node.lxc(service.machine_id).delete(force=1)
+    machine, service = get_vm(service_id)
+    marchine.delete(force=1)
     service.status = "destroyed"
     service.save()
     blesta_instances = BillingType.objects.all().filter(type='blesta')
