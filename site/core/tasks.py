@@ -103,6 +103,7 @@ def provision_service(service_id, password):
                 'onboot': 1,
                 'memory': service.service_plan.ram,
                 'vcpus': service.service_plan.cores,
+                'cores': service.service_plan.cores,
                 'balloon': 0,
                 'name': service.hostname,
             }
@@ -206,9 +207,9 @@ def get_vm(service_id):
                          verify_ssl=False, port=8006)
     node = proxmox.nodes(service.node)
     machine = None
-    if service.type == "kvm":
+    if service.service_plan.type == "kvm":
         machine = node.qemu(service.machine_id)
-    if service.type == "lxc":
+    if service.service_plan.type == "lxc":
         machine = node.lxc(service.machine_id)
     return machine, service
 
@@ -217,6 +218,17 @@ def start_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.start.post()
 
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def stop_vm(service_id):
+    machine, service = get_vm(service_id)
+    machine.status.stop.post()
+
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def reset_vm(service_id):
+    machine, service = get_vm(service_id)
+    machine.status.reset.post()
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def shutdown_vm(service_id):
@@ -248,7 +260,7 @@ def reinstate_service(service_id):
 @shared_task(base=Singleton, lock_expiry=60*15)
 def cancel_service(service_id, cancel_date=datetime.now()):
     machine, service = get_vm(service_id)
-    marchine.delete(force=1)
+    machine.delete(force=1)
     service.status = "destroyed"
     service.save()
     blesta_instances = BillingType.objects.all().filter(type='blesta')
@@ -293,8 +305,12 @@ def meter_bandwidth():
             bandwidth.bandwidth_stale += bandwidth.bandwidth
             bandwidth.bandwidth_banked = 0
 
+        if service.service_plan.type == "lxc":
+            machine = node.lxc(service.machine_id)
+        elif service.service_plan.type == "kvm":
+            machine = node.qemu(service.machine_id)
 
-        data = node.lxc(service.machine_id).status.current.get()
+        data = machine.status.current.get()
         tick = data["uptime"]
         if tick > bandwidth.system_tick:
             try:
