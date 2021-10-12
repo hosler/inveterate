@@ -20,7 +20,8 @@ from .serializers import \
     InventorySerializer, \
     BlestaBackendSerializer, \
     DomainSerializer, \
-    NodeDiskSerializer
+    NodeDiskSerializer, \
+    CustomerServiceSerializer
 
 from .models import \
     IPPool, \
@@ -50,6 +51,16 @@ class ReadOnly(BasePermission):
             request.method in SAFE_METHODS
         )
 
+class IsAuthenticated(BasePermission):
+    """
+    The request is authenticated as a user, or is a read-only request.
+    """
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user and
+            request.user.is_authenticated
+        )
 
 class FormModelViewSet(viewsets.ModelViewSet):
 
@@ -161,7 +172,7 @@ class InventoryViewSet(FormModelViewSet):
 
 
 class ServiceViewSet(FormModelViewSet):
-    permission_classes = [IsAdminUser | ReadOnly]
+    permission_classes = [IsAdminUser | IsAuthenticated]
     serializer_class = ServiceSerializer
 
     admin_serializer_classes = {
@@ -172,6 +183,7 @@ class ServiceViewSet(FormModelViewSet):
         'retrieve': ServiceSerializer
     }
     default_serializer_class = serializer_class
+    customer_serializer_class = CustomerServiceSerializer
 
     @action(detail=True)
     def start(self, request, pk=None):
@@ -249,4 +261,7 @@ class ServiceViewSet(FormModelViewSet):
                 serializer_classes = self.client_serializer_classes
             return serializer_classes.get(self.action, self.default_serializer_class)
         else:
-            return self.default_serializer_class
+            if self.request.user.is_staff:
+                return self.default_serializer_class
+            else:
+                return self.customer_serializer_class
