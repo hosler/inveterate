@@ -155,6 +155,7 @@ class PlanNameSerializer(serializers.ModelSerializer):
 
 class ServicePlanSerializer(serializers.ModelSerializer):
     template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all())
+    storage = serializers.SlugRelatedField(slug_field='name', queryset=NodeDisk.objects.all())
 
     class Meta:
         model = ServicePlan
@@ -196,7 +197,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     owner = Owner(slug_field='username')
     plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
     node = serializers.SlugRelatedField(slug_field='name', queryset=VMNode.objects.all())
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, required=False)
 
 
 
@@ -235,10 +236,11 @@ class ServiceSerializer(serializers.ModelSerializer):
         return super().to_internal_value(new_data)
 
     def update(self, instance, validated_data):
-        service_plan_serializer = self.fields['service_plan']
-        service_plan_instance = instance.service_plan
-        service_plan_data = validated_data.pop('service_plan')
-        service_plan_serializer.update(service_plan_instance, service_plan_data)
+        if 'service_plan' in validated_data:
+            service_plan_serializer = self.fields['service_plan']
+            service_plan_instance = instance.service_plan
+            service_plan_data = validated_data.pop('service_plan')
+            service_plan_serializer.update(service_plan_instance, service_plan_data)
         return super().update(instance, validated_data)
 
     def create(self, validated_data):
@@ -322,7 +324,7 @@ class CustomerServiceSerializer(ServiceSerializer):
     class Meta:
         model = Service
         fields = (
-            'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
+            'id', 'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
         )
 
 class OrderNewServiceSerializer(ServiceSerializer):
