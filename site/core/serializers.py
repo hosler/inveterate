@@ -312,19 +312,34 @@ class NewServiceSerializer(ServiceSerializer):
 
 class CustomerServiceSerializer(ServiceSerializer):
     template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
-    owner = Owner(slug_field='username')
     service_plan = ServicePlanSerializer()
 
     def __init__(self, *args, **kwargs):
         super(CustomerServiceSerializer, self).__init__(*args, **kwargs)
         for field in self.fields:
-            if field != 'hostname':
+            if field not in ['hostname', 'password', 'template']:
                 self.fields[field].read_only = True
 
     class Meta:
         model = Service
         fields = (
-            'id', 'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
+            'id', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
+        )
+
+
+class CustomerServiceListSerializer(ServiceSerializer):
+    template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
+    service_plan = ServicePlanSerializer()
+
+    def __init__(self, *args, **kwargs):
+        super(CustomerServiceListSerializer, self).__init__(*args, **kwargs)
+        for field in self.fields:
+            self.fields[field].read_only = True
+
+    class Meta:
+        model = Service
+        fields = (
+            'id', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
         )
 
 class OrderNewServiceSerializer(ServiceSerializer):

@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
+from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, reset_vm, shutdown_vm
 
@@ -21,7 +22,8 @@ from .serializers import \
     BlestaBackendSerializer, \
     DomainSerializer, \
     NodeDiskSerializer, \
-    CustomerServiceSerializer
+    CustomerServiceSerializer, \
+    CustomerServiceListSerializer
 
 from .models import \
     IPPool, \
@@ -79,67 +81,67 @@ class FormModelViewSet(viewsets.ModelViewSet):
         return context
 
 
-class DomainViewSet(FormModelViewSet):
+class DomainViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Domain.objects.order_by('pk')
     serializer_class = DomainSerializer
 
 
-class ConfigSettingsViewSet(FormModelViewSet):
+class ConfigSettingsViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Config.objects.order_by('pk')
     serializer_class = ConfigSettingsSerializer
 
 
-class NodeDiskViewSet(FormModelViewSet):
+class NodeDiskViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = NodeDisk.objects.order_by('pk')
     serializer_class = NodeDiskSerializer
 
 
-class BlestaBackendViewSet(FormModelViewSet):
+class BlestaBackendViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = BlestaBackend.objects.order_by('pk')
     serializer_class = BlestaBackendSerializer
 
 
-class VMNodeViewSet(FormModelViewSet):
+class VMNodeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = VMNode.objects.order_by('pk')
     serializer_class = VMNodeSerializer
 
 
-class BillingTypeViewSet(FormModelViewSet):
+class BillingTypeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = BillingType.objects.order_by('pk')
     serializer_class = BillingTypeSerializer
 
 
-class ServiceNetworkViewSet(FormModelViewSet):
+class ServiceNetworkViewSet(viewsets.ModelViewSet):
     permission_classes = [ReadOnly]
     queryset = ServiceNetwork.objects.order_by('pk')
     serializer_class = ServiceNetworkSerializer
 
 
-class TemplateViewSet(FormModelViewSet):
+class TemplateViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Template.objects.order_by('pk')
     serializer_class = TemplateSerializer
 
 
-class ServicePlanViewSet(FormModelViewSet):
+class ServicePlanViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = ServicePlan.objects.order_by('pk')
     serializer_class = ServicePlanSerializer
 
 
-class IPViewSet(FormModelViewSet):
+class IPViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = IP.objects.order_by('pk')
     serializer_class = IPSerializer
 
 
-class IPPoolViewSet(FormModelViewSet):
+class IPPoolViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = IPPool.objects.order_by('pk')
     serializer_class = IPPoolSerializer
@@ -154,13 +156,13 @@ class IPPoolViewSet(FormModelViewSet):
         return super(IPPoolViewSet, self).destroy(request, *args, **kwargs)
 
 
-class PlanViewSet(FormModelViewSet):
+class PlanViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Plan.objects.order_by('pk')
     serializer_class = PlanSerializer
 
 
-class InventoryViewSet(FormModelViewSet):
+class InventoryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Inventory.objects.order_by('pk')
     serializer_class = InventorySerializer
@@ -171,19 +173,36 @@ class InventoryViewSet(FormModelViewSet):
         return Response({"task_id": task.id}, status=202)
 
 
-class ServiceViewSet(FormModelViewSet):
-    permission_classes = [IsAdminUser | IsAuthenticated]
-    serializer_class = ServiceSerializer
+class MultiSerializerViewSetMixin(object):
+    def get_serializer_class(self):
+        if self.request.user.is_staff:
+            try:
+                return self.admin_serializer_action_classes[self.action]
+            except (KeyError, AttributeError):
+                return super(MultiSerializerViewSetMixin, self).get_serializer_class()
+        else:
+            try:
+                return self.serializer_action_classes[self.action]
+            except (KeyError, AttributeError):
+                return super(MultiSerializerViewSetMixin, self).get_serializer_class()
 
-    admin_serializer_classes = {
-        'list': NewServiceSerializer,
+
+class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
+    permission_classes = [IsAdminUser | IsAuthenticated]
+
+    serializer_class = CustomerServiceListSerializer
+    admin_serializer_action_classes = {
+        'list': ServiceSerializer,
+        'retrieve': ServiceSerializer,
+        'update': ServiceSerializer,
+        'create': ServiceSerializer,
     }
-    client_serializer_classes = {
-        'list': OrderNewServiceSerializer,
-        'retrieve': ServiceSerializer
+    serializer_action_classes = {
+        'list': CustomerServiceListSerializer,
+        'retrieve': CustomerServiceSerializer,
+        'update': CustomerServiceSerializer,
+        'create': CustomerServiceListSerializer,
     }
-    default_serializer_class = serializer_class
-    customer_serializer_class = CustomerServiceSerializer
 
     @action(detail=True)
     def start(self, request, pk=None):
@@ -216,7 +235,7 @@ class ServiceViewSet(FormModelViewSet):
         return Response({"task_id": task.id}, status=202)
 
     @action(detail=True)
-    def console_cookie(self, request, pk=None):
+    def console_login(self, request, pk=None):
         try:
             service_id = pk
         except KeyError:
@@ -239,29 +258,19 @@ class ServiceViewSet(FormModelViewSet):
                     proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
             proxmox.access.acl.put(path=f"/vms/{service.machine_id}", roles=["PVEVMConsole"],
                                    users=[f"{proxmox_user}@pve"])
-
-            proxmox = ProxmoxAPI(service.node.host, user=f'{proxmox_user}@pve', password=password, verify_ssl=False,
-                                 port=8006)
-            tokens = proxmox.get_tokens()
             response = Response(
-                {"username": f"{proxmox_user}@pve", "cookie": tokens[0], "token": tokens[1], "type": "kvm", "node": service.node.name,
-                 "vmid": service.machine_id})
+                {"username": f"{proxmox_user}@pve",
+                 "password": password,
+                 "url": f"wss://www.dhos.me/api2/json/nodes/{service.node.name}/qemu/{service.machine_id}/vncwebsocket"}
+            )
         return response
+
+    def create(self, request):
+        if self.request.user.is_staff:
+            return super(ServiceViewSet, self).create(request)
+        raise MethodNotAllowed(request.method)
 
     def get_queryset(self):
         if self.request.user.is_staff:
             return Service.objects.all().exclude(status='destroyed').order_by('pk')
         return Service.objects.filter(owner=self.request.user).exclude(status='destroyed').order_by('pk')
-
-    def get_serializer_class(self):
-        if self.request.accepted_renderer.format == "form":
-            if self.request.user.is_staff:
-                serializer_classes = self.admin_serializer_classes
-            else:
-                serializer_classes = self.client_serializer_classes
-            return serializer_classes.get(self.action, self.default_serializer_class)
-        else:
-            if self.request.user.is_staff:
-                return self.default_serializer_class
-            else:
-                return self.customer_serializer_class
