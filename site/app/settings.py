@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     'allauth.account',
     'allauth.socialaccount',
     'rest_auth.registration',
+    #'django_rest_passwordreset',
     'corsheaders',
     'django_filters',
     'rest_framework_datatables',
@@ -84,7 +85,7 @@ INSTALLED_APPS = [
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
 SITE_ID = 1
-
+CORS_ALLOW_ALL_ORIGINS = True
 REST_AUTH_SERIALIZERS = {
     # Changed
     'USER_DETAILS_SERIALIZER': 'users.serializers.UserDetailsSerializerWithType',

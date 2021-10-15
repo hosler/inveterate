@@ -24,6 +24,7 @@ urlpatterns = [
     path("stripe/", include("djstripe.urls", namespace="djstripe")),
     path('auth/', include('rest_auth.urls')),
     path('auth/register/', include('rest_auth.registration.urls')),
+    #path('auth/password_reset/', include('django_rest_passwordreset.urls', namespace='password_reset')),
     path('', include('core.urls')),
     path('__debug__/', include(debug_toolbar.urls)),
     path('session/sso_provider', discourse_sso)
