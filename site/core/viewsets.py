@@ -63,6 +63,9 @@ class IsAuthenticated(BasePermission):
     """
 
     def has_permission(self, request, view):
+        if view.action in ['provision_billing', 'destroy']:
+            return False
+
         return bool(
             request.user and
             request.user.is_authenticated
@@ -226,11 +229,6 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True)
     def stop(self, request, pk=None):
         task = stop_vm.delay(pk)
-        return Response({"task_id": task.id}, status=202)
-
-    @action(detail=True)
-    def reboot(self, request, pk=None):
-        task = reboot_vm.delay(pk)
         return Response({"task_id": task.id}, status=202)
 
     @action(detail=True)
