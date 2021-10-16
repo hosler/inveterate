@@ -245,7 +245,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
             service_id = pk
         except KeyError:
             raise
-        service = Service.objects.get(service_id=service_id)
+        service = Service.objects.get(id=service_id)
         customer = Customer.objects.get(subscriber_id=service.owner.id)
         try:
             session = Session.objects.get(customer=customer, client_reference_id=service_id)
