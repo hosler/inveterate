@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
-from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, reset_vm, shutdown_vm, provision_billing
+from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, reset_vm, shutdown_vm, provision_billing, get_vm_status
 from django.contrib.sites.models import Site
 import stripe
 import djstripe.settings
@@ -232,6 +232,16 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     def reboot(self, request, pk=None):
         task = reboot_vm.delay(pk)
         return Response({"task_id": task.id}, status=202)
+
+    @action(detail=True)
+    def reboot(self, request, pk=None):
+        task = reboot_vm.delay(pk)
+        return Response({"task_id": task.id}, status=202)
+
+    @action(detail=True)
+    def status(self, request, pk=None):
+        stats = get_vm_status(pk)
+        return Response(stats, status=202)
 
     @action(detail=True)
     def provision(self, request, pk=None):

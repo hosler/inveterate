@@ -241,6 +241,23 @@ def reboot_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.reboot.post()
 
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def get_vm_status(service_id):
+    machine, service = get_vm(service_id)
+    vm_stats = machine.status.current.get()
+    stats = {
+        "status": vm_stats['status'],
+        "mem_max": vm_stats['maxmem'],
+        "mem_used": vm_stats['mem'],
+        "disk_max": vm_stats['maxdisk'],
+        "disk_used": vm_stats['diskwrite'],
+        "cpu_util": vm_stats['cpu'],
+        "bandwidth_max": service.service_plan.bandwidth,
+        "bandwidth_used": service.bandwidth.bandwidth
+    }
+    return stats
+
 @shared_task(base=Singleton, lock_expiry=60*15)
 def suspend_service(service_id):
     machine, service = get_vm(service_id)
