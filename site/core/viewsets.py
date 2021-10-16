@@ -3,7 +3,11 @@ from rest_framework.response import Response
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, reset_vm, shutdown_vm
-
+from django.contrib.sites.models import Site
+import stripe
+import djstripe.settings
+from django.conf import settings
+from djstripe.models import Session, Customer, Product, Price
 from rest_framework.decorators import action
 from .serializers import \
     PlanSerializer, \
@@ -234,6 +238,58 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         task = provision_service.delay(pk, password='default')
         return Response({"task_id": task.id}, status=202)
 
+
+    @action(detail=True)
+    def billing(self, request, pk=None):
+        try:
+            service_id = pk
+        except KeyError:
+            raise
+        service = Service.objects.get(service_id=service_id)
+        customer = Customer.objects.get(subscriber_id=service.owner.id)
+        try:
+            session = Session.objects.get(customer=customer, client_reference_id=service_id)
+        except Session.DoesNotExist:
+            product = Product.objects.get(livemode=djstripe.settings.STRIPE_LIVE_MODE,
+                                          name=service.plan.name,
+                                          active=True)
+            price = Price.objects.get(livemode=djstripe.settings.STRIPE_LIVE_MODE,
+                                      active=True,
+                                      product=product,
+                                      unit_amount=int(service.plan.price * 100),
+                                      recurring__interval=service.plan.period,
+                                      recurring__interval_count=service.plan.term
+                                      )
+            site = Site.objects.get(pk=settings.SITE_ID)
+            data = {
+                'payment_method_types': ['card'],
+                'client_reference_id': service_id,
+                'customer': customer.id,
+                'line_items': [{
+                    'price': price.id,
+                    'quantity': 1,
+                }],
+                'mode': 'subscription',
+                'success_url': f'https://{site.domain}/services/{service_id}/',
+                'cancel_url': f'https://{site.domain}/services/{service_id}/',
+                'metadata': {
+                    'inveterate_id': service_id
+                },
+                "subscription_data": {
+                    'metadata': {
+                        'inveterate_id': service_id
+                    }
+                }
+            }
+            stripe.api_key = djstripe.settings.STRIPE_SECRET_KEY
+            session = stripe.checkout.Session.create(**data)
+            Session._create_from_stripe_object(data=session)
+        return Response(
+                      {"type": "stripe",
+                       "key": djstripe.settings.STRIPE_PUBLIC_KEY,
+                       "service_id": service_id,
+                       "sessionid": session.id})
+
     @action(detail=True)
     def console_login(self, request, pk=None):
         try:
@@ -274,3 +330,4 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         if self.request.user.is_staff:
             return Service.objects.all().exclude(status='destroyed').order_by('pk')
         return Service.objects.filter(owner=self.request.user).exclude(status='destroyed').order_by('pk')
+
