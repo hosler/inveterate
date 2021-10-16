@@ -253,7 +253,7 @@ def get_vm_status(service_id):
         "disk_max": vm_stats['maxdisk'],
         "disk_used": vm_stats['diskwrite'],
         "cpu_util": vm_stats['cpu'],
-        "bandwidth_max": service.service_plan.bandwidth,
+        "bandwidth_max": service.service_plan.bandwidth*1024*1024,
         "bandwidth_used": service.bandwidth.bandwidth
     }
     return stats
