@@ -242,8 +242,11 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         stats = get_vm_status(pk)
         return Response(stats, status=202)
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['post', 'get'], detail=True)
     def provision(self, request, pk=None):
+        if self.request.method == 'GET':
+            return Response(data={'detail': 'Method "GET" not allowed.'},
+                            status=status.HTTP_405_METHOD_NOT_ALLOWED)
         task = provision_service.delay(pk, password='default')
         return Response({"task_id": task.id}, status=202)
 
