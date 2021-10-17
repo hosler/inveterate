@@ -209,44 +209,45 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         'retrieve': CustomerServiceSerializer,
         'update': CustomerServiceSerializer,
         'create': CustomerServiceListSerializer,
+        'provision': CustomerServiceSerializer
     }
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def start(self, request, pk=None):
         task = start_vm.delay(pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def shutdown(self, request, pk=None):
         task = shutdown_vm.delay(pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def reset(self, request, pk=None):
         task = reset_vm.delay(pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def stop(self, request, pk=None):
         task = stop_vm.delay(pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def reboot(self, request, pk=None):
         task = reboot_vm.delay(pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def status(self, request, pk=None):
         stats = get_vm_status(pk)
         return Response(stats, status=202)
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def provision(self, request, pk=None):
         task = provision_service.delay(pk, password='default')
         return Response({"task_id": task.id}, status=202)
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def provision_billing(self, request, pk=None):
         task = provision_billing.delay(pk)
         return Response({"task_id": task.id}, status=202)
@@ -303,7 +304,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
                        "service_id": service_id,
                        "sessionid": session.id})
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def console_login(self, request, pk=None):
         try:
             service_id = pk
