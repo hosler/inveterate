@@ -154,8 +154,11 @@ def provision_service(service_id, password):
 
             vm_data[f'net{network.net_id}'] = ",".join([f'{key}={value}' for key, value in net_data.items()])
 
-            now = datetime.now()
-            ServiceBandwidth.objects.create(service=service, renewal_dtm=now + relativedelta(months=1))
+            service_bandwidth, created = ServiceBandwidth.objects.get_or_create(service=service)
+            if created:
+                now = datetime.now()
+                service_bandwidth.renewal_dtm= now + relativedelta(months=1)
+                service_bandwidth.save()
 
         machine = None
         if service.type == "kvm":
@@ -192,7 +195,7 @@ def provision_service(service_id, password):
             if rule['type'] == 'group' and rule['action'] == 'inveterate':
                 break
         else:
-            machine.firewall.rules.post(type="group", action="inveterate")
+            machine.firewall.rules.post(type="group", action="inveterate", enable=1)
     except Exception as e:
         service.status = "error"
         service.status_msg = str(e)
@@ -216,20 +219,24 @@ def get_vm(service_id):
         machine = node.lxc(service.machine_id)
     return machine, service
 
+
 @shared_task(base=Singleton, lock_expiry=60*15)
 def start_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.start.post()
+
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def stop_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.stop.post()
 
+
 @shared_task(base=Singleton, lock_expiry=60*15)
 def reset_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.reset.post()
+
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def shutdown_vm(service_id):
@@ -255,9 +262,10 @@ def get_vm_status(service_id):
         "disk_used": vm_stats['diskwrite'],
         "cpu_util": vm_stats['cpu'],
         "bandwidth_max": service.service_plan.bandwidth*1024*1024,
-        "bandwidth_used": service.bandwidth.bandwidth
+        "bandwidth_used": service.bandwidth.bandwidth + service.bandwidth.bandwidth_banked
     }
     return stats
+
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def suspend_service(service_id):
@@ -302,8 +310,6 @@ def cancel_service(service_id, cancel_date=datetime.now()):
             continue
 
 
-
-
 @shared_task(base=Singleton, lock_expiry=60*15)
 def meter_bandwidth():
     api_objects = {}
@@ -316,7 +322,10 @@ def meter_bandwidth():
         node = api_objects[node_name].nodes(node_name)
 
         now = timezone.now()
-        bandwidth = ServiceBandwidth.objects.get(id=service.bandwidth_id)
+        try:
+            bandwidth = ServiceBandwidth.objects.get(id=service.bandwidth_id)
+        except ServiceBandwidth.DoesNotExist:
+            continue
         if now > bandwidth.renewal_dtm:
             start = now
             bandwidth.renewal_dtm = start + relativedelta(months=1)
@@ -336,8 +345,8 @@ def meter_bandwidth():
             except KeyError as e:
                 logger.info(e)
         elif tick < bandwidth.system_tick:
-            baked = bandwidth.bandwidth - bandwidth.bandwidth_stale
-            bandwidth.bandwidth_banked += baked
+            banked = bandwidth.bandwidth - bandwidth.bandwidth_stale
+            bandwidth.bandwidth_banked += banked
             bandwidth.bandwidth = 0
             bandwidth.bandwidth_stale = 0
             try:
