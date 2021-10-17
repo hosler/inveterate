@@ -57,13 +57,20 @@ class ReadOnly(BasePermission):
             request.method in SAFE_METHODS
         )
 
+class ReadOnlyAnonymous(BasePermission):
+    def has_permission(self, request, view):
+        return bool(
+            request.method in SAFE_METHODS
+        )
+
+
 class IsAuthenticated(BasePermission):
     """
     The request is authenticated as a user, or is a read-only request.
     """
 
     def has_permission(self, request, view):
-        if view.action in ['provision_billing', 'destroy']:
+        if view.action in ['provision_billing', 'destroy', 'calculate']:
             return False
 
         return bool(
@@ -131,7 +138,7 @@ class ServiceNetworkViewSet(viewsets.ModelViewSet):
 
 
 class TemplateViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminUser | ReadOnly]
     queryset = Template.objects.order_by('pk')
     serializer_class = TemplateSerializer
 
@@ -164,17 +171,17 @@ class IPPoolViewSet(viewsets.ModelViewSet):
 
 
 class PlanViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminUser | ReadOnly]
     queryset = Plan.objects.order_by('pk')
     serializer_class = PlanSerializer
 
 
 class InventoryViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminUser | ReadOnlyAnonymous]
     queryset = Inventory.objects.order_by('pk')
     serializer_class = InventorySerializer
 
-    @action(detail=False)
+    @action(methods=['post'], detail=False)
     def calculate(self, request):
         task = calculate_inventory.delay()
         return Response({"task_id": task.id}, status=202)
@@ -203,6 +210,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         'retrieve': ServiceSerializer,
         'update': ServiceSerializer,
         'create': ServiceSerializer,
+        'provision': ServiceSerializer
     }
     serializer_action_classes = {
         'list': CustomerServiceListSerializer,
@@ -242,13 +250,11 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         stats = get_vm_status(pk)
         return Response(stats, status=202)
 
-    @action(methods=['post', 'get'], detail=True)
+    @action(methods=['put', 'get'], detail=True)
     def provision(self, request, pk=None):
         if self.request.method == 'GET':
-            return Response(data={'detail': 'Method "GET" not allowed.'},
-                            status=status.HTTP_405_METHOD_NOT_ALLOWED)
-        task = provision_service.delay(pk, password='default')
-        return Response({"task_id": task.id}, status=202)
+            raise MethodNotAllowed(request.method)
+        return super(ServiceViewSet, self).update(request)
 
     @action(methods=['post'], detail=True)
     def provision_billing(self, request, pk=None):

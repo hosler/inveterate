@@ -106,7 +106,10 @@ def provision_service(service_id, password):
                 'cores': service.service_plan.cores,
                 'balloon': 0,
                 'name': service.hostname,
+                'ciuser': service.owner,
             }
+            if password is not None:
+                vm_data['cipassword'] = password
         if service.type == "lxc":
             vm_data = {
                 'ostemplate': f'local:vztmpl/{service.service_plan.template.file}',
@@ -218,12 +221,10 @@ def start_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.start.post()
 
-
 @shared_task(base=Singleton, lock_expiry=60*15)
 def stop_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.stop.post()
-
 
 @shared_task(base=Singleton, lock_expiry=60*15)
 def reset_vm(service_id):

@@ -241,7 +241,10 @@ class ServiceSerializer(serializers.ModelSerializer):
             service_plan_instance = instance.service_plan
             service_plan_data = validated_data.pop('service_plan')
             service_plan_serializer.update(service_plan_instance, service_plan_data)
-        return super().update(instance, validated_data)
+        password = validated_data.pop("password", None)
+        service = super().update(instance, validated_data)
+        provision_service.delay(service.id, password)
+        return service
 
     def create(self, validated_data):
         sps = ServicePlanSerializer()
