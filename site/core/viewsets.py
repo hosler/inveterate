@@ -340,7 +340,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
             response = Response(
                 {"username": f"{proxmox_user}@pve",
                  "password": password,
-                 "url": f"wss://www.dhos.me/api2/json/nodes/{service.node.name}/qemu/{service.machine_id}/vncwebsocket"}
+                 "url": f"/api2/json/nodes/{service.node.name}/qemu/{service.machine_id}/vncwebsocket"}
             )
         return response
 
