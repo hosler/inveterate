@@ -337,10 +337,13 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
                     proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
             proxmox.access.acl.put(path=f"/vms/{service.machine_id}", roles=["PVEVMConsole"],
                                    users=[f"{proxmox_user}@pve"])
+            type = "lxc" if service.service_plan.type == "lxc" else "qemu"
             response = Response(
                 {"username": f"{proxmox_user}@pve",
                  "password": password,
-                 "url": f"/nodes/{service.node.name}/qemu/{service.machine_id}/vncwebsocket"}
+                 "node": service.node.name,
+                 "machine": service.machine_id,
+                 "type": type
             )
         return response
 
