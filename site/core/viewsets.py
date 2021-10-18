@@ -343,7 +343,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
                  "password": password,
                  "node": service.node.name,
                  "machine": service.machine_id,
-                 "type": type
+                 "type": type}
             )
         return response
 
