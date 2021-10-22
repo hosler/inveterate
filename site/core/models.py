@@ -123,7 +123,7 @@ class NodeDisk(models.Model):
 
 
 class ServicePlan(PlanBase):
-    type = models.CharField(max_length=255, default="lxc", choices=VM_TYPES)
+    type = models.CharField(max_length=255, choices=VM_TYPES)
     template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
     storage = models.ForeignKey(NodeDisk, null=True, on_delete=models.SET_NULL)
 

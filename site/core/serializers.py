@@ -58,9 +58,9 @@ class DomainSerializer(serializers.ModelSerializer):
 
 
 class IPPoolSerializer(serializers.ModelSerializer):
-    generate_ips = serializers.BooleanField(default=True, write_only=True)
-    start_address = serializers.CharField(max_length=255, write_only=True)
-    end_address = serializers.CharField(max_length=255, write_only=True)
+    generate_ips = serializers.BooleanField(default=True, write_only=True, required=False)
+    start_address = serializers.CharField(max_length=255, write_only=True, required=False)
+    end_address = serializers.CharField(max_length=255, write_only=True, required=False)
 
     class Meta:
         model = IPPool
