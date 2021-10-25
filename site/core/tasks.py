@@ -54,7 +54,9 @@ def provision_service(service_id, password):
     proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate', token_value=service.node.key,
                          verify_ssl=False, port=8006, timeout=600)
     node = proxmox.nodes(service.node)
-    service.type = service.service_plan.template.type
+    service.service_plan.type = service.service_plan.template.type
+    service.service_plan.save()  # TODO: move this template/type stuff to the serializer
+    service_type = service.service_plan.type
     try:
         proxmox.pools.post(poolid="inveterate")
     except ResourceException:
@@ -62,7 +64,7 @@ def provision_service(service_id, password):
 
     service.machine_id = f"1{service.id:06}"
     try:
-        if service.type == "kvm":
+        if service_type == "kvm":
             clone_data = {
                 'newid': service.machine_id,
                 'storage': service.service_plan.storage.name,
@@ -110,7 +112,7 @@ def provision_service(service_id, password):
             }
             if password is not None:
                 vm_data['cipassword'] = password
-        if service.type == "lxc":
+        if service_type == "lxc":
             vm_data = {
                 'ostemplate': f'local:vztmpl/{service.service_plan.template.file}',
                 'hostname': service.hostname,
@@ -161,7 +163,7 @@ def provision_service(service_id, password):
             service_bandwidth.save()
 
         machine = None
-        if service.type == "kvm":
+        if service_type == "kvm":
             node.qemu(service.machine_id).config.post(**vm_data)
             lock = True
             while lock:
@@ -172,7 +174,7 @@ def provision_service(service_id, password):
                     time.sleep(1)
             node.qemu(service.machine_id).resize.put(disk='scsi0', size=f'{service.service_plan.size}G')
             machine = node.qemu(service.machine_id)
-        if service.type == "lxc":
+        if service_type == "lxc":
             node.lxc.create(vmid=service.machine_id, **vm_data)
             machine = node.lxc(service.machine_id)
 
