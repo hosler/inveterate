@@ -137,7 +137,7 @@ def provision_service(service_id, password):
                 'bridge': network.ip.pool.interface,
                 'firewall': firewall
             }
-            if service.type == "kvm":
+            if service_type == "kvm":
                 net_data['model'] = 'virtio'
                 if network.ip.pool.type == "ipv4":
                     vm_data[f'ipconfig{network.net_id}'] = f'ip={network.ip.value}/{network.ip.pool.mask},' \
@@ -145,7 +145,7 @@ def provision_service(service_id, password):
                 else:
                     vm_data[f'ipconfig{network.net_id}'] = f'ip6={network.ip.value}/{network.ip.pool.mask},' \
                                                            f'gw6={network.ip.pool.gateway}'
-            if service.type == "lxc":
+            if service_type == "lxc":
                 net_data['name'] = f'eth{network.net_id}'
                 if network.ip.pool.type == "ipv4":
                     net_data['ip'] = f'{network.ip.value}/{network.ip.pool.mask}'
