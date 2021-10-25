@@ -154,11 +154,11 @@ def provision_service(service_id, password):
 
             vm_data[f'net{network.net_id}'] = ",".join([f'{key}={value}' for key, value in net_data.items()])
 
-            service_bandwidth, created = ServiceBandwidth.objects.get_or_create(service=service)
-            if created:
-                now = datetime.now()
-                service_bandwidth.renewal_dtm= now + relativedelta(months=1)
-                service_bandwidth.save()
+        service_bandwidth, created = ServiceBandwidth.objects.get_or_create(service=service)
+        if created:
+            now = datetime.now()
+            service_bandwidth.renewal_dtm = now + relativedelta(months=1)
+            service_bandwidth.save()
 
         machine = None
         if service.type == "kvm":
