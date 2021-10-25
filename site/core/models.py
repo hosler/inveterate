@@ -135,7 +135,7 @@ class ServiceBandwidth(models.Model):
     bandwidth_banked = models.IntegerField(default=0)
     bandwidth_stale = models.IntegerField(default=0)
     system_tick = models.IntegerField(default=0)
-    renewal_dtm = models.DateTimeField()
+    renewal_dtm = models.DateTimeField(null=True)
 
 
 class Service(models.Model):
