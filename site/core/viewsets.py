@@ -250,11 +250,10 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         stats = get_vm_status(pk)
         return Response(stats, status=202)
 
-    @action(methods=['put', 'get'], detail=True)
+    @action(methods=['post'], detail=True)
     def provision(self, request, pk=None):
-        if self.request.method == 'GET':
-            raise MethodNotAllowed(request.method)
-        return super(ServiceViewSet, self).update(request)
+        task = provision_service.delay(pk)
+        return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
     def provision_billing(self, request, pk=None):
