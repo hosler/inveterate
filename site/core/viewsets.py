@@ -209,7 +209,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         'list': ServiceSerializer,
         'retrieve': ServiceSerializer,
         'update': ServiceSerializer,
-        'create': ServiceSerializer,
+        'create': NewServiceSerializer,
         'provision': CustomerServiceSerializer
     }
     serializer_action_classes = {

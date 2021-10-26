@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import IPPool, Inventory, IP, Plan, Service, \
     ServicePlan, Template, ServiceNetwork, Config, NodeDisk,\
-    BillingType, VMNode, BlestaBackend, Domain, NodeDisk
+    BillingType, VMNode, BlestaBackend, Domain, NodeDisk, PlanBase
 from django.db import transaction
 import ipaddress
 from proxmoxer import ProxmoxAPI
@@ -207,33 +207,33 @@ class ServiceSerializer(serializers.ModelSerializer):
             'id', 'owner', 'password', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan', 'billing_type'
         )
 
-    def to_internal_value(self, data):
-        new_data = data.copy()
-
-        for attribute in list(new_data.keys()):
-            if new_data[attribute] == "":
-                new_data.pop(attribute)
-
-        if "plan" in new_data:
-            try:
-                plan = Plan.objects.get(name=new_data["plan"])
-            except Plan.DoesNotExist:
-                pass
-            else:
-                ps = PlanSerializer(plan)
-                plan_data = ps.data
-                plan_data.pop("id")
-                for attribute in plan_data:
-                    if "service_plan." + attribute not in new_data:
-                        if isinstance(plan_data[attribute], list):
-                            new_data.setlist("service_plan." + attribute, plan_data[attribute])
-                        else:
-                            new_data["service_plan." + attribute] = plan_data[attribute]
-        if "template" in new_data:
-            template = new_data.pop("template")[0]
-            new_data["service_plan.template"] = template
-
-        return super().to_internal_value(new_data)
+    # def to_internal_value(self, data):
+    #     new_data = data.copy()
+    #
+    #     for attribute in list(new_data.keys()):
+    #         if new_data[attribute] == "":
+    #             new_data.pop(attribute)
+    #
+    #     if "plan" in new_data:
+    #         try:
+    #             plan = Plan.objects.get(name=new_data["plan"])
+    #         except Plan.DoesNotExist:
+    #             pass
+    #         else:
+    #             ps = PlanSerializer(plan)
+    #             plan_data = ps.data
+    #             plan_data.pop("id")
+    #             for attribute in plan_data:
+    #                 # if "service_plan." + attribute not in new_data:
+    #                 #     if isinstance(plan_data[attribute], list):
+    #                 #         new_data.setlist("service_plan." + attribute, plan_data[attribute])
+    #                 #     else:
+    #                 new_data["service_plan." + attribute] = plan_data[attribute]
+    #     if "template" in new_data:
+    #         template = new_data.pop("template")[0]
+    #         new_data["service_plan.template"] = template
+    #
+    #     return super().to_internal_value(new_data)
 
     def update(self, instance, validated_data):
         if 'service_plan' in validated_data:
@@ -248,10 +248,18 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         sps = ServicePlanSerializer()
-        service_plan_data = validated_data.pop("service_plan")
-        #service_plan_data["template"] = validated_data.pop("template")
-        service_plan = sps.create(service_plan_data)
-        password = validated_data.pop("password")
+        if "service_plan" in validated_data:
+            service_plan_data = validated_data.pop("service_plan")
+            service_plan = sps.create(service_plan_data)
+        elif "plan" in validated_data:
+            plan_fields = [f.name for f in PlanBase._meta.fields if f.name != "id"]
+            plan_values = dict( [(x, getattr(validated_data["plan"], x)) for x in plan_fields] )
+            service_plan = sps.create(plan_values)
+        password = validated_data.pop("password", None)
+        template = validated_data.pop("template", None)
+        if template:
+            service_plan.template = template
+            service_plan.type = template.type
         service = super().create(validated_data)
         service_plan.storage = service.node.node_disk.filter(primary=True).first()
         service_plan.save()
@@ -305,6 +313,9 @@ class ServiceSerializer(serializers.ModelSerializer):
 class NewServiceSerializer(ServiceSerializer):
     template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
     owner = Owner(slug_field='username')
+
+    # def create(self, validated_data):
+    #     super().create(validated_data)
 
     class Meta:
         model = Service
