@@ -189,9 +189,8 @@ def provision_service(service_id, password):
                     pass
                 else:
                     raise
-
-        machine.firewall.ipset.post(name=f'ipfilter-net{network.net_id}')
-        machine.firewall.ipset(f'ipfilter-net{network.net_id}').post(cidr=f'{network.ip.value}')
+            machine.firewall.ipset.post(name=f'ipfilter-net{network.net_id}')
+            machine.firewall.ipset(f'ipfilter-net{network.net_id}').post(cidr=f'{network.ip.value}')
         machine.firewall.options.put(enable=1, ipfilter=1)
         for rule in machine.firewall.rules.get():
             if rule['type'] == 'group' and rule['action'] == 'inveterate':
