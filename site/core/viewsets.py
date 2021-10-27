@@ -250,7 +250,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=['post'], detail=True)
     def provision(self, request, pk=None):
-        task = provision_service.delay(pk)
+        task = provision_service.delay(service_id=pk, password=None)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
