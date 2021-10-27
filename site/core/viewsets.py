@@ -210,14 +210,12 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         'retrieve': ServiceSerializer,
         'update': ServiceSerializer,
         'create': NewServiceSerializer,
-        'provision': CustomerServiceSerializer
     }
     serializer_action_classes = {
         'list': CustomerServiceListSerializer,
         'retrieve': CustomerServiceSerializer,
         'update': CustomerServiceSerializer,
         'create': CustomerServiceListSerializer,
-        'provision': CustomerServiceSerializer
     }
 
     @action(methods=['post'], detail=True)
