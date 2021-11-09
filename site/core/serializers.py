@@ -360,7 +360,7 @@ class CustomerServiceListSerializer(ServiceSerializer):
     class Meta:
         model = Service
         fields = (
-            'id', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
+            'id', 'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
         )
 
 class OrderNewServiceSerializer(ServiceSerializer):
