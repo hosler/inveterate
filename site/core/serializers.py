@@ -207,6 +207,12 @@ class ServiceSerializer(serializers.ModelSerializer):
             'id', 'owner', 'password', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan', 'billing_type'
         )
 
+    # Use this method for the custom field
+    def _user(self, obj):
+        request = self.context.get('request', None)
+        if request:
+            return request.user
+
     # def to_internal_value(self, data):
     #     new_data = data.copy()
     #
@@ -325,6 +331,7 @@ class NewServiceSerializer(ServiceSerializer):
 
 
 class CustomerServiceSerializer(ServiceSerializer):
+    owner = Owner(slug_field='username')
     template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
     service_plan = ServicePlanSerializer()
 
@@ -337,7 +344,7 @@ class CustomerServiceSerializer(ServiceSerializer):
     class Meta:
         model = Service
         fields = (
-            'id', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
+            'id', 'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
         )
 
 
