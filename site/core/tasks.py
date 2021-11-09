@@ -54,8 +54,6 @@ def provision_service(service_id, password):
     proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate', token_value=service.node.key,
                          verify_ssl=False, port=8006, timeout=600)
     node = proxmox.nodes(service.node)
-    service.service_plan.type = service.service_plan.template.type
-    service.service_plan.save()  # TODO: move this template/type stuff to the serializer
     service_type = service.service_plan.type
     try:
         proxmox.pools.post(poolid="inveterate")
