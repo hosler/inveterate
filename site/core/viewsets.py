@@ -344,10 +344,10 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
             )
         return response
 
-    def create(self, request):
-        if self.request.user.is_staff:
-            return super(ServiceViewSet, self).create(request)
-        raise MethodNotAllowed(request.method)
+    # def create(self, request):
+    #     if self.request.user.is_staff:
+    #         return super(ServiceViewSet, self).create(request)
+    #     raise MethodNotAllowed(request.method)
 
     def get_queryset(self):
         if self.request.user.is_staff:
