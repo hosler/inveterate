@@ -215,7 +215,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         'list': CustomerServiceListSerializer,
         'retrieve': CustomerServiceSerializer,
         'update': CustomerServiceSerializer,
-        'create': CustomerServiceListSerializer,
+        'create': CustomerServiceSerializer,
     }
 
     @action(methods=['post'], detail=True)
