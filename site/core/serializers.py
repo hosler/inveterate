@@ -338,7 +338,7 @@ class CustomerServiceSerializer(ServiceSerializer):
     def __init__(self, *args, **kwargs):
         super(CustomerServiceSerializer, self).__init__(*args, **kwargs)
         for field in self.fields:
-            if field not in ['owner', 'hostname', 'password', 'template', 'plan']:
+            if field not in ['owner', 'hostname', 'password', 'template', 'plan', 'node', 'billing_type']:
                 self.fields[field].read_only = True
 
     class Meta:
