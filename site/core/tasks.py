@@ -486,5 +486,5 @@ def set_service_renewal(service_id, renewal_dtm):
 
 @shared_task()
 def test_task():
-    print("HI")
+    print("HI!")
     return True
