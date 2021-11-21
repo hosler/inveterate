@@ -36,6 +36,8 @@ router.register(r'domain', viewsets.DomainViewSet, basename='domain')
 #     re_path('^node-disks/$', login_required(views.NodeDiskView.as_view()), name='node-disks'),
 #     re_path('^billing/$', login_required(views.BillingTypeView.as_view()), name='billing'),
 # ]
+def trigger_error(request):
+    division_by_zero = 1 / 0
 
 urlpatterns = [
     #path('', anonymous_required(views.Pricing.as_view()), name='pricing'),
@@ -44,5 +46,6 @@ urlpatterns = [
     #e_path('^api/provision/$', login_required(views.ProvisionService.as_view())),
     #re_path('^api/console/$', login_required(views.Console.as_view()), name='console'),
     re_path('^api/', include(router.urls)),
+    path('api/sentry-debug/', trigger_error),
 ]
 
