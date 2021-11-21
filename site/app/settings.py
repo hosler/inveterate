@@ -18,10 +18,11 @@ import environ
 from kombu import Exchange, Queue
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
+from sentry_sdk.integrations.redis import RedisIntegration
 
 sentry_sdk.init(
     dsn="https://47acffe125a84adfacae09a87c3402b2@o1074669.ingest.sentry.io/6074481",
-    integrations=[DjangoIntegration()],
+    integrations=[DjangoIntegration(), RedisIntegration()],
 
     # Set traces_sample_rate to 1.0 to capture 100%
     # of transactions for performance monitoring.
