@@ -295,6 +295,13 @@ def get_cluster_resources(pk=None, query_type="node"):
         for vm in vms:
             if 'pool' in vm and vm['pool'] == 'inveterate':
                 stats.append(vm)
+    elif query_type == 'storage':
+        stats = []
+        disks = cluster.resources.get(type=query_type)
+        for disk in disks:
+            content = disk['content'].split(",")
+            if "rootdir" in content:
+                stats.append(disk)
     else:
         stats = cluster.resources.get(type=query_type)
     return stats
