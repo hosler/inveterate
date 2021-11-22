@@ -289,7 +289,7 @@ def get_vm_status(service_id):
 @shared_task(base=Singleton, lock_expiry=60*15)
 def get_cluster_resources(pk=None, query_type="node"):
     cluster = get_cluster(cluster_id=pk)
-    stats = cluster.resources.get(query_type)
+    stats = cluster.resources.get(type=query_type)
     return stats
 
 
