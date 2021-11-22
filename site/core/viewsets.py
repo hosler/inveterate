@@ -81,6 +81,21 @@ class IsAuthenticated(BasePermission):
             request.user.is_authenticated
         )
 
+
+class MultiSerializerViewSetMixin(object):
+    def get_serializer_class(self):
+        if self.request.user.is_staff:
+            try:
+                return self.admin_serializer_action_classes[self.action]
+            except (KeyError, AttributeError):
+                return super(MultiSerializerViewSetMixin, self).get_serializer_class()
+        else:
+            try:
+                return self.serializer_action_classes[self.action]
+            except (KeyError, AttributeError):
+                return super(MultiSerializerViewSetMixin, self).get_serializer_class()
+
+
 class FormModelViewSet(viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
@@ -122,10 +137,17 @@ class BlestaBackendViewSet(viewsets.ModelViewSet):
     serializer_class = BlestaBackendSerializer
 
 
-class ClusterViewSet(viewsets.ModelViewSet):
+class ClusterViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Cluster.objects.order_by('pk')
     serializer_class = ClusterSerializer
+    admin_serializer_action_classes = {
+        'list': ClusterSerializer,
+        'retrieve': ClusterSerializer,
+        'update': ClusterSerializer,
+        'create': ClusterSerializer,
+    }
+    serializer_action_classes = {}
 
     @action(methods=['post'], detail=True)
     def node_status(self, request, pk=None):
@@ -199,20 +221,6 @@ class InventoryViewSet(viewsets.ModelViewSet):
     def calculate(self, request):
         task = calculate_inventory.delay()
         return Response({"task_id": task.id}, status=202)
-
-
-class MultiSerializerViewSetMixin(object):
-    def get_serializer_class(self):
-        if self.request.user.is_staff:
-            try:
-                return self.admin_serializer_action_classes[self.action]
-            except (KeyError, AttributeError):
-                return super(MultiSerializerViewSetMixin, self).get_serializer_class()
-        else:
-            try:
-                return self.serializer_action_classes[self.action]
-            except (KeyError, AttributeError):
-                return super(MultiSerializerViewSetMixin, self).get_serializer_class()
 
 
 class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
