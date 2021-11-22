@@ -145,7 +145,7 @@ class ClusterListSerializer(ClusterSerializer):
 class NodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Node
-        fields = ('id', 'name', 'type', 'cluster', 'host', 'user', 'key', 'cores', 'size', 'ram', 'swap', 'bandwidth')
+        fields = ('id', 'name', 'type', 'cluster', 'cores', 'size', 'ram', 'swap', 'bandwidth')
 
 
 class BillingTypeSerializer(serializers.ModelSerializer):
