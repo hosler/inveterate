@@ -53,15 +53,18 @@ def calculate_inventory():
 def assign_ips(service_id):
     service = Service.objects.get(pk=service_id)
     service_plan = service.service_plan
+    internal_ips = service_plan.internal_ips
+    ipv4_ips = service_plan.ipv4_ips
+    ipv6_ips = service_plan.ipv6_ips
     ips = IP.objects.filter(owner__service=service).all()
     for ip in ips:
         if ip.pool.internal is True:
-            service_plan.internal_ips -= 1
+            internal_ips -= 1
         elif ip.pool.type == "ipv4":
-            service_plan.ipv4_ips -= 1
+            ipv4_ips -= 1
         elif ip.pool.type == "ipv6":
-            service_plan.ipv6_ips -= 1
-    for i in range(service_plan.internal_ips):
+            ipv6_ips -= 1
+    for i in range(internal_ips):
         for pool in service_plan.ip_pools.all():
             if pool.internal is False:
                 continue
@@ -72,7 +75,7 @@ def assign_ips(service_id):
                     ip.owner = service_network
                     ip.save()
                     break
-    for i in range(service_plan.ipv4_ips):
+    for i in range(ipv4_ips):
         for pool in service_plan.ip_pools.all():
             if pool.type != "ipv4":
                 continue
@@ -83,7 +86,7 @@ def assign_ips(service_id):
                     ip.owner = service_network
                     ip.save()
                     break
-    for i in range(service_plan.ipv6_ips):
+    for i in range(ipv6_ips):
         for pool in service_plan.ip_pools.all():
             if pool.type != "ipv6":
                 continue
