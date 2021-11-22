@@ -247,7 +247,7 @@ def provision_service(service_id, password):
         else:
             machine.firewall.rules.post(type="group", action="inveterate", enable=1)
 
-        proxmox.pools.put(poolid="inveterate", vms=service.machine_id)
+        proxmox.pools("inveterate").put(vms=service.machine_id)
     except Exception as e:
         service.status = "error"
         service.status_msg = str(e)
