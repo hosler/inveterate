@@ -1,6 +1,6 @@
 from celery import shared_task
 from celery_singleton import Singleton
-from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType
+from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 import logging
@@ -51,7 +51,7 @@ def calculate_inventory():
 @shared_task(base=Singleton, lock_expiry=60*15)
 def provision_service(service_id, password):
     service = Service.objects.get(pk=service_id)
-    proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate', token_value=service.node.key,
+    proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate', token_value=service.node.cluster.key,
                          verify_ssl=False, port=8006, timeout=600)
     node = proxmox.nodes(service.node)
     service_type = service.service_plan.type
@@ -195,6 +195,8 @@ def provision_service(service_id, password):
                 break
         else:
             machine.firewall.rules.post(type="group", action="inveterate", enable=1)
+
+        proxmox.pools.put(poolid="inveterate", vms=service.machine_id)
     except Exception as e:
         service.status = "error"
         service.status_msg = str(e)
@@ -207,8 +209,8 @@ def provision_service(service_id, password):
 
 def get_vm(service_id):
     service = Service.objects.get(pk=service_id)
-    proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate',
-                         token_value=service.node.key,
+    proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
+                         token_value=service.node.cluster.key,
                          verify_ssl=False, port=8006)
     node = proxmox.nodes(service.node)
     machine = None
@@ -217,6 +219,24 @@ def get_vm(service_id):
     if service.service_plan.type == "lxc":
         machine = node.lxc(service.machine_id)
     return machine, service
+
+
+def get_service_node(service_id):
+    service = Service.objects.get(pk=service_id)
+    proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
+                         token_value=service.node.cluster.key,
+                         verify_ssl=False, port=8006)
+    node = proxmox.nodes(service.node)
+    return node
+
+
+def get_cluster(cluster_id):
+    cluster = Cluster.objects.get(pk=cluster_id)
+    proxmox = ProxmoxAPI(cluster.host, user=cluster.user, token_name='inveterate',
+                         token_value=cluster.key,
+                         verify_ssl=False, port=8006)
+    cluster_obj = proxmox.cluster
+    return cluster_obj
 
 
 @shared_task(base=Singleton, lock_expiry=60*15)
@@ -263,6 +283,13 @@ def get_vm_status(service_id):
         "bandwidth_max": service.service_plan.bandwidth*1024*1024,
         "bandwidth_used": service.bandwidth.bandwidth + service.bandwidth.bandwidth_banked
     }
+    return stats
+
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def get_cluster_resources(query_type="nodes"):
+    cluster = get_cluster()
+    stats = cluster.resources.get(query_type)
     return stats
 
 
@@ -315,8 +342,8 @@ def meter_bandwidth():
     for service in Service.objects.all().filter(status="active"):
         node_name = service.node.name
         if node_name not in api_objects:
-            api_objects[node_name] = ProxmoxAPI(service.node.host, user=service.node.user,
-                             token_name='inveterate', token_value=service.node.key,
+            api_objects[node_name] = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user,
+                             token_name='inveterate', token_value=service.node.cluster.key,
                              verify_ssl=False, port=8006)
         node = api_objects[node_name].nodes(node_name)
 

@@ -2,7 +2,8 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
-from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, reset_vm, shutdown_vm, provision_billing, get_vm_status
+from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
+    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources
 from django.contrib.sites.models import Site
 import stripe
 import djstripe.settings
@@ -125,6 +126,11 @@ class ClusterViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Cluster.objects.order_by('pk')
     serializer_class = ClusterSerializer
+
+    @action(methods=['post'], detail=True)
+    def node_status(self, request, pk=None):
+        stats = get_cluster_resources("nodes")
+        return Response(stats, status=202)
 
 
 class NodeViewSet(viewsets.ModelViewSet):
