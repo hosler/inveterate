@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import IPPool, Inventory, IP, Plan, Service, \
     ServicePlan, Template, ServiceNetwork, Config, NodeDisk,\
-    BillingType, VMNode, BlestaBackend, Domain, NodeDisk, PlanBase
+    BillingType, Cluster, Node, BlestaBackend, Domain, NodeDisk, PlanBase
 from django.db import transaction
 import ipaddress
 from proxmoxer import ProxmoxAPI
@@ -64,7 +64,7 @@ class IPPoolSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = IPPool
-        fields = ('__all__')
+        fields = '__all__'
 
     def create(self, validated_data):
         generate_ips = validated_data.pop("generate_ips")
@@ -102,49 +102,49 @@ class IPPoolSerializer(serializers.ModelSerializer):
 class ConfigSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Config
-        fields = ('__all__')
+        fields = '__all__'
 
 
 class NodeDiskSerializer(serializers.ModelSerializer):
     class Meta:
         model = NodeDisk
-        fields = ('__all__')
+        fields = '__all__'
 
 
 class ServiceNetworkSerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceNetwork
-        fields = ('__all__')
+        fields = '__all__'
 
 
 class IPSerializer(serializers.ModelSerializer):
     class Meta:
         model = IP
-        fields = ('__all__')
+        fields = '__all__'
 
 
 class TemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Template
-        fields = ('__all__')
+        fields = '__all__'
 
 
-class VMNodeSerializer(serializers.ModelSerializer):
+class NodeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = VMNode
+        model = Node
         fields = ('id', 'name', 'type', 'host', 'user', 'key', 'cores', 'size', 'ram', 'swap', 'bandwidth')
 
 
 class BillingTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = BillingType
-        fields = ('__all__')
+        fields = '__all__'
+
 
 class PlanSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Plan
-        fields = ('__all__')
+        fields = '__all__'
 
 
 class PlanNameSerializer(serializers.ModelSerializer):
@@ -196,7 +196,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     service_plan = ServicePlanSerializer()
     owner = Owner(slug_field='username')
     plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
-    node = serializers.SlugRelatedField(slug_field='name', queryset=VMNode.objects.all())
+    node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
     password = serializers.CharField(write_only=True, required=False)
 
 
@@ -377,4 +377,4 @@ class OrderNewServiceSerializer(ServiceSerializer):
 class InventorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
-        fields = ('__all__')
+        fields = '__all__'

@@ -1,6 +1,6 @@
 from celery import shared_task
 from celery_singleton import Singleton
-from .models import VMNode, Plan, Inventory, Service, ServiceBandwidth, BillingType
+from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 import logging
@@ -23,7 +23,7 @@ logger = logging.getLogger()
 @shared_task(base=Singleton, lock_expiry=60*15)
 def calculate_inventory():
     plans = Plan.objects.all()
-    nodes = VMNode.objects.all()
+    nodes = Node.objects.all()
     inventory_fields = ['cores', 'ram', 'swap', 'size', 'bandwidth']
     for node in nodes:
         services = node.services.all().exclude(status='destroyed')

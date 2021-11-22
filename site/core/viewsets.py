@@ -20,7 +20,8 @@ from .serializers import \
     IPSerializer, \
     NewServiceSerializer, \
     OrderNewServiceSerializer, \
-    VMNodeSerializer, \
+    ClusterSerializer, \
+    NodeSerializer, \
     BillingTypeSerializer, \
     InventorySerializer, \
     BlestaBackendSerializer, \
@@ -38,7 +39,8 @@ from .models import \
     Template, \
     ServiceNetwork, \
     Config, \
-    VMNode, \
+    Cluster, \
+    Node, \
     BillingType, \
     Inventory, \
     BlestaBackend, \
@@ -118,11 +120,15 @@ class BlestaBackendViewSet(viewsets.ModelViewSet):
     queryset = BlestaBackend.objects.order_by('pk')
     serializer_class = BlestaBackendSerializer
 
-
-class VMNodeViewSet(viewsets.ModelViewSet):
+class ClusterViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
-    queryset = VMNode.objects.order_by('pk')
-    serializer_class = VMNodeSerializer
+    queryset = Cluster.objects.order_by('pk')
+    serializer_class = ClusterSerializer
+
+class NodeViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = Node.objects.order_by('pk')
+    serializer_class = NodeSerializer
 
 
 class BillingTypeViewSet(viewsets.ModelViewSet):

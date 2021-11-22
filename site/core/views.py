@@ -17,7 +17,7 @@ from .serializers import \
     IPSerializer, \
     NewServiceSerializer, \
     OrderNewServiceSerializer, \
-    VMNodeSerializer, \
+    NodeSerializer, \
     BillingTypeSerializer, \
     InventorySerializer, \
     NodeDiskSerializer
@@ -96,8 +96,8 @@ class ConfigSettingsView(SerializedAjaxFormView):
         return self.request.user.is_superuser
 
 
-class VMNodeView(SerializedAjaxFormView):
-    serializer = VMNodeSerializer
+class NodeView(SerializedAjaxFormView):
+    serializer = NodeSerializer
     api = 'node'
 
     def test_func(self):

@@ -39,7 +39,7 @@ class BlestaBackend(models.Model):
     company_hostname = models.CharField(max_length=255, null=True)
 
     def __str__(self):
-        return self.name
+        return self.billing_type
 
 
 class Template(models.Model):
@@ -64,7 +64,7 @@ class IPPool(models.Model):
     internal = models.BooleanField(default=False)
     interface = models.CharField(max_length=255, default='vmbr0')
     dns = models.GenericIPAddressField()
-    nodes = models.ManyToManyField("VMNode")
+    nodes = models.ManyToManyField("Node")
 
     def __str__(self):
         return self.name
@@ -97,11 +97,7 @@ class Plan(PlanBase):
         return self.name
 
 
-
-
-
-
-class VMNode(PlanBase):
+class Cluster(models.Model):
     NODE_CHOICES = (
         ("proxmox", "Proxmox"),
     )
@@ -111,12 +107,24 @@ class VMNode(PlanBase):
     key = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="proxmox", choices=NODE_CHOICES)
 
+
+class Node(PlanBase):
+    NODE_CHOICES = (
+        ("proxmox", "Proxmox"),
+    )
+    name = models.CharField(max_length=255)
+    host = models.CharField(max_length=255)
+    user = models.CharField(max_length=255)
+    key = models.CharField(max_length=255)
+    type = models.CharField(max_length=255, default="proxmox", choices=NODE_CHOICES)
+    cluster = models.ForeignKey(Cluster, on_delete=models.SET_NULL, null=True)
+
     def __str__(self):
         return self.name
 
 
 class NodeDisk(models.Model):
-    node = models.ForeignKey(VMNode, on_delete=models.CASCADE, related_name='node_disk')
+    node = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='node_disk')
     name = models.CharField(max_length=255, null=False)
     size = models.IntegerField()
     primary = models.BooleanField(default=True)
@@ -129,6 +137,7 @@ class ServicePlan(PlanBase):
 
     def __str__(self):
         return str(self.id)
+
 
 class ServiceBandwidth(models.Model):
     bandwidth = models.IntegerField(default=0)
@@ -156,9 +165,10 @@ class Service(models.Model):
     billing_type = models.ForeignKey(BillingType, null=True, on_delete=models.SET_NULL)
     billing_id = models.CharField(max_length=255, null=True)
     machine_id = models.IntegerField(null=True, blank=True)
-    node = models.ForeignKey(VMNode, null=True, on_delete=models.SET_NULL, related_name='services')
+    node = models.ForeignKey(Node, null=True, on_delete=models.SET_NULL, related_name='services')
     service_plan = models.OneToOneField(ServicePlan, on_delete=models.SET_NULL, null=True, related_name='service')
-    bandwidth = models.OneToOneField(ServiceBandwidth, on_delete=models.SET_NULL, null=True, blank=True, related_name='service')
+    bandwidth = models.OneToOneField(ServiceBandwidth, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='service')
 
     def delete(self, *args, **kwargs):
         super().delete(*args, **kwargs)
@@ -189,7 +199,7 @@ class ServiceNetwork(models.Model):
 class ServiceDisk(models.Model):
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='service_disk')
     size = models.IntegerField()
-    node = models.ForeignKey(VMNode, on_delete=models.CASCADE)
+    node = models.ForeignKey(Node, on_delete=models.CASCADE)
     file = models.CharField(null=True, max_length=255)
     primary = models.BooleanField(default=True)
 
@@ -205,7 +215,7 @@ class IP(models.Model):
 
 class Inventory(models.Model):
     plan = models.ForeignKey(Plan, on_delete=models.CASCADE)
-    node = models.ForeignKey(VMNode, on_delete=models.CASCADE)
+    node = models.ForeignKey(Node, on_delete=models.CASCADE)
     quantity = models.IntegerField(default=0)
 
 
@@ -213,7 +223,3 @@ class Domain(models.Model):
     name = models.CharField(null=False, max_length=255)
     ssl = models.BooleanField(default=False)
     service = models.ForeignKey(Service, on_delete=models.SET_NULL, related_name='domain', null=True)
-
-# class UserAddress(models.Model):
-#     address = AddressField(null=True, blank=True)
-#     user = models.ForeignKey(User, on_delete=models.CASCADE)
