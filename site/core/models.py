@@ -116,9 +116,6 @@ class Node(PlanBase):
         ("proxmox", "Proxmox"),
     )
     name = models.CharField(max_length=255)
-    host = models.CharField(max_length=255)
-    user = models.CharField(max_length=255)
-    key = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="proxmox", choices=NODE_CHOICES)
     cluster = models.ForeignKey(Cluster, on_delete=models.SET_NULL, null=True)
 

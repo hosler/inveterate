@@ -150,9 +150,19 @@ class ClusterViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     }
     serializer_action_classes = {}
 
-    @action(methods=['post'], detail=True)
-    def node_status(self, request, pk=None):
+    @action(methods=['get'], detail=True)
+    def nodes(self, request, pk=None):
         stats = get_cluster_resources(pk=pk, query_type="node")
+        return Response(stats, status=202)
+
+    @action(methods=['get'], detail=True)
+    def vms(self, request, pk=None):
+        stats = get_cluster_resources(pk=pk, query_type="vm")
+        return Response(stats, status=202)
+
+    @action(methods=['get'], detail=True)
+    def disks(self, request, pk=None):
+        stats = get_cluster_resources(pk=pk, query_type="storage")
         return Response(stats, status=202)
 
 
@@ -345,8 +355,8 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
             password = ''.join(
                 random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation) for _ in
                 range(10))
-            proxmox = ProxmoxAPI(service.node.host, user=service.node.user, token_name='inveterate',
-                                 token_value=service.node.key,
+            proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
+                                 token_value=service.node.cluster.key,
                                  verify_ssl=False, port=8006)
 
             try:
