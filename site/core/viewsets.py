@@ -151,7 +151,7 @@ class ClusterViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=['post'], detail=True)
     def node_status(self, request, pk=None):
-        stats = get_cluster_resources("nodes")
+        stats = get_cluster_resources(pk=pk, query_type="nodes")
         return Response(stats, status=202)
 
 
