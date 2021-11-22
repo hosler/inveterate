@@ -7,7 +7,7 @@ import ipaddress
 from proxmoxer import ProxmoxAPI
 from django.contrib.auth.models import User
 from django.db import IntegrityError
-from .tasks import provision_service, provision_billing
+from .tasks import provision_service, provision_billing, assign_ips
 from nginx.config.api import Config, Section, Location
 
 class SelectFieldModelSerializer(serializers.ModelSerializer):
@@ -284,42 +284,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         service_plan.save()
         service.service_plan = service_plan
         service.save()
-        for i in range(service_plan.internal_ips):
-
-            for pool in service_plan.ip_pools.all():
-                if pool.internal is False:
-                    continue
-                with transaction.atomic():
-                    ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
-                    if ip:
-                        service_network = ServiceNetwork.objects.create(service=service)
-                        ip.owner = service_network
-                        ip.save()
-                        break
-        for i in range(service_plan.ipv4_ips):
-            for pool in service_plan.ip_pools.all():
-                if pool.type != "ipv4":
-                    continue
-                with transaction.atomic():
-                    ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
-                    if ip:
-                        service_network = ServiceNetwork.objects.create(service=service)
-                        ip.owner = service_network
-                        ip.save()
-                        break
-        for i in range(service_plan.ipv6_ips):
-
-            for pool in service_plan.ip_pools.all():
-                if pool.type != "ipv6":
-                    continue
-                with transaction.atomic():
-                    ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
-                    if ip:
-                        service_network = ServiceNetwork.objects.create(service=service)
-                        ip.owner = service_network
-                        ip.save()
-                        break
-
+        assign_ips(service.id)
         if service.billing_type is None:
             provision_service.delay(service.id, password)
         else:

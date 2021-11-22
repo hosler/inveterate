@@ -1,6 +1,7 @@
 from celery import shared_task
 from celery_singleton import Singleton
-from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster
+from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork
+from django.db import transaction
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 import logging
@@ -46,6 +47,53 @@ def calculate_inventory():
             inventory, created = Inventory.objects.get_or_create(plan=plan, node=node)
             inventory.quantity = lowest
             inventory.save()
+
+
+@shared_task(base=Singleton, lock_expiry=60*15)
+def assign_ips(service_id):
+    service = Service.objects.get(pk=service_id)
+    service_plan = service.service_plan
+    ips = IP.objects.filter(owner__service=service).all()
+    for ip in ips:
+        if ip.pool.internal is True:
+            service_plan.internal_ips -= 1
+        elif ip.pool.type == "ipv4":
+            service_plan.ipv4_ips -= 1
+        elif ip.pool.type == "ipv6":
+            service_plan.ipv6_ips -= 1
+    for i in range(service_plan.internal_ips):
+        for pool in service_plan.ip_pools.all():
+            if pool.internal is False:
+                continue
+            with transaction.atomic():
+                ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
+                if ip:
+                    service_network = ServiceNetwork.objects.create(service=service)
+                    ip.owner = service_network
+                    ip.save()
+                    break
+    for i in range(service_plan.ipv4_ips):
+        for pool in service_plan.ip_pools.all():
+            if pool.type != "ipv4":
+                continue
+            with transaction.atomic():
+                ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
+                if ip:
+                    service_network = ServiceNetwork.objects.create(service=service)
+                    ip.owner = service_network
+                    ip.save()
+                    break
+    for i in range(service_plan.ipv6_ips):
+        for pool in service_plan.ip_pools.all():
+            if pool.type != "ipv6":
+                continue
+            with transaction.atomic():
+                ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
+                if ip:
+                    service_network = ServiceNetwork.objects.create(service=service)
+                    ip.owner = service_network
+                    ip.save()
+                    break
 
 
 @shared_task(base=Singleton, lock_expiry=60*15)
@@ -126,7 +174,7 @@ def provision_service(service_id, password):
                 'searchdomain': service.hostname,
                 'pool': 'inveterate'
             }
-
+        assign_ips(service_id)
         for network in service.service_network.all():
             firewall = 0
             if network.ip.pool.internal is True:
