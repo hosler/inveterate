@@ -120,10 +120,12 @@ class BlestaBackendViewSet(viewsets.ModelViewSet):
     queryset = BlestaBackend.objects.order_by('pk')
     serializer_class = BlestaBackendSerializer
 
+
 class ClusterViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Cluster.objects.order_by('pk')
     serializer_class = ClusterSerializer
+
 
 class NodeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]

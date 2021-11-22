@@ -129,6 +129,11 @@ class TemplateSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class ClusterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cluster
+        fields = '__all__'
+
 class NodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Node
