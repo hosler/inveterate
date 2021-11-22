@@ -77,7 +77,7 @@ def assign_ips(service_id):
                     break
     for i in range(ipv4_ips):
         for pool in service_plan.ip_pools.all():
-            if pool.type != "ipv4":
+            if pool.type != "ipv4" or pool.internal is True:
                 continue
             with transaction.atomic():
                 ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
@@ -88,7 +88,7 @@ def assign_ips(service_id):
                     break
     for i in range(ipv6_ips):
         for pool in service_plan.ip_pools.all():
-            if pool.type != "ipv6":
+            if pool.type != "ipv6" or pool.internal is True:
                 continue
             with transaction.atomic():
                 ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()

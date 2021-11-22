@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
-    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources
+    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips
 from django.contrib.sites.models import Site
 import stripe
 import djstripe.settings
