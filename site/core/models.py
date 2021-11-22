@@ -129,6 +129,9 @@ class NodeDisk(models.Model):
     size = models.IntegerField()
     primary = models.BooleanField(default=True)
 
+    def __str__(self):
+        return f"{self.name} ({self.node.name})"
+
 
 class ServicePlan(PlanBase):
     type = models.CharField(max_length=255, choices=VM_TYPES)
