@@ -179,7 +179,7 @@ class BillingTypeViewSet(viewsets.ModelViewSet):
 
 
 class ServiceNetworkViewSet(viewsets.ModelViewSet):
-    permission_classes = [ReadOnly]
+    permission_classes = [IsAdminUser]
     queryset = ServiceNetwork.objects.order_by('pk')
     serializer_class = ServiceNetworkSerializer
 
