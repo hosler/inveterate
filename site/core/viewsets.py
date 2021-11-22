@@ -22,6 +22,7 @@ from .serializers import \
     NewServiceSerializer, \
     OrderNewServiceSerializer, \
     ClusterSerializer, \
+    ClusterListSerializer, \
     NodeSerializer, \
     BillingTypeSerializer, \
     InventorySerializer, \
@@ -140,7 +141,7 @@ class BlestaBackendViewSet(viewsets.ModelViewSet):
 class ClusterViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Cluster.objects.order_by('pk')
-    serializer_class = ClusterSerializer
+    serializer_class = ClusterListSerializer
     admin_serializer_action_classes = {
         'list': ClusterSerializer,
         'retrieve': ClusterSerializer,

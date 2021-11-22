@@ -135,6 +135,13 @@ class ClusterSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class ClusterListSerializer(ClusterSerializer):
+    def __init__(self, *args, **kwargs):
+        super(ClusterListSerializer, self).__init__(*args, **kwargs)
+        for field in self.fields:
+            self.fields[field].read_only = True
+
+
 class NodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Node
