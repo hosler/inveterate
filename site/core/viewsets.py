@@ -1,9 +1,11 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
+from rest_framework.generics import RetrieveAPIView
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
     reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips
 from django.contrib.sites.models import Site
+from django.contrib.auth import get_user_model
 import stripe
 import djstripe.settings
 from django.conf import settings
@@ -52,6 +54,7 @@ from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 import string
 
+UserModel = get_user_model()
 
 class ReadOnly(BasePermission):
     def has_permission(self, request, view):
@@ -386,4 +389,26 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         if self.request.user.is_staff:
             return Service.objects.all().exclude(status='destroyed').order_by('pk')
         return Service.objects.filter(owner=self.request.user).exclude(status='destroyed').order_by('pk')
+
+
+class DashboardViewSet(viewsets.GenericViewSet):
+    permission_classes = [IsAdminUser]
+
+    @action(methods=['get'], detail=False)
+    def summary(self, request):
+        user_count = UserModel.objects.count()
+        plan_count = Plan.objects.count()
+        ip_count = IP.objects.count()
+        template_count = Template.objects.count()
+        service_count = Service.objects.count()
+        node_count = Node.objects.count()
+        data = {
+            'users': user_count,
+            'plans': plan_count,
+            'ips': ip_count,
+            'templates': template_count,
+            'services': service_count,
+            'nodes': node_count
+        }
+        return Response(data, status=202)
 

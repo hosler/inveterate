@@ -20,6 +20,7 @@ router.register(r'billing', viewsets.BillingTypeViewSet, basename='billing')
 router.register(r'blesta', viewsets.BlestaBackendViewSet, basename='blesta')
 router.register(r'domains', viewsets.DomainViewSet, basename='domain')
 router.register(r'users', UserViewSet, basename='user')
+router.register(r'dashboard', viewsets.DashboardViewSet, basename='dashboard')
 
 def trigger_error(request):
     division_by_zero = 1 / 0
