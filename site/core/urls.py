@@ -2,7 +2,7 @@ from django.conf.urls import url, include
 import core.viewsets as viewsets
 from rest_framework import routers
 from django.urls import path, re_path
-
+from users.viewsets import UserViewSet
 
 router = routers.DefaultRouter()
 router.register(r'plans', viewsets.PlanViewSet, basename='plan')
@@ -18,8 +18,8 @@ router.register(r'node-disks', viewsets.NodeDiskViewSet, basename='node-disk')
 router.register(r'inventory', viewsets.InventoryViewSet, basename='inventory')
 router.register(r'billing', viewsets.BillingTypeViewSet, basename='billing')
 router.register(r'blesta', viewsets.BlestaBackendViewSet, basename='blesta')
-router.register(r'domain', viewsets.DomainViewSet, basename='domain')
-
+router.register(r'domains', viewsets.DomainViewSet, basename='domain')
+router.register(r'users', UserViewSet, basename='user')
 
 def trigger_error(request):
     division_by_zero = 1 / 0

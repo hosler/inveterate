@@ -1,6 +1,5 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
     reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips
@@ -20,7 +19,6 @@ from .serializers import \
     ConfigSettingsSerializer, \
     IPSerializer, \
     NewServiceSerializer, \
-    OrderNewServiceSerializer, \
     ClusterSerializer, \
     ClusterListSerializer, \
     NodeSerializer, \
@@ -54,12 +52,14 @@ from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 import string
 
+
 class ReadOnly(BasePermission):
     def has_permission(self, request, view):
         return bool(
             request.user.is_authenticated and
             request.method in SAFE_METHODS
         )
+
 
 class ReadOnlyAnonymous(BasePermission):
     def has_permission(self, request, view):
@@ -97,21 +97,21 @@ class MultiSerializerViewSetMixin(object):
                 return super(MultiSerializerViewSetMixin, self).get_serializer_class()
 
 
-class FormModelViewSet(viewsets.ModelViewSet):
-
-    def list(self, request, *args, **kwargs):
-        if request.accepted_renderer.format == "form":
-            if "pk" not in kwargs:
-                serializer = self.get_serializer()
-                return Response(serializer.data)
-        return super().list(request, *args, **kwargs)
-
-    def get_renderer_context(self):
-        context = super().get_renderer_context()
-        if "style" not in context:
-            context['style'] = {}
-        context['style']['template_pack'] = 'drf_horizontal'
-        return context
+# class FormModelViewSet(viewsets.ModelViewSet):
+#
+#     def list(self, request, *args, **kwargs):
+#         if request.accepted_renderer.format == "form":
+#             if "pk" not in kwargs:
+#                 serializer = self.get_serializer()
+#                 return Response(serializer.data)
+#         return super().list(request, *args, **kwargs)
+#
+#     def get_renderer_context(self):
+#         context = super().get_renderer_context()
+#         if "style" not in context:
+#             context['style'] = {}
+#         context['style']['template_pack'] = 'drf_horizontal'
+#         return context
 
 
 class DomainViewSet(viewsets.ModelViewSet):

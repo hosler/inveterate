@@ -196,13 +196,13 @@ class PlanRelatedField(serializers.Field):
         return Plan.objects.get(pk=data[0])
 
 
-class Wat(serializers.SlugRelatedField):
-    def get_queryset(self):
-        queryset = User.objects.all()
-        return queryset
-
-    def to_internal_value(self, data):
-        return super().to_internal_value(data)
+# class Wat(serializers.SlugRelatedField):
+#     def get_queryset(self):
+#         queryset = User.objects.all()
+#         return queryset
+#
+#     def to_internal_value(self, data):
+#         return super().to_internal_value(data)
 
 
 class ServiceSerializer(serializers.ModelSerializer):
@@ -341,15 +341,15 @@ class CustomerServiceListSerializer(ServiceSerializer):
             'id', 'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
         )
 
-class OrderNewServiceSerializer(ServiceSerializer):
-    template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
-    owner = Owner(slug_field='username')
-
-    class Meta:
-        model = Service
-        fields = (
-            'owner', 'hostname', 'plan', 'node', 'password', 'template'
-        )
+# class OrderNewServiceSerializer(ServiceSerializer):
+#     template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
+#     owner = Owner(slug_field='username')
+#
+#     class Meta:
+#         model = Service
+#         fields = (
+#             'owner', 'hostname', 'plan', 'node', 'password', 'template'
+#         )
 
 
 class InventorySerializer(serializers.ModelSerializer):
