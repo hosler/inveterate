@@ -1,10 +1,10 @@
-celery==5.1.2
+celery==5.2.2
 celery-singleton==0.3.1
 certbot==1.19.0
 certbot-nginx==1.19.0
 cryptography==3.4.7
 dj-stripe==2.5.1
-Django==3.2.7
+Django==3.2.10
 django-address==0.2.5
 django-bootstrap4==3.0.1
 django-celery-beat==2.2.1
