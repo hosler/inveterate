@@ -3,7 +3,8 @@ from rest_framework.response import Response
 from rest_framework.generics import RetrieveAPIView
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
-    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips, get_vm_ips
+    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips, \
+    get_vm_ips, get_vm_tasks
 from django.contrib.sites.models import Site
 from django.contrib.auth import get_user_model
 import stripe
@@ -55,6 +56,7 @@ from proxmoxer.core import ResourceException
 import string
 
 UserModel = get_user_model()
+
 
 class ReadOnly(BasePermission):
     def has_permission(self, request, view):
@@ -298,6 +300,11 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     def ips(self, request, pk=None):
         ips = get_vm_ips(pk)
         return Response(ips, status=202)
+
+    @action(methods=['get'], detail=True)
+    def tasks(self, request, pk=None):
+        tasks = get_vm_tasks(pk)
+        return Response(tasks, status=202)
 
 
     @action(detail=True)

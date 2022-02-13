@@ -1,6 +1,7 @@
 from celery import shared_task
 from celery_singleton import Singleton
 from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork
+from django_celery_results.models import TaskResult
 from django.db import transaction
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
@@ -350,6 +351,19 @@ def get_vm_ips(service_id):
             ip["primary"] = False
         ips.append(ip)
     return ips
+
+
+def get_vm_tasks(service_id):
+    task_objects = TaskResult.objects.filter(task_args__startswith=f"\"('{service_id}',").order_by('-date_done')
+    tasks = []
+    for task in task_objects:
+        task_data = {
+            "id": task.task_id,
+            "name": task.task_name,
+            "date": task.date_done
+        }
+        tasks.append(task_data)
+    return tasks
 
 
 @shared_task(base=Singleton, lock_expiry=60*15)
