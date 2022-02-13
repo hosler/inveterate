@@ -337,6 +337,21 @@ def get_vm_status(service_id):
     return stats
 
 
+def get_vm_ips(service_id):
+    networks = ServiceNetwork.objects.filter(service_id=service_id)
+    ips = []
+    for network in networks:
+        ip = {
+            "value": network.ip.value
+        }
+        if network.net_id == 0:
+            ip["primary"] = True
+        else:
+            ip["primary"] = False
+        ips.append(ip)
+    return ips
+
+
 @shared_task(base=Singleton, lock_expiry=60*15)
 def get_cluster_resources(pk=None, query_type="node"):
     cluster = get_cluster(cluster_id=pk)

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import IPPool, Inventory, IP, Plan, Service, \
-    ServicePlan, Template, ServiceNetwork, Config, NodeDisk,\
-    BillingType, Cluster, Node, BlestaBackend, Domain, NodeDisk, PlanBase
+    ServicePlan, Template, ServiceNetwork, Config, NodeDisk, \
+    BillingType, Cluster, Node, BlestaBackend, Domain, PlanBase
 from django.db import transaction
 import ipaddress
 from proxmoxer import ProxmoxAPI
@@ -9,6 +9,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError
 from .tasks import provision_service, provision_billing, assign_ips
 from nginx.config.api import Config, Section, Location
+
 
 class SelectFieldModelSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
@@ -81,21 +82,6 @@ class IPPoolSerializer(serializers.ModelSerializer):
                         IP.objects.create(pool=ip_pool, value=str(ip))
                     except IntegrityError:
                         pass
-        # if ip_pool.internal is True:
-        #     for node in ip_pool.nodes.all():
-        #         proxmox = ProxmoxAPI(node.host, user=node.user, token_name='inveterate',
-        #                              token_value=node.key,
-        #                              verify_ssl=False, port=8006)
-        #         node = proxmox.nodes(node.name)
-        #         node_rules = node.firewall.rules.get()
-        #         rules = {}
-        #         for node_rule in node_rules:
-        #             rules[(node_rule["source"], node_rule["dest"])] = node_rule["action"]
-        #         rule_key = (f'{ip_pool.network}/{ip_pool.mask}', f'{ip_pool.network}/{ip_pool.mask}')
-        #         if rule_key in rules:
-        #             if rules[rule_key] == "DROP":
-        #                 continue
-                # TODO: add guest to guest blocking rule here
         return ip_pool
 
 
@@ -196,15 +182,6 @@ class PlanRelatedField(serializers.Field):
         return Plan.objects.get(pk=data[0])
 
 
-# class Wat(serializers.SlugRelatedField):
-#     def get_queryset(self):
-#         queryset = User.objects.all()
-#         return queryset
-#
-#     def to_internal_value(self, data):
-#         return super().to_internal_value(data)
-
-
 class ServiceSerializer(serializers.ModelSerializer):
     service_plan = ServicePlanSerializer()
     owner = Owner(slug_field='username')
@@ -212,12 +189,11 @@ class ServiceSerializer(serializers.ModelSerializer):
     node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
     password = serializers.CharField(write_only=True, required=False)
 
-
-
     class Meta:
         model = Service
         fields = (
-            'id', 'owner', 'password', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan', 'billing_type'
+            'id', 'owner', 'password', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
+            'billing_type'
         )
 
     # Use this method for the custom field
@@ -257,10 +233,12 @@ class ServiceSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         if 'service_plan' in validated_data:
             service_plan_serializer = self.fields['service_plan']
+            service_plan_serializer.partial = True
             service_plan_instance = instance.service_plan
             service_plan_data = validated_data.pop('service_plan')
             service_plan_serializer.update(service_plan_instance, service_plan_data)
         password = validated_data.pop("password", None)
+        super().partial = True
         service = super().update(instance, validated_data)
         provision_service.delay(service.id, password)
         return service
@@ -272,7 +250,7 @@ class ServiceSerializer(serializers.ModelSerializer):
             service_plan = sps.create(service_plan_data)
         elif "plan" in validated_data:
             plan_fields = [f.name for f in PlanBase._meta.fields if f.name != "id"]
-            plan_values = dict( [(x, getattr(validated_data["plan"], x)) for x in plan_fields] )
+            plan_values = dict([(x, getattr(validated_data["plan"], x)) for x in plan_fields])
             service_plan = sps.create(plan_values)
         password = validated_data.pop("password", None)
         template = validated_data.pop("template", None)
@@ -340,16 +318,6 @@ class CustomerServiceListSerializer(ServiceSerializer):
         fields = (
             'id', 'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
         )
-
-# class OrderNewServiceSerializer(ServiceSerializer):
-#     template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
-#     owner = Owner(slug_field='username')
-#
-#     class Meta:
-#         model = Service
-#         fields = (
-#             'owner', 'hostname', 'plan', 'node', 'password', 'template'
-#         )
 
 
 class InventorySerializer(serializers.ModelSerializer):

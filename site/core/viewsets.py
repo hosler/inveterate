@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.generics import RetrieveAPIView
 from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
-    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips
+    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips, get_vm_ips
 from django.contrib.sites.models import Site
 from django.contrib.auth import get_user_model
 import stripe
@@ -293,6 +293,11 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     def provision_billing(self, request, pk=None):
         task = provision_billing.delay(pk)
         return Response({"task_id": task.id}, status=202)
+
+    @action(methods=['get'], detail=True)
+    def ips(self, request, pk=None):
+        ips = get_vm_ips(pk)
+        return Response(ips, status=202)
 
 
     @action(detail=True)
