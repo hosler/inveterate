@@ -20,20 +20,6 @@ import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
-sentry_sdk.init(
-    dsn="https://47acffe125a84adfacae09a87c3402b2@o1074669.ingest.sentry.io/6074481",
-    integrations=[DjangoIntegration(), RedisIntegration()],
-
-    # Set traces_sample_rate to 1.0 to capture 100%
-    # of transactions for performance monitoring.
-    # We recommend adjusting this value in production.
-    traces_sample_rate=1.0,
-
-    # If you wish to associate users to errors (assuming you are using
-    # django.contrib.auth) you may enable sending PII data.
-    send_default_pii=True
-)
-
 env = environ.Env(
     # set casting, default value
     DEBUG=(bool, False),
@@ -41,7 +27,24 @@ env = environ.Env(
     STRIPE_LIVE_MODE=bool,
 )
 # reading .env file
-environ.Env.read_env('../.env')
+environ.Env.read_env('./.env')
+SENTRY = env('SENTRY')
+if SENTRY is True:
+    sentry_sdk.init(
+        dsn=env('SENTRY_URL'),
+        integrations=[DjangoIntegration(), RedisIntegration()],
+
+        # Set traces_sample_rate to 1.0 to capture 100%
+        # of transactions for performance monitoring.
+        # We recommend adjusting this value in production.
+        traces_sample_rate=1.0,
+
+        # If you wish to associate users to errors (assuming you are using
+        # django.contrib.auth) you may enable sending PII data.
+        send_default_pii=True
+    )
+
+
 
 # False if not in os.environ
 DEBUG = env('DEBUG')
