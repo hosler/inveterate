@@ -3,6 +3,7 @@ from django.forms import widgets
 from .models import Template, Plan, Service, BillingType
 from django.forms import ModelForm
 from django.contrib.auth import get_user_model
+
 User = get_user_model()
 
 
@@ -29,17 +30,18 @@ class OrderPackageForm(forms.Form):
 class OrderCustomizeVMForm(forms.Form):
     hostname = forms.CharField(max_length=50)
     password = forms.CharField(widget=forms.PasswordInput)
-    template = forms.ModelChoiceField(queryset=Template.objects.all(), widget=forms.Select(attrs={'class': "selectpicker"}))
+    template = forms.ModelChoiceField(queryset=Template.objects.all(),
+                                      widget=forms.Select(attrs={'class': "selectpicker"}))
 
 
 class NewServiceForm(forms.Form):
     owner = forms.ModelChoiceField(queryset=User.objects.all(),
-                                      widget=forms.Select(attrs={'class': "selectpicker"}))
+                                   widget=forms.Select(attrs={'class': "selectpicker"}))
     hostname = forms.CharField(max_length=50)
     password = forms.CharField(widget=forms.PasswordInput)
     plan = forms.ModelChoiceField(queryset=Plan.objects.all(),
-                                      widget=forms.Select(attrs={'class': "selectpicker"}))
+                                  widget=forms.Select(attrs={'class': "selectpicker"}))
     template = forms.ModelChoiceField(queryset=Template.objects.all(),
                                       widget=forms.Select(attrs={'class': "selectpicker"}))
     billing_type = forms.ModelChoiceField(queryset=BillingType.objects.all(),
-                                      widget=forms.Select(attrs={'class': "selectpicker"}))
+                                          widget=forms.Select(attrs={'class': "selectpicker"}))

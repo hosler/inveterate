@@ -2,6 +2,7 @@ import os
 from celery import Celery
 from celery.signals import worker_ready
 from celery_singleton import clear_locks
+
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'app.settings')
 
 app = Celery('app')
@@ -13,6 +14,7 @@ app.autodiscover_tasks()
 def unlock_all(**kwargs):
     clear_locks(app)
 
+
 def detect_tasks(project_root):
     tasks = []
     file_path = project_root
@@ -20,9 +22,9 @@ def detect_tasks(project_root):
         for filename in files:
             if os.path.basename(root) == 'tasks':
                 if filename != '__init__.py' and filename.endswith('.py'):
-                    task = os.path.join(root, filename)\
-                        .replace(os.path.dirname(project_root) + '/', '')\
-                        .replace('/', '.')\
+                    task = os.path.join(root, filename) \
+                        .replace(os.path.dirname(project_root) + '/', '') \
+                        .replace('/', '.') \
                         .replace('.py', '')
                     tasks.append(task)
     return tuple(tasks)

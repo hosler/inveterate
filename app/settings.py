@@ -86,27 +86,26 @@ INSTALLED_APPS = [
     'djstripe',
     'rest_framework',
     'rest_framework.authtoken',
-    'rest_auth',
+    'dj_rest_auth',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
-    'rest_auth.registration',
+    'dj_rest_auth.registration',
     #'django_rest_passwordreset',
     'corsheaders',
     'django_filters',
-    'rest_framework_datatables',
-    'bootstrap4',
-    'crispy_forms',
+    #'rest_framework_datatables',
+    #'bootstrap4',
+    #'crispy_forms',
     'users',
     'core',
 ]
 
-CRISPY_TEMPLATE_PACK = 'bootstrap4'
+# CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
 SITE_ID = 1
 CORS_ALLOW_ALL_ORIGINS = True
 REST_AUTH_SERIALIZERS = {
-    # Changed
     'USER_DETAILS_SERIALIZER': 'users.serializers.UserDetailsSerializerWithType',
 }
 
@@ -217,13 +216,13 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',
         'rest_framework.renderers.HTMLFormRenderer',
         'drf_aggregates.renderers.AggregateRenderer',
-        'rest_framework_datatables.renderers.DatatablesRenderer',
+        # 'rest_framework_datatables.renderers.DatatablesRenderer',
     ),
-    'DEFAULT_FILTER_BACKENDS': (
-        'rest_framework_datatables.filters.DatatablesFilterBackend',
-    ),
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework_datatables.pagination.DatatablesPageNumberPagination',
-    'PAGE_SIZE': 50,
+    # 'DEFAULT_FILTER_BACKENDS': (
+    #     'rest_framework_datatables.filters.DatatablesFilterBackend',
+    # ),
+    # 'DEFAULT_PAGINATION_CLASS': 'rest_framework_datatables.pagination.DatatablesPageNumberPagination',
+    # 'PAGE_SIZE': 50,
 }
 
 # Password validation
@@ -269,10 +268,10 @@ MEDIA_URL = "/mediafiles/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "mediafiles")
 
 
-ACCOUNT_LOGIN_REDIRECT_URL = '/services/'
-ACCOUNT_LOGOUT_REDIRECT_URL = '/account/login/'
-ACCOUNT_SIGNUP_REDIRECT_URL = '/order/'
-LOGIN_URL = '/account/login/'
+# ACCOUNT_LOGIN_REDIRECT_URL = '/services/'
+# ACCOUNT_LOGOUT_REDIRECT_URL = '/account/login/'
+# ACCOUNT_SIGNUP_REDIRECT_URL = '/order/'
+# LOGIN_URL = '/account/login/'
 
 DISCOURSE_BASE_URL = env('DISCOURSE_URL')
 DISCOURSE_SSO_SECRET = env('DISCOURSE_SECRET')

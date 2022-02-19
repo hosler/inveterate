@@ -197,4 +197,3 @@ Distributed under the LGPLv3 License. See `LICENSE.txt` for more information.
 [issues-url]: https://github.com/hosler/inveterate/issues
 [license-shield]: https://img.shields.io/github/license/hosler/inveterate.svg?style=for-the-badge
 [license-url]: https://github.com/hosler/inveterate/blob/master/LICENSE.txt
-[product-screenshot]: images/screenshot.png
