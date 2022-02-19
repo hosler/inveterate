@@ -46,8 +46,8 @@ class BlestaBackend(BaseBackend):
                 # Create a new user. There's no need to set a password
                 # because only the password from settings.py is checked.
                 user = User(username=username)
-                #user.is_staff = True
-                #user.is_superuser = True
+                # user.is_staff = True
+                # user.is_superuser = True
                 user.save()
             return user
         return None

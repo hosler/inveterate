@@ -41,7 +41,7 @@ class BlestaApi:
         if r.status_code != 200:
             raise Exception("Blesta API returned HTTP error response: %s" % str(r.status_code) + r.text)
 
-        #print(r.text)
+        # print(r.text)
         response_dict = dict(r.json())
         response_dict['status'] = r.status_code
         if 'response' not in response_dict.keys():
@@ -338,7 +338,8 @@ class BlestaApi:
         }
         return self.call(verb='get', classname='services', method='get', value_dict=params)["response"]
 
-    def cancel_service(self, service_id, reason='', cancel_date=datetime.now(), use_module=False, reapply_payments=False, notify_cancel=False):
+    def cancel_service(self, service_id, reason='', cancel_date=datetime.now(), use_module=False,
+                       reapply_payments=False, notify_cancel=False):
         if isinstance(cancel_date, datetime):
             cancel_date = datetime.strftime(cancel_date, '%Y-%m-%d %H:%M:%S')
         params = {

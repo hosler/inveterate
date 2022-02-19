@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from rest_auth.serializers import UserDetailsSerializer
+from dj_rest_auth.serializers import UserDetailsSerializer
 
 # Get the UserModel
 UserModel = get_user_model()

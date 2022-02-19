@@ -9,4 +9,5 @@ def anonymous_required(func):
             return redirect(redirect_to)
         response = func(request, *args, **kwargs)
         return response
+
     return as_view
