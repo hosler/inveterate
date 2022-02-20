@@ -108,15 +108,53 @@ Besides a proxmox node you will also need a machine to run the app (perhaps a vp
 
 ### Prerequisites
 
-This is an example of how to list things you need to use the software and how to install them.
 * Postgresql 13
 * Redis
-* Django
 * Optional: Nginx or Apache for reverse proxy
-
+```
+$ sudo apt install postgresql postgresql-contrib redis-server nginx libpq-dev -y
+```
 ### Installation
 
-TODO
+Basic installation with Ubuntu Focal Server
+1. Set up your environment using conda, virtualenv, or whatever.
+In this example i'll use Ubuntu's packaged python and pip. Ubuntu Focal 
+users will need to run the following:
+```
+$ sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+update-alternatives: using /usr/bin/python3 to provide /usr/bin/python (python) in auto mode
+```
+2. Install pip:
+```
+$ sudo apt install python3-pip -y
+```
+3. Clone and install requirements
+```
+$ git clone https://github.com/hosler/inveterate.git
+$ cd inveterate
+$ pip install --user -r requirements.txt
+```
+4. Populate the env file
+```
+$ vim .env
+```
+At a minimum you will need database and redis info:
+```
+DEBUG=on # Turn off in production
+REDIS_HOST=localhost
+DB_HOST=localhost #leave blank to use socket
+DB_USER=<username>
+DB_PASSWORD=<paassword>
+DB=<username>
+SECRET_KEY=randomstring
+```
+5. Setup tables and admin user
+```
+$ python manage.py makemigrations
+$ python manage.py migrate
+$ python manage.py createcachetable
+$ python manage.py createsuperuser
+```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
