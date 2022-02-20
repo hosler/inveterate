@@ -10,7 +10,8 @@ from django.contrib.auth import get_user_model
 import stripe
 import djstripe.settings
 from django.conf import settings
-from djstripe.models import Session, Customer, Product, Price
+if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
+    from djstripe.models import Session, Customer, Product, Price
 from rest_framework.decorators import action
 from .serializers import \
     PlanSerializer, \
@@ -306,7 +307,6 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         tasks = get_vm_tasks(pk)
         return Response(tasks, status=202)
 
-
     @action(detail=True)
     def billing(self, request, pk=None):
         try:
@@ -353,10 +353,10 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
             session = stripe.checkout.Session.create(**data)
             Session._create_from_stripe_object(data=session)
         return Response(
-                      {"type": "stripe",
-                       "key": djstripe.settings.STRIPE_PUBLIC_KEY,
-                       "service_id": service_id,
-                       "sessionid": session.id})
+            {"type": "stripe",
+             "key": djstripe.settings.STRIPE_PUBLIC_KEY,
+             "service_id": service_id,
+             "sessionid": session.id})
 
     @action(methods=['post'], detail=True)
     def console_login(self, request, pk=None):
@@ -423,4 +423,3 @@ class DashboardViewSet(viewsets.GenericViewSet):
             'nodes': node_count
         }
         return Response(data, status=202)
-

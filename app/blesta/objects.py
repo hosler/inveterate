@@ -49,8 +49,9 @@ class BlestaUser(BlestaObject):
                     client_group_id = self.blesta.get_default_client_group(self.company_id)["id"]
                     self.blesta.create_user(username=self.username, password=''.join(
                         random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation) for _ in
-                        range(10)), client_group_id=client_group_id, first_name=self.first_name, last_name=self.last_name,
-                                       email=self.username, username_type="email")
+                        range(10)), client_group_id=client_group_id, first_name=self.first_name,
+                                            last_name=self.last_name,
+                                            email=self.username, username_type="email")
                     blesta_user = self.blesta.search_user(self.username)
             except ConnectionError:
                 traceback.print_exc()
@@ -127,7 +128,6 @@ class BlestaPlan(BlestaObject):
         except Exception:
             traceback.print_exc()
 
-
     @property
     def package_id(self):
         if self.__package_id is None:
@@ -139,7 +139,6 @@ class BlestaPlan(BlestaObject):
             else:
                 self.__package_id = self.__package["id"]
         return self.__package_id
-
 
     @property
     def pricing_id(self):
@@ -195,9 +194,9 @@ class BlestaPlan(BlestaObject):
                     if module_row['meta']['name'] == 'inveterate':
                         module_row_id = module_row['id']
                 self.__package_id = self.blesta.create_package(company_id=self.company_id, name=self.name,
-                                                        group_id=group_id,
-                                                        module_id=module_id,
-                                                        module_row_id=module_row_id)
+                                                               group_id=group_id,
+                                                               module_id=module_id,
+                                                               module_row_id=module_row_id)
             else:
                 self.__package = self.blesta.get_package_details(self.__package_id)
         return self.__package

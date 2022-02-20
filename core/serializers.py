@@ -176,7 +176,7 @@ class PlanRelatedField(serializers.Field):
 
     def get_value(self, data):
         plan_id = data['plan']
-        return (plan_id,)
+        return plan_id,
 
     def to_internal_value(self, data):
         return Plan.objects.get(pk=data[0])

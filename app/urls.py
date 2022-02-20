@@ -17,13 +17,16 @@ from django.contrib import admin
 from django.urls import path, include
 import debug_toolbar
 from .views import discourse_sso
+from django.conf import settings
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("stripe/", include("djstripe.urls", namespace="djstripe")),
     path('auth/', include('dj_rest_auth.urls')),
     path('auth/register/', include('dj_rest_auth.registration.urls')),
     path('', include('core.urls')),
     path('__debug__/', include(debug_toolbar.urls)),
     path('session/sso_provider', discourse_sso)
 ]
+
+if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
+    urlpatterns.append(path("stripe/", include("djstripe.urls", namespace="djstripe")))

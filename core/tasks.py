@@ -11,18 +11,23 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from app.blesta.api import BlestaApi
 from app.blesta.objects import BlestaObject, BlestaUser, BlestaPlan
-from djstripe.models import Product, Price, Customer
 import traceback
 from requests.exceptions import ConnectionError
-import djstripe.settings
 import stripe
 import time
-
 from django.db.models import Sum
+from django.conf import settings
+
+if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
+    import djstripe.settings
+    from djstripe.models import Product, Price, Customer
+
+
+
 logger = logging.getLogger()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def calculate_inventory():
     plans = Plan.objects.all()
     nodes = Node.objects.all()
@@ -32,13 +37,13 @@ def calculate_inventory():
         for plan in plans:
             lowest = None
             for field in inventory_fields:
-                services_value = list(services.aggregate(Sum("service_plan__"+field)).values())[0]
+                services_value = list(services.aggregate(Sum("service_plan__" + field)).values())[0]
                 if services_value is None:
                     services_value = 0
                 node_value = getattr(node, field)
                 plan_value = getattr(plan, field)
                 try:
-                    quantity = int((node_value-services_value)/plan_value)
+                    quantity = int((node_value - services_value) / plan_value)
                 except ZeroDivisionError:
                     quantity = float('inf')
                 if lowest is None:
@@ -50,7 +55,7 @@ def calculate_inventory():
             inventory.save()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def assign_ips(service_id):
     service = Service.objects.get(pk=service_id)
     service_plan = service.service_plan
@@ -100,10 +105,11 @@ def assign_ips(service_id):
                     break
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def provision_service(service_id, password):
     service = Service.objects.get(pk=service_id)
-    proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate', token_value=service.node.cluster.key,
+    proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
+                         token_value=service.node.cluster.key,
                          verify_ssl=False, port=8006, timeout=600)
     node = proxmox.nodes(service.node)
     service_type = service.service_plan.type
@@ -120,7 +126,7 @@ def provision_service(service_id, password):
                 'storage': service.service_plan.storage.name,
                 'full': 1,
                 'target': service.node.name
-                #'pool': 'inveterate'
+                # 'pool': 'inveterate'
             }
             clone_node = node
             try:
@@ -291,37 +297,37 @@ def get_cluster(cluster_id):
     return cluster_obj
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def start_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.start.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def stop_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.stop.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def reset_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.reset.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def shutdown_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.shutdown.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def reboot_vm(service_id):
     machine, service = get_vm(service_id)
     machine.status.reboot.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def get_vm_status(service_id):
     machine, service = get_vm(service_id)
     vm_stats = machine.status.current.get()
@@ -332,7 +338,7 @@ def get_vm_status(service_id):
         "disk_max": vm_stats['maxdisk'],
         "disk_used": vm_stats['diskwrite'],
         "cpu_util": vm_stats['cpu'],
-        "bandwidth_max": service.service_plan.bandwidth*1024*1024,
+        "bandwidth_max": service.service_plan.bandwidth * 1024 * 1024,
         "bandwidth_used": service.bandwidth.bandwidth + service.bandwidth.bandwidth_banked
     }
     return stats
@@ -366,7 +372,7 @@ def get_vm_tasks(service_id):
     return tasks
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def get_cluster_resources(pk=None, query_type="node"):
     cluster = get_cluster(cluster_id=pk)
     if query_type == "vm":
@@ -387,7 +393,7 @@ def get_cluster_resources(pk=None, query_type="node"):
     return stats
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def suspend_service(service_id):
     machine, service = get_vm(service_id)
     machine.status.suspend.post(todisk=1)
@@ -395,7 +401,7 @@ def suspend_service(service_id):
     service.save()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def reinstate_service(service_id):
     machine, service = get_vm(service_id)
     machine.status.start.post()
@@ -403,7 +409,7 @@ def reinstate_service(service_id):
     service.save()
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def cancel_service(service_id, cancel_date=datetime.now()):
     machine, service = get_vm(service_id)
     machine.delete(force=1)
@@ -430,15 +436,15 @@ def cancel_service(service_id, cancel_date=datetime.now()):
             continue
 
 
-@shared_task(base=Singleton, lock_expiry=60*15)
+@shared_task(base=Singleton, lock_expiry=60 * 15)
 def meter_bandwidth():
     api_objects = {}
     for service in Service.objects.all().filter(status="active"):
         node_name = service.node.name
         if node_name not in api_objects:
             api_objects[node_name] = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user,
-                             token_name='inveterate', token_value=service.node.cluster.key,
-                             verify_ssl=False, port=8006)
+                                                token_name='inveterate', token_value=service.node.cluster.key,
+                                                verify_ssl=False, port=8006)
         node = api_objects[node_name].nodes(node_name)
 
         now = timezone.now()
@@ -487,8 +493,10 @@ def provision_billing(service_id):
             continue
         billing_backend = instance.backend
         blesta = BlestaApi(server=billing_backend.host, user=billing_backend.user, key=billing_backend.key)
-        blesta_user = BlestaUser(api=blesta, hostname=billing_backend.company_hostname, username=user.email, first_name=user.first_name, last_name=user.last_name)
-        blesta_plan = BlestaPlan(api=blesta, hostname=billing_backend.company_hostname, name=service.plan.name, term=service.plan.term, period=service.plan.period, price=service.plan.price)
+        blesta_user = BlestaUser(api=blesta, hostname=billing_backend.company_hostname, username=user.email,
+                                 first_name=user.first_name, last_name=user.last_name)
+        blesta_plan = BlestaPlan(api=blesta, hostname=billing_backend.company_hostname, name=service.plan.name,
+                                 term=service.plan.term, period=service.plan.period, price=service.plan.price)
         billing_id = blesta.add_client_service(blesta_user.client_id, blesta_plan.pricing_id, blesta_plan.package_id)
         svc_id = service.id
         blesta.set_inveterate_id(service_id=billing_id, inveterate_id=svc_id)
@@ -556,11 +564,13 @@ def record_payment(service_id, amt, currency, reference_id):
         try:
             blesta_user = blesta.search_user(user.email)
             client_id = blesta.get_client_from_user(blesta_user["id"])["id"]
-            transactions = [trans for trans in blesta.search_transactions(reference_id) if trans["status"] == "approved"]
+            transactions = [trans for trans in blesta.search_transactions(reference_id) if
+                            trans["status"] == "approved"]
             if len(transactions) == 1:
                 transaction_id = transactions[0]["id"]
             else:
-                transaction_id = blesta.record_transaction(client_id=client_id, amount=amt, currency=currency, reference_id=reference_id)
+                transaction_id = blesta.record_transaction(client_id=client_id, amount=amt, currency=currency,
+                                                           reference_id=reference_id)
             company_id = blesta.get_company_by_hostname(billing_backend.company_hostname)["id"]
             modules = blesta.get_all_modules(company_id)
             module_id = None
@@ -572,7 +582,6 @@ def record_payment(service_id, amt, currency, reference_id):
                 invoices = blesta.get_service_invoices(services[0]["id"])
                 if len(invoices) > 0:
                     blesta.apply_transaction(transaction_id=transaction_id, invoice_id=invoices[0]["id"], amount=amt)
-
 
         except ConnectionError:
             traceback.print_exc()

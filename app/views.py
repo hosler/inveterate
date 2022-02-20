@@ -3,7 +3,7 @@ import hmac
 import hashlib
 from urllib import parse
 
-#from account.decorators import login_required
+# from account.decorators import login_required
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.conf import settings
@@ -11,13 +11,6 @@ from django.conf import settings
 
 @login_required
 def discourse_sso(request):
-    '''
-    Django view function - register with `urls.py` and use that registered URL as the callback in your Discourse configuration.
-
-    Make sure to set `DISCOURSE_BASE_URL` and `DISCOURSE_SSO_SECRET` in settings.py
-
-    Code was originally adapted from https://meta.discourse.org/t/sso-example-for-django/14258 but that discussion topic appears to have been removed.
-    '''
     payload = request.GET.get('sso')
     signature = request.GET.get('sig')
 

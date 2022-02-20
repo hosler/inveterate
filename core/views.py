@@ -41,9 +41,8 @@
 # from django.http import QueryDict
 # from django.contrib.sites.models import Site
 
-#load hooks
+# load hooks
 import core.stripe_hooks
-
 
 # def get_field_headers(serializer, headers=None, name=None):
 #     if headers is None:

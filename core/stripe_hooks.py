@@ -25,7 +25,7 @@ def session_completed(event, **kwargs):
 def payment_succeeded(event, **kwargs):
     data = event.data["object"]
     service = Service.objects.get(billing_id=data["subscription"])
-    amt = float(data["amount_paid"]/100)
+    amt = float(data["amount_paid"] / 100)
     record_payment(service_id=service.id, amt=amt, currency=data["currency"], reference_id=data["charge"])
 
 
@@ -45,6 +45,7 @@ subscription_transitions = {
     }
 }
 
+
 @webhooks.handler("customer.subscription.updated")
 def subscription_updated(event, **kwargs):
     data = event.data["object"]
@@ -58,7 +59,6 @@ def subscription_updated(event, **kwargs):
                 if data['status'] in subscription_transitions[data["previous_attributes"]["status"]]:
                     service = Service.objects.get(billing_id=data["id"])
                     subscription_transitions[data["previous_attributes"]["status"]][data['status']].delay(service.id)
-
 
 
 @webhooks.handler("customer.subscription.deleted")
