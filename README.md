@@ -163,7 +163,74 @@ $ python manage.py createsuperuser
 <!-- USAGE EXAMPLES -->
 ## Usage
 
-TODO
+Inveterate was designed to run via supervisord and sit behind a reverse proxy.
+Let's go ahead and set that up.
+```angular2html
+$ cd ~/inveterate
+$ mkdir logs
+$ vim supervisord.conf
+```
+Here is a basic supervisor config file
+```angular2html
+[supervisord]
+logfile = ~/inveterate/supervisord.log
+childlogdir = ~/inveterate/logs
+logfile_maxbytes = 50MB
+pidfile = ~/inveterate/supervisord.pid
+directory=~/inveterate
+
+
+[inet_http_server]
+port=127.0.0.1:9001
+
+[supervisorctl]
+serverurl=http://127.0.0.1:9001
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[program:celery_worker]
+numprocs=1
+process_name=%(program_name)s-%(process_num)s
+command=celery -A app worker -l INFO --concurrency=4 -Q celery
+autostart=true
+autorestart=true
+startretries=99999
+startsecs=10
+stopsignal=TERM
+stopwaitsecs=7200
+killasgroup=false
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+
+[program:celery_beat]
+numprocs=1
+process_name=%(program_name)s-%(process_num)s
+command=celery -A app beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
+autostart=true
+autorestart=true
+startretries=99999
+startsecs=10
+stopsignal=TERM
+stopwaitsecs=7200
+killasgroup=false
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:inveterate]
+command=gunicorn -k gevent -b 127.0.0.1:8000 --worker-connections=1000 --timeout 60 --workers 4 app.wsgi
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
