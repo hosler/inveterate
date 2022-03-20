@@ -26,3 +26,5 @@ django-cors-headers==3.11.0
 django-debug-toolbar==3.2.4
 django-environ==0.8.1
 django-filter==21.1
+djangorestframework-datatables==0.7.0
+drf-schema-adapter==2.1.1

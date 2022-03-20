@@ -1,7 +1,8 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.generics import RetrieveAPIView
-from rest_framework.permissions import BasePermission, IsAdminUser, SAFE_METHODS
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from core.permissions import ReadOnly, ReadOnlyAnonymous
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
     reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips, \
     get_vm_ips, get_vm_tasks
@@ -32,7 +33,8 @@ from .serializers import \
     DomainSerializer, \
     NodeDiskSerializer, \
     CustomerServiceSerializer, \
-    CustomerServiceListSerializer
+    CustomerServiceListSerializer, \
+    DashboardSummarySerializer
 
 from .models import \
     IPPool, \
@@ -49,7 +51,8 @@ from .models import \
     Inventory, \
     BlestaBackend, \
     Domain, \
-    NodeDisk
+    NodeDisk, \
+    DashboardSummary
 
 import random
 from proxmoxer import ProxmoxAPI
@@ -59,48 +62,23 @@ import string
 UserModel = get_user_model()
 
 
-class ReadOnly(BasePermission):
-    def has_permission(self, request, view):
-        return bool(
-            request.user.is_authenticated and
-            request.method in SAFE_METHODS
-        )
 
-
-class ReadOnlyAnonymous(BasePermission):
-    def has_permission(self, request, view):
-        return bool(
-            request.method in SAFE_METHODS
-        )
-
-
-class IsAuthenticated(BasePermission):
-    """
-    The request is authenticated as a user, or is a read-only request.
-    """
-
-    def has_permission(self, request, view):
-        if view.action in ['provision_billing', 'destroy', 'calculate']:
-            return False
-
-        return bool(
-            request.user and
-            request.user.is_authenticated
-        )
 
 
 class MultiSerializerViewSetMixin(object):
     def get_serializer_class(self):
-        if self.request.user.is_staff:
-            try:
-                return self.admin_serializer_action_classes[self.action]
-            except (KeyError, AttributeError):
-                return super(MultiSerializerViewSetMixin, self).get_serializer_class()
+        try:
+            user = self.request.user
+        except AttributeError:
+            return self.admin_serializer_action_classes['default']
+        if user.is_staff:
+            action_classes = self.admin_serializer_action_classes
         else:
-            try:
-                return self.serializer_action_classes[self.action]
-            except (KeyError, AttributeError):
-                return super(MultiSerializerViewSetMixin, self).get_serializer_class()
+            action_classes = self.default_serializer_class
+        try:
+            return action_classes[self.action]
+        except (KeyError, AttributeError):
+            return action_classes['default']
 
 
 # class FormModelViewSet(viewsets.ModelViewSet):
@@ -120,39 +98,39 @@ class MultiSerializerViewSetMixin(object):
 #         return context
 
 
-class DomainViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = Domain.objects.order_by('pk')
-    serializer_class = DomainSerializer
+# class DomainViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = Domain.objects.order_by('pk')
+#     serializer_class = DomainSerializer
 
 
-class ConfigSettingsViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = Config.objects.order_by('pk')
-    serializer_class = ConfigSettingsSerializer
+# class ConfigSettingsViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = Config.objects.order_by('pk')
+#     serializer_class = ConfigSettingsSerializer
 
 
-class NodeDiskViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = NodeDisk.objects.order_by('pk')
-    serializer_class = NodeDiskSerializer
+# class NodeDiskViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = NodeDisk.objects.order_by('pk')
+#     serializer_class = NodeDiskSerializer
 
 
-class BlestaBackendViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = BlestaBackend.objects.order_by('pk')
-    serializer_class = BlestaBackendSerializer
+# class BlestaBackendViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = BlestaBackend.objects.order_by('pk')
+#     serializer_class = BlestaBackendSerializer
 
 
 class ClusterViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Cluster.objects.order_by('pk')
-    serializer_class = ClusterListSerializer
     admin_serializer_action_classes = {
         'list': ClusterSerializer,
         'retrieve': ClusterSerializer,
         'update': ClusterSerializer,
         'create': ClusterSerializer,
+        'default': ClusterSerializer
     }
     serializer_action_classes = {}
 
@@ -172,40 +150,40 @@ class ClusterViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         return Response(stats, status=202)
 
 
-class NodeViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = Node.objects.order_by('pk')
-    serializer_class = NodeSerializer
+# class NodeViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = Node.objects.order_by('pk')
+#     serializer_class = NodeSerializer
 
 
-class BillingTypeViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = BillingType.objects.order_by('pk')
-    serializer_class = BillingTypeSerializer
+# class BillingTypeViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = BillingType.objects.order_by('pk')
+#     serializer_class = BillingTypeSerializer
 
 
-class ServiceNetworkViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = ServiceNetwork.objects.order_by('pk')
-    serializer_class = ServiceNetworkSerializer
+# class ServiceNetworkViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = ServiceNetwork.objects.order_by('pk')
+#     serializer_class = ServiceNetworkSerializer
 
 
-class TemplateViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser | ReadOnly]
-    queryset = Template.objects.order_by('pk')
-    serializer_class = TemplateSerializer
+# class TemplateViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser | ReadOnly]
+#     queryset = Template.objects.order_by('pk')
+#     serializer_class = TemplateSerializer
 
 
-class ServicePlanViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = ServicePlan.objects.order_by('pk')
-    serializer_class = ServicePlanSerializer
+# class ServicePlanViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = ServicePlan.objects.order_by('pk')
+#     serializer_class = ServicePlanSerializer
 
 
-class IPViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser]
-    queryset = IP.objects.order_by('pk')
-    serializer_class = IPSerializer
+# class IPViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser]
+#     queryset = IP.objects.order_by('pk')
+#     serializer_class = IPSerializer
 
 
 class IPPoolViewSet(viewsets.ModelViewSet):
@@ -223,10 +201,10 @@ class IPPoolViewSet(viewsets.ModelViewSet):
         return super(IPPoolViewSet, self).destroy(request, *args, **kwargs)
 
 
-class PlanViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser | ReadOnly]
-    queryset = Plan.objects.order_by('pk')
-    serializer_class = PlanSerializer
+# class PlanViewSet(viewsets.ModelViewSet):
+#     permission_classes = [IsAdminUser | ReadOnly]
+#     queryset = Plan.objects.order_by('pk')
+#     serializer_class = PlanSerializer
 
 
 class InventoryViewSet(viewsets.ModelViewSet):
@@ -243,19 +221,22 @@ class InventoryViewSet(viewsets.ModelViewSet):
 class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
 
-    serializer_class = CustomerServiceListSerializer
+    default_serializer_class = CustomerServiceListSerializer
     admin_serializer_action_classes = {
         'list': ServiceSerializer,
         'retrieve': ServiceSerializer,
         'update': ServiceSerializer,
         'create': NewServiceSerializer,
+        'default': ServiceSerializer
     }
     serializer_action_classes = {
         'list': CustomerServiceListSerializer,
         'retrieve': CustomerServiceSerializer,
         'update': CustomerServiceSerializer,
         'create': CustomerServiceSerializer,
+        'default': CustomerServiceSerializer
     }
+
 
     @action(methods=['post'], detail=True)
     def start(self, request, pk=None):
@@ -403,8 +384,10 @@ class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
         return Service.objects.filter(owner=self.request.user).exclude(status='destroyed').order_by('pk')
 
 
-class DashboardViewSet(viewsets.GenericViewSet):
+class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAdminUser]
+    queryset = DashboardSummary.objects.order_by('pk')
+    serializer_class = DashboardSummarySerializer
 
     @action(methods=['get'], detail=False)
     def summary(self, request):

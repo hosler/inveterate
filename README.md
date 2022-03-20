@@ -255,6 +255,8 @@ stderr_logfile_maxbytes=0
 - [X] VM Controls
   - [X] Start/Stop/Provision
   - [X] Console
+- [ ] Domain Management
+- [ ] NAT port forwarding
 - [ ] Documetation
 
 See the [open issues](https://github.com/hosler/inveterate/issues) for a full list of proposed features (and known issues).

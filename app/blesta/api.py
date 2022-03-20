@@ -10,7 +10,9 @@ class BlestaApi:
         self.user = user
         self.key = key
 
-    def call(self, verb, classname, method, value_dict={}):
+    def call(self, verb, classname, method, value_dict=None):
+        if value_dict is None:
+            value_dict = {}
         api_target = 'https://' + self.server + '/api'
         urlstring = '/' + classname + '/' + method + '.json'
         print(urlstring)

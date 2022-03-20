@@ -226,3 +226,12 @@ class Domain(models.Model):
     name = models.CharField(null=False, max_length=255)
     ssl = models.BooleanField(default=False)
     service = models.ForeignKey(Service, on_delete=models.SET_NULL, related_name='domain', null=True)
+
+
+class DashboardSummary(models.Model):
+    user_count = models.IntegerField()
+    plan_count = models.IntegerField()
+    ip_count = models.IntegerField()
+    template_count = models.IntegerField()
+    service_count = models.IntegerField()
+    node_count = models.IntegerField()

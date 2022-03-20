@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import IPPool, Inventory, IP, Plan, Service, \
     ServicePlan, Template, ServiceNetwork, Config, NodeDisk, \
-    BillingType, Cluster, Node, BlestaBackend, Domain, PlanBase
+    BillingType, Cluster, Node, BlestaBackend, Domain, PlanBase, DashboardSummary
 from django.db import transaction
 import ipaddress
 from proxmoxer import ProxmoxAPI
@@ -9,18 +9,20 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError
 from .tasks import provision_service, provision_billing, assign_ips
 from nginx.config.api import Config, Section, Location
+from rest_framework.serializers import raise_errors_on_nested_writes
+from collections import OrderedDict
 
-
-class SelectFieldModelSerializer(serializers.ModelSerializer):
-    def __init__(self, *args, **kwargs):
-        select_fields = kwargs.pop('select_fields', None)
-        super().__init__(*args, **kwargs)
-
-        if select_fields:
-            # for multiple fields in a list
-            for field_name in list(self.fields.keys()):
-                if field_name not in select_fields:
-                    self.fields.pop(field_name)
+#
+# class SelectFieldModelSerializer(serializers.ModelSerializer):
+#     def __init__(self, *args, **kwargs):
+#         select_fields = kwargs.pop('select_fields', None)
+#         super().__init__(*args, **kwargs)
+#
+#         if select_fields:
+#             # for multiple fields in a list
+#             for field_name in list(self.fields.keys()):
+#                 if field_name not in select_fields:
+#                     self.fields.pop(field_name)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -141,6 +143,12 @@ class BillingTypeSerializer(serializers.ModelSerializer):
 
 
 class PlanSerializer(serializers.ModelSerializer):
+    ram = serializers.IntegerField(min_value=16)
+    size = serializers.IntegerField(min_value=16)
+    swap = serializers.IntegerField(min_value=0)
+    cores = serializers.IntegerField(min_value=1)
+
+
     class Meta:
         model = Plan
         fields = '__all__'
@@ -193,7 +201,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         model = Service
         fields = (
             'id', 'owner', 'password', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
-            'billing_type'
+            'billing_type', 'status_msg'
         )
 
     # Use this method for the custom field
@@ -238,10 +246,12 @@ class ServiceSerializer(serializers.ModelSerializer):
             service_plan_data = validated_data.pop('service_plan')
             service_plan_serializer.update(service_plan_instance, service_plan_data)
         password = validated_data.pop("password", None)
-        super().partial = True
-        service = super().update(instance, validated_data)
-        provision_service.delay(service.id, password)
-        return service
+        raise_errors_on_nested_writes('update', self, validated_data)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        provision_service.delay(instance.id, password)
+        return instance
 
     def create(self, validated_data):
         sps = ServicePlanSerializer()
@@ -323,4 +333,10 @@ class CustomerServiceListSerializer(ServiceSerializer):
 class InventorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
+        fields = '__all__'
+
+
+class DashboardSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DashboardSummary
         fields = '__all__'
