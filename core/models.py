@@ -13,6 +13,11 @@ VM_TYPES = (
 class Config(models.Model):
     name = models.CharField(max_length=255)
     value = models.CharField(max_length=255)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.name
@@ -26,6 +31,11 @@ class BillingType(models.Model):
     type = models.CharField(max_length=255, default="stripe", choices=BILLING_CHOICES)
     name = models.CharField(max_length=255)
     mirror = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.name
@@ -37,6 +47,11 @@ class BlestaBackend(models.Model):
     user = models.CharField(max_length=255, null=True)
     key = models.CharField(max_length=255, null=True)
     company_hostname = models.CharField(max_length=255, null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.billing_type
@@ -46,6 +61,11 @@ class Template(models.Model):
     name = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="lxc", choices=VM_TYPES)
     file = models.CharField(max_length=255)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.name
@@ -65,6 +85,11 @@ class IPPool(models.Model):
     interface = models.CharField(max_length=255, default='vmbr0')
     dns = models.GenericIPAddressField()
     nodes = models.ManyToManyField("Node")
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.name
@@ -87,11 +112,17 @@ class PlanBase(models.Model):
     ip_pools = models.ManyToManyField(IPPool)
 
 
+
 class Plan(PlanBase):
     name = models.CharField(max_length=255)
     price = models.FloatField(default=0.0)
     term = models.IntegerField(default='1')
     period = models.CharField(default='monthly', max_length=255)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.name
@@ -106,6 +137,11 @@ class Cluster(models.Model):
     user = models.CharField(max_length=255)
     key = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="proxmox", choices=NODE_CHOICES)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.name
@@ -118,6 +154,11 @@ class Node(PlanBase):
     name = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="proxmox", choices=NODE_CHOICES)
     cluster = models.ForeignKey(Cluster, on_delete=models.SET_NULL, null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.name
@@ -128,6 +169,11 @@ class NodeDisk(models.Model):
     name = models.CharField(max_length=255, null=False)
     size = models.IntegerField()
     primary = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return f"{self.name} ({self.node.name})"
@@ -137,6 +183,11 @@ class ServicePlan(PlanBase):
     type = models.CharField(max_length=255, choices=VM_TYPES)
     template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
     storage = models.ForeignKey(NodeDisk, null=True, on_delete=models.SET_NULL)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return str(self.id)
@@ -148,6 +199,11 @@ class ServiceBandwidth(models.Model):
     bandwidth_stale = models.IntegerField(default=0)
     system_tick = models.IntegerField(default=0)
     renewal_dtm = models.DateTimeField(null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
 
 class Service(models.Model):
@@ -172,6 +228,11 @@ class Service(models.Model):
     service_plan = models.OneToOneField(ServicePlan, on_delete=models.SET_NULL, null=True, related_name='service')
     bandwidth = models.OneToOneField(ServiceBandwidth, on_delete=models.SET_NULL,
                                      null=True, blank=True, related_name='service')
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def delete(self, *args, **kwargs):
         super().delete(*args, **kwargs)
@@ -180,10 +241,18 @@ class Service(models.Model):
         if self.bandwidth:
             self.bandwidth.delete()
 
+    def __str__(self):
+        return f"{self.id} ({self.hostname})"
+
 
 class ServiceNetwork(models.Model):
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='service_network')
     net_id = models.IntegerField(null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def save(self, *args, **kwargs):
         if not self.net_id:
@@ -205,12 +274,22 @@ class ServiceDisk(models.Model):
     node = models.ForeignKey(Node, on_delete=models.CASCADE)
     file = models.CharField(null=True, max_length=255)
     primary = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
 
 class IP(models.Model):
     value = models.GenericIPAddressField(unique=True)
     pool = models.ForeignKey(IPPool, on_delete=models.CASCADE)
     owner = models.OneToOneField(ServiceNetwork, blank=True, null=True, on_delete=models.SET_NULL)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
     def __str__(self):
         return self.value
@@ -220,12 +299,22 @@ class Inventory(models.Model):
     plan = models.ForeignKey(Plan, on_delete=models.CASCADE)
     node = models.ForeignKey(Node, on_delete=models.CASCADE)
     quantity = models.IntegerField(default=0)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
 
 class Domain(models.Model):
     name = models.CharField(null=False, max_length=255)
     ssl = models.BooleanField(default=False)
     service = models.ForeignKey(Service, on_delete=models.SET_NULL, related_name='domain', null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
 
 
 class DashboardSummary(models.Model):
@@ -235,3 +324,8 @@ class DashboardSummary(models.Model):
     template_count = models.IntegerField()
     service_count = models.IntegerField()
     node_count = models.IntegerField()
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']

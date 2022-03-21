@@ -33,7 +33,6 @@ class DomainEndpoint(Endpoint):
     permission_classes = [IsAdminUser]
     model = models.Domain
     ordering_fields = ('id',)
-    page_size = 10
 
 
 @register
