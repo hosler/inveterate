@@ -62,6 +62,12 @@ import string
 UserModel = get_user_model()
 
 
+class DynamicPageModelViewSet(viewsets.ModelViewSet):
+    def paginate_queryset(self, queryset):
+        if 'no_page' in self.request.query_params:
+            return None
+
+        return super().paginate_queryset(queryset)
 
 
 
@@ -122,7 +128,7 @@ class MultiSerializerViewSetMixin(object):
 #     serializer_class = BlestaBackendSerializer
 
 
-class ClusterViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
+class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Cluster.objects.order_by('pk')
     admin_serializer_action_classes = {
@@ -186,7 +192,7 @@ class ClusterViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
 #     serializer_class = IPSerializer
 
 
-class IPPoolViewSet(viewsets.ModelViewSet):
+class IPPoolViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = IPPool.objects.order_by('pk')
     serializer_class = IPPoolSerializer
@@ -207,7 +213,7 @@ class IPPoolViewSet(viewsets.ModelViewSet):
 #     serializer_class = PlanSerializer
 
 
-class InventoryViewSet(viewsets.ModelViewSet):
+class InventoryViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | ReadOnlyAnonymous]
     queryset = Inventory.objects.order_by('pk')
     serializer_class = InventorySerializer
@@ -218,7 +224,7 @@ class InventoryViewSet(viewsets.ModelViewSet):
         return Response({"task_id": task.id}, status=202)
 
 
-class ServiceViewSet(MultiSerializerViewSetMixin, viewsets.ModelViewSet):
+class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
 
     default_serializer_class = CustomerServiceListSerializer

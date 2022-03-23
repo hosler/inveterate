@@ -6,6 +6,11 @@ from core.permissions import ReadOnly, ReadOnlyAnonymous
 from core import viewsets
 from core import models
 from core import serializers
+from core.viewsets import DynamicPageModelViewSet
+
+
+class DynamicPageEndpoint(Endpoint):
+    base_viewset = DynamicPageModelViewSet
 
 
 class MultiSerializerViewSetMixin:
@@ -29,28 +34,28 @@ class MultiSerializerViewSetMixin:
 
 
 @register
-class DomainEndpoint(Endpoint):
+class DomainEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.Domain
     ordering_fields = ('id',)
 
 
 @register
-class NodeDiskEndpoint(Endpoint):
+class NodeDiskEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.NodeDisk
     ordering_fields = ('id',)
 
 
 @register
-class BlestaBackendEndpoint(Endpoint):
+class BlestaBackendEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.BlestaBackend
     ordering_fields = ('id',)
 
 
 @register
-class NodeEndpoint(Endpoint):
+class NodeEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.Node
     ordering_fields = ('id',)
@@ -59,40 +64,40 @@ class NodeEndpoint(Endpoint):
 
 
 @register
-class BillingTypeEndpoint(Endpoint):
+class BillingTypeEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.BillingType
     ordering_fields = ('id',)
 
 
 @register
-class ServiceNetworkEndpoint(Endpoint):
+class ServiceNetworkEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.ServiceNetwork
     ordering_fields = ('id',)
 
 
 @register
-class ServicePlanEndpoint(Endpoint):
+class ServicePlanEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.ServicePlan
     ordering_fields = ('id',)
 
 
 @register
-class IPEndpoint(Endpoint):
+class IPEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.IP
     ordering_fields = ('id',)
 
 
 @register
-class IPPoolEndpoint(Endpoint):
+class IPPoolEndpoint(DynamicPageEndpoint):
     viewset = viewsets.IPPoolViewSet
 
 
 @register
-class PlanEndpoint(Endpoint):
+class PlanEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser | ReadOnly]
     model = models.Plan
     ordering_fields = ('id',)
@@ -100,15 +105,15 @@ class PlanEndpoint(Endpoint):
 
 
 @register
-class InventoryEndpoint(Endpoint):
+class InventoryEndpoint(DynamicPageEndpoint):
     viewset = viewsets.InventoryViewSet
 
 
 @register
-class ServiceEndpoint(Endpoint):
+class ServiceEndpoint(DynamicPageEndpoint):
     viewset = viewsets.ServiceViewSet
 
 
 @register
-class DashboardEndpoint(Endpoint):
+class DashboardEndpoint(DynamicPageEndpoint):
     viewset = viewsets.DashboardViewSet
