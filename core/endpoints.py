@@ -34,31 +34,37 @@ class MultiSerializerViewSetMixin:
 
 
 @register
+class ClusterEndpoint(DynamicPageEndpoint):
+    permission_classes = [IsAdminUser]
+    model = models.Cluster
+
+
+@register
 class DomainEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.Domain
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
 
 
 @register
 class NodeDiskEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.NodeDisk
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
 
 
 @register
 class BlestaBackendEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.BlestaBackend
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
 
 
 @register
 class NodeEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.Node
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
     serializer = serializer_factory(model=model, fields=('id', 'name', 'type', 'cluster', 'cores', 'size', 'ram',
                                                          'swap', 'bandwidth'))
 
@@ -67,14 +73,14 @@ class NodeEndpoint(DynamicPageEndpoint):
 class BillingTypeEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.BillingType
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
 
 
 @register
 class ServiceNetworkEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.ServiceNetwork
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
 
 
 @register
@@ -88,7 +94,7 @@ class ServicePlanEndpoint(DynamicPageEndpoint):
 class IPEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.IP
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
 
 
 @register
@@ -100,7 +106,7 @@ class IPPoolEndpoint(DynamicPageEndpoint):
 class PlanEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser | ReadOnly]
     model = models.Plan
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
     serializer = serializers.PlanSerializer
 
 
