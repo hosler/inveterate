@@ -34,6 +34,12 @@ class MultiSerializerViewSetMixin:
 
 
 @register
+class TemplateEndpoint(DynamicPageEndpoint):
+    permission_classes = [IsAdminUser]
+    model = models.Template
+
+
+@register
 class ClusterEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.Cluster
@@ -87,7 +93,7 @@ class ServiceNetworkEndpoint(DynamicPageEndpoint):
 class ServicePlanEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.ServicePlan
-    ordering_fields = ('id',)
+    # ordering_fields = ('id',)
 
 
 @register

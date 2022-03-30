@@ -76,7 +76,7 @@ class IPPool(models.Model):
         ("ipv4", "IPv4"),
         ("ipv6", "IPv6")
     )
-    name = models.CharField(max_length=255, )
+    name = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="ipv4", choices=IP_CHOICES)
     network = models.GenericIPAddressField()
     mask = models.IntegerField()

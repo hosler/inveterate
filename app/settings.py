@@ -101,7 +101,7 @@ INSTALLED_APPS = [
     # 'django_rest_passwordreset',
     'corsheaders',
     'django_filters',
-    'rest_framework_datatables',
+    # 'rest_framework_datatables',
     # 'bootstrap4',
     # 'crispy_forms',
     'drf_auto_endpoint',

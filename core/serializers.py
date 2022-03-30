@@ -11,6 +11,8 @@ from .tasks import provision_service, provision_billing, assign_ips
 from nginx.config.api import Config, Section, Location
 from rest_framework.serializers import raise_errors_on_nested_writes
 from collections import OrderedDict
+import re
+from django.core.validators import RegexValidator
 
 #
 # class SelectFieldModelSerializer(serializers.ModelSerializer):
@@ -143,10 +145,16 @@ class BillingTypeSerializer(serializers.ModelSerializer):
 
 
 class PlanSerializer(serializers.ModelSerializer):
-    ram = serializers.IntegerField(min_value=16)
-    size = serializers.IntegerField(min_value=16)
+    size = serializers.IntegerField(min_value=4)
+    ram = serializers.IntegerField(min_value=64)
     swap = serializers.IntegerField(min_value=0)
     cores = serializers.IntegerField(min_value=1)
+    bandwidth = serializers.IntegerField(min_value=0)
+    cpu_units = serializers.IntegerField(min_value=1)
+    cpu_limit = serializers.DecimalField(min_value=0, max_digits=3, decimal_places=2)
+    ipv6_ips = serializers.IntegerField(min_value=0)
+    ipv4_ips = serializers.IntegerField(min_value=0)
+    internal_ips = serializers.IntegerField(min_value=0)
 
 
     class Meta:
@@ -191,11 +199,19 @@ class PlanRelatedField(serializers.Field):
 
 
 class ServiceSerializer(serializers.ModelSerializer):
+    domain_pattern = re.compile(
+        r'^(?:[a-zA-Z0-9]'  # First character of the domain
+        r'(?:[a-zA-Z0-9-_]{0,61}[A-Za-z0-9])?\.)'  # Sub domain + hostname
+        r'+[A-Za-z0-9][A-Za-z0-9-_]{0,61}'  # First 61 characters of the gTLD
+        r'[A-Za-z]$'  # Last character of the gTLD
+    )
+    stuff = RegexValidator(domain_pattern)
     service_plan = ServicePlanSerializer()
     owner = Owner(slug_field='username')
     plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
     node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
     password = serializers.CharField(write_only=True, required=False)
+    hostname = serializers.CharField(validators=[stuff])
 
     class Meta:
         model = Service
@@ -209,6 +225,13 @@ class ServiceSerializer(serializers.ModelSerializer):
         request = self.context.get('request', None)
         if request:
             return request.user
+
+
+    # def validate_hostname(self, value):
+    #     validator = validators.domain(value)
+    #     if isinstance(validator, validators.ValidationFailure):
+    #         raise serializers.ValidationError("blah")
+    #     return value
 
     # def to_internal_value(self, data):
     #     new_data = data.copy()
