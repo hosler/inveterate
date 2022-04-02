@@ -7,6 +7,7 @@ from core import viewsets
 from core import models
 from core import serializers
 from core.viewsets import DynamicPageModelViewSet
+from users.viewsets import UserViewSet
 
 
 class DynamicPageEndpoint(Endpoint):
@@ -129,3 +130,8 @@ class ServiceEndpoint(DynamicPageEndpoint):
 @register
 class DashboardEndpoint(DynamicPageEndpoint):
     viewset = viewsets.DashboardViewSet
+
+
+@register
+class UserEndpoint(DynamicPageEndpoint):
+    viewset = UserViewSet
