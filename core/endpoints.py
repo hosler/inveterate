@@ -6,9 +6,10 @@ from core.permissions import ReadOnly, ReadOnlyAnonymous
 from core import viewsets
 from core import models
 from core import serializers
+from core import tasks
 from core.viewsets import DynamicPageModelViewSet
 from users.viewsets import UserViewSet
-
+from drf_auto_endpoint.decorators import custom_action
 
 class DynamicPageEndpoint(Endpoint):
     base_viewset = DynamicPageModelViewSet
@@ -42,8 +43,7 @@ class TemplateEndpoint(DynamicPageEndpoint):
 
 @register
 class ClusterEndpoint(DynamicPageEndpoint):
-    permission_classes = [IsAdminUser]
-    model = models.Cluster
+    viewset = viewsets.ClusterViewSet
 
 
 @register
@@ -125,6 +125,11 @@ class InventoryEndpoint(DynamicPageEndpoint):
 @register
 class ServiceEndpoint(DynamicPageEndpoint):
     viewset = viewsets.ServiceViewSet
+
+    # @custom_action(method='POST')
+    # def start(self, request, pk=None):
+    #     task = tasks.start_vm.delay(pk)
+    #     # return Response({"task_id": task.id}, status=202)
 
 
 @register

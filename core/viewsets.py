@@ -34,7 +34,8 @@ from .serializers import \
     NodeDiskSerializer, \
     CustomerServiceSerializer, \
     CustomerServiceListSerializer, \
-    DashboardSummarySerializer
+    DashboardSummarySerializer, \
+    GenericActionSerializer
 
 from .models import \
     IPPool, \
@@ -76,11 +77,11 @@ class MultiSerializerViewSetMixin(object):
         try:
             user = self.request.user
         except AttributeError:
-            return self.admin_serializer_action_classes['default']
+            return self.default_serializer_class
         if user.is_staff:
             action_classes = self.admin_serializer_action_classes
         else:
-            action_classes = self.default_serializer_class
+            action_classes = self.serializer_action_classes
         try:
             return action_classes[self.action]
         except (KeyError, AttributeError):
@@ -131,6 +132,7 @@ class MultiSerializerViewSetMixin(object):
 class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Cluster.objects.order_by('pk')
+    default_serializer_class = ClusterSerializer
     admin_serializer_action_classes = {
         'list': ClusterSerializer,
         'retrieve': ClusterSerializer,
@@ -227,22 +229,21 @@ class InventoryViewSet(DynamicPageModelViewSet):
 class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
 
-    default_serializer_class = CustomerServiceListSerializer
+    default_serializer_class = ServiceSerializer
     admin_serializer_action_classes = {
         'list': ServiceSerializer,
         'retrieve': ServiceSerializer,
         'update': ServiceSerializer,
         'create': NewServiceSerializer,
-        'default': ServiceSerializer
+        'default': GenericActionSerializer,
     }
     serializer_action_classes = {
         'list': CustomerServiceListSerializer,
         'retrieve': CustomerServiceSerializer,
         'update': CustomerServiceSerializer,
         'create': CustomerServiceSerializer,
-        'default': CustomerServiceSerializer
+        'default': GenericActionSerializer
     }
-
 
     @action(methods=['post'], detail=True)
     def start(self, request, pk=None):

@@ -363,3 +363,7 @@ class DashboardSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardSummary
         fields = '__all__'
+
+
+class GenericActionSerializer(serializers.Serializer):
+    pass
