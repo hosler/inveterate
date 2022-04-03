@@ -1,28 +1,28 @@
+import logging
+import time
+import traceback
+from datetime import datetime
+
+import stripe
 from celery import shared_task
 from celery_singleton import Singleton
-from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork
-from django_celery_results.models import TaskResult
+from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Sum
+from django.utils import timezone
+from django_celery_results.models import TaskResult
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
-import logging
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
-from app.blesta.api import BlestaApi
-from app.blesta.objects import BlestaObject, BlestaUser, BlestaPlan
-import traceback
 from requests.exceptions import ConnectionError
-import stripe
-import time
-from django.db.models import Sum
-from django.conf import settings
+
+from app.blesta.api import BlestaApi
+from app.blesta.objects import BlestaUser, BlestaPlan
+from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork
 
 if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
     import djstripe.settings
     from djstripe.models import Product, Price, Customer
-
-
 
 logger = logging.getLogger()
 

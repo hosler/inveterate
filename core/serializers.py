@@ -1,42 +1,17 @@
-from rest_framework import serializers
-from .models import IPPool, Inventory, IP, Plan, Service, \
-    ServicePlan, Template, ServiceNetwork, Config, NodeDisk, \
-    BillingType, Cluster, Node, BlestaBackend, Domain, PlanBase, DashboardSummary
-from django.db import transaction
 import ipaddress
-from proxmoxer import ProxmoxAPI
-from django.contrib.auth.models import User
-from django.db import IntegrityError
-from .tasks import provision_service, provision_billing, assign_ips
-from nginx.config.api import Config, Section, Location
-from rest_framework.serializers import raise_errors_on_nested_writes
-from collections import OrderedDict
 import re
+
+from django.contrib.auth.models import User
 from django.core.validators import RegexValidator
+from django.db import IntegrityError
+from nginx.config.api import Section, Location
+from rest_framework import serializers
+from rest_framework.serializers import raise_errors_on_nested_writes
 
-#
-# class SelectFieldModelSerializer(serializers.ModelSerializer):
-#     def __init__(self, *args, **kwargs):
-#         select_fields = kwargs.pop('select_fields', None)
-#         super().__init__(*args, **kwargs)
-#
-#         if select_fields:
-#             # for multiple fields in a list
-#             for field_name in list(self.fields.keys()):
-#                 if field_name not in select_fields:
-#                     self.fields.pop(field_name)
-
-
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ['username']
-
-
-class BlestaBackendSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = BlestaBackend
-        fields = '__all__'
+from .models import IPPool, Inventory, IP, Plan, Service, \
+    ServicePlan, Template, NodeDisk, \
+    Cluster, Node, Domain, PlanBase, DashboardSummary
+from .tasks import provision_service, provision_billing, assign_ips
 
 
 class DomainSerializer(serializers.ModelSerializer):
@@ -89,58 +64,9 @@ class IPPoolSerializer(serializers.ModelSerializer):
         return ip_pool
 
 
-class ConfigSettingsSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Config
-        fields = '__all__'
-
-
-class NodeDiskSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = NodeDisk
-        fields = '__all__'
-
-
-class ServiceNetworkSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ServiceNetwork
-        fields = '__all__'
-
-
-class IPSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = IP
-        fields = '__all__'
-
-
-class TemplateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Template
-        fields = '__all__'
-
-
 class ClusterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cluster
-        fields = '__all__'
-
-
-class ClusterListSerializer(ClusterSerializer):
-    def __init__(self, *args, **kwargs):
-        super(ClusterListSerializer, self).__init__(*args, **kwargs)
-        for field in self.fields:
-            self.fields[field].read_only = True
-
-
-class NodeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Node
-        fields = ('id', 'name', 'type', 'cluster', 'cores', 'size', 'ram', 'swap', 'bandwidth')
-
-
-class BillingTypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = BillingType
         fields = '__all__'
 
 
@@ -156,16 +82,9 @@ class PlanSerializer(serializers.ModelSerializer):
     ipv4_ips = serializers.IntegerField(min_value=0)
     internal_ips = serializers.IntegerField(min_value=0)
 
-
     class Meta:
         model = Plan
         fields = '__all__'
-
-
-class PlanNameSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Plan
-        fields = ('name',)
 
 
 class ServicePlanSerializer(serializers.ModelSerializer):
@@ -184,18 +103,6 @@ class Owner(serializers.SlugRelatedField):
         if not request.user.is_superuser:
             queryset = queryset.filter(username=request.user)
         return queryset
-
-
-class PlanRelatedField(serializers.Field):
-    def to_representation(self, obj):
-        return obj.name
-
-    def get_value(self, data):
-        plan_id = data['plan']
-        return plan_id,
-
-    def to_internal_value(self, data):
-        return Plan.objects.get(pk=data[0])
 
 
 class ServiceSerializer(serializers.ModelSerializer):
@@ -225,7 +132,6 @@ class ServiceSerializer(serializers.ModelSerializer):
         request = self.context.get('request', None)
         if request:
             return request.user
-
 
     # def validate_hostname(self, value):
     #     validator = validators.domain(value)

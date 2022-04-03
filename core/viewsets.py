@@ -1,37 +1,25 @@
-from rest_framework import viewsets, status
-from rest_framework.response import Response
-from rest_framework.generics import RetrieveAPIView
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
-from core.permissions import ReadOnly, ReadOnlyAnonymous
-from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
-    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, assign_ips, \
-    get_vm_ips, get_vm_tasks
-from django.contrib.sites.models import Site
-from django.contrib.auth import get_user_model
-import stripe
 import djstripe.settings
+import stripe
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.sites.models import Site
+from rest_framework import viewsets, status
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.response import Response
+
+from core.permissions import ReadOnlyAnonymous
+from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
+    reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, get_vm_ips, get_vm_tasks
+
 if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
     from djstripe.models import Session, Customer, Product, Price
 from rest_framework.decorators import action
 from .serializers import \
-    PlanSerializer, \
     ServiceSerializer, \
     IPPoolSerializer, \
-    ServicePlanSerializer, \
-    TemplateSerializer, \
-    ServiceNetworkSerializer, \
-    ConfigSettingsSerializer, \
-    IPSerializer, \
     NewServiceSerializer, \
     ClusterSerializer, \
-    ClusterListSerializer, \
-    NodeSerializer, \
-    BillingTypeSerializer, \
     InventorySerializer, \
-    BlestaBackendSerializer, \
-    DomainSerializer, \
-    NodeDiskSerializer, \
     CustomerServiceSerializer, \
     CustomerServiceListSerializer, \
     DashboardSummarySerializer, \
@@ -42,17 +30,10 @@ from .models import \
     IP, \
     Plan, \
     Service, \
-    ServicePlan, \
     Template, \
-    ServiceNetwork, \
-    Config, \
     Cluster, \
     Node, \
-    BillingType, \
     Inventory, \
-    BlestaBackend, \
-    Domain, \
-    NodeDisk, \
     DashboardSummary
 
 import random
@@ -71,7 +52,6 @@ class DynamicPageModelViewSet(viewsets.ModelViewSet):
         return super().paginate_queryset(queryset)
 
 
-
 class MultiSerializerViewSetMixin(object):
     def get_serializer_class(self):
         try:
@@ -86,47 +66,6 @@ class MultiSerializerViewSetMixin(object):
             return action_classes[self.action]
         except (KeyError, AttributeError):
             return action_classes['default']
-
-
-# class FormModelViewSet(viewsets.ModelViewSet):
-#
-#     def list(self, request, *args, **kwargs):
-#         if request.accepted_renderer.format == "form":
-#             if "pk" not in kwargs:
-#                 serializer = self.get_serializer()
-#                 return Response(serializer.data)
-#         return super().list(request, *args, **kwargs)
-#
-#     def get_renderer_context(self):
-#         context = super().get_renderer_context()
-#         if "style" not in context:
-#             context['style'] = {}
-#         context['style']['template_pack'] = 'drf_horizontal'
-#         return context
-
-
-# class DomainViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = Domain.objects.order_by('pk')
-#     serializer_class = DomainSerializer
-
-
-# class ConfigSettingsViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = Config.objects.order_by('pk')
-#     serializer_class = ConfigSettingsSerializer
-
-
-# class NodeDiskViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = NodeDisk.objects.order_by('pk')
-#     serializer_class = NodeDiskSerializer
-
-
-# class BlestaBackendViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = BlestaBackend.objects.order_by('pk')
-#     serializer_class = BlestaBackendSerializer
 
 
 class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
@@ -158,42 +97,6 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         return Response(stats, status=202)
 
 
-# class NodeViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = Node.objects.order_by('pk')
-#     serializer_class = NodeSerializer
-
-
-# class BillingTypeViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = BillingType.objects.order_by('pk')
-#     serializer_class = BillingTypeSerializer
-
-
-# class ServiceNetworkViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = ServiceNetwork.objects.order_by('pk')
-#     serializer_class = ServiceNetworkSerializer
-
-
-# class TemplateViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser | ReadOnly]
-#     queryset = Template.objects.order_by('pk')
-#     serializer_class = TemplateSerializer
-
-
-# class ServicePlanViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = ServicePlan.objects.order_by('pk')
-#     serializer_class = ServicePlanSerializer
-
-
-# class IPViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser]
-#     queryset = IP.objects.order_by('pk')
-#     serializer_class = IPSerializer
-
-
 class IPPoolViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = IPPool.objects.order_by('pk')
@@ -207,12 +110,6 @@ class IPPoolViewSet(DynamicPageModelViewSet):
                 return Response(data={'message': "IPs in pool are currently in use"},
                                 status=status.HTTP_400_BAD_REQUEST)
         return super(IPPoolViewSet, self).destroy(request, *args, **kwargs)
-
-
-# class PlanViewSet(viewsets.ModelViewSet):
-#     permission_classes = [IsAdminUser | ReadOnly]
-#     queryset = Plan.objects.order_by('pk')
-#     serializer_class = PlanSerializer
 
 
 class InventoryViewSet(DynamicPageModelViewSet):
@@ -379,11 +276,6 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
                  "type": type}
             )
         return response
-
-    # def create(self, request):
-    #     if self.request.user.is_staff:
-    #         return super(ServiceViewSet, self).create(request)
-    #     raise MethodNotAllowed(request.method)
 
     def get_queryset(self):
         if self.request.user.is_staff:

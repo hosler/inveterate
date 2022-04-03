@@ -112,7 +112,6 @@ class PlanBase(models.Model):
     ip_pools = models.ManyToManyField(IPPool)
 
 
-
 class Plan(PlanBase):
     name = models.CharField(max_length=255)
     price = models.FloatField(default=0.0)
