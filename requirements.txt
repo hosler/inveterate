@@ -13,7 +13,7 @@ celery-singleton==0.3.1
 certbot==1.23.0
 certbot-nginx==1.23.0
 nginx-config-builder==1.0.1
-psycopg2==2.9.3
+psycopg2-binary==2.9.3
 Django<4
 djangorestframework==3.13.1
 dj-stripe==2.6.1
