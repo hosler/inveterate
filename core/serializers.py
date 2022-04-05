@@ -6,7 +6,7 @@ from django.core.validators import RegexValidator
 from django.db import IntegrityError
 from nginx.config.api import Section, Location
 from rest_framework import serializers
-from rest_framework.serializers import raise_errors_on_nested_writes
+from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
 from .models import IPPool, Inventory, IP, Plan, Service, \
     ServicePlan, Template, NodeDisk, \
@@ -65,6 +65,11 @@ class IPPoolSerializer(serializers.ModelSerializer):
 
 
 class ClusterSerializer(serializers.ModelSerializer):
+    __str__ = SerializerMethodField('display_name')
+
+    def display_name(self, obj):
+        return obj.name
+
     class Meta:
         model = Cluster
         fields = '__all__'
@@ -119,12 +124,16 @@ class ServiceSerializer(serializers.ModelSerializer):
     node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
     password = serializers.CharField(write_only=True, required=False)
     hostname = serializers.CharField(validators=[stuff])
+    __str__ = SerializerMethodField('display_name')
+
+    def display_name(self, obj):
+        return obj.hostname
 
     class Meta:
         model = Service
         fields = (
             'id', 'owner', 'password', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
-            'billing_type', 'status_msg'
+            'billing_type', 'status_msg', '__str__'
         )
 
     # Use this method for the custom field
