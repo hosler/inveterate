@@ -13,3 +13,9 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return UserModel.objects.all()
+
+    def paginate_queryset(self, queryset):
+        if 'no_page' in self.request.query_params:
+            return None
+
+        return super().paginate_queryset(queryset)
