@@ -133,13 +133,15 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'update': ServiceSerializer,
         'create': NewServiceSerializer,
         'default': GenericActionSerializer,
+        'metadata': ServiceSerializer,
     }
     serializer_action_classes = {
         'list': CustomerServiceListSerializer,
         'retrieve': CustomerServiceSerializer,
         'update': CustomerServiceSerializer,
         'create': CustomerServiceSerializer,
-        'default': GenericActionSerializer
+        'default': GenericActionSerializer,
+        'metadata': CustomerServiceListSerializer
     }
 
     @action(methods=['post'], detail=True)
