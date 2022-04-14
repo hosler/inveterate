@@ -133,7 +133,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field in ['service_plan', 'billing_id', 'machine_id']:
+            if field in ['service_plan', 'billing_id', 'machine_id', 'status_msg']:
                 self.fields[field].read_only = True
 
     class Meta:
