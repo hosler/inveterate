@@ -131,7 +131,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'list': ServiceSerializer,
         'retrieve': ServiceSerializer,
         'update': ServiceSerializer,
-        'create': NewServiceSerializer,
+        'create': ServiceSerializer,
         'default': GenericActionSerializer,
         'metadata': ServiceSerializer,
     }

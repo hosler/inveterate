@@ -117,17 +117,24 @@ class ServiceSerializer(serializers.ModelSerializer):
         r'+[A-Za-z0-9][A-Za-z0-9-_]{0,61}'  # First 61 characters of the gTLD
         r'[A-Za-z]$'  # Last character of the gTLD
     )
-    stuff = RegexValidator(domain_pattern)
-    service_plan = ServicePlanSerializer()
+    domain_validator = RegexValidator(domain_pattern)
+    # service_plan = ServicePlanSerializer(read_only=True)
     owner = Owner(slug_field='username')
     plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
     node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
     password = serializers.CharField(write_only=True, required=False)
-    hostname = serializers.CharField(validators=[stuff])
+    # machine_id = serializers.CharField(required=False)
+    hostname = serializers.CharField(validators=[domain_validator])
     __str__ = SerializerMethodField('display_name')
 
     def display_name(self, obj):
         return obj.hostname
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields:
+            if field in ['service_plan', 'billing_id', 'machine_id']:
+                self.fields[field].read_only = True
 
     class Meta:
         model = Service
@@ -142,47 +149,13 @@ class ServiceSerializer(serializers.ModelSerializer):
         if request:
             return request.user
 
-    # def validate_hostname(self, value):
-    #     validator = validators.domain(value)
-    #     if isinstance(validator, validators.ValidationFailure):
-    #         raise serializers.ValidationError("blah")
-    #     return value
-
-    # def to_internal_value(self, data):
-    #     new_data = data.copy()
-    #
-    #     for attribute in list(new_data.keys()):
-    #         if new_data[attribute] == "":
-    #             new_data.pop(attribute)
-    #
-    #     if "plan" in new_data:
-    #         try:
-    #             plan = Plan.objects.get(name=new_data["plan"])
-    #         except Plan.DoesNotExist:
-    #             pass
-    #         else:
-    #             ps = PlanSerializer(plan)
-    #             plan_data = ps.data
-    #             plan_data.pop("id")
-    #             for attribute in plan_data:
-    #                 # if "service_plan." + attribute not in new_data:
-    #                 #     if isinstance(plan_data[attribute], list):
-    #                 #         new_data.setlist("service_plan." + attribute, plan_data[attribute])
-    #                 #     else:
-    #                 new_data["service_plan." + attribute] = plan_data[attribute]
-    #     if "template" in new_data:
-    #         template = new_data.pop("template")[0]
-    #         new_data["service_plan.template"] = template
-    #
-    #     return super().to_internal_value(new_data)
-
     def update(self, instance, validated_data):
-        if 'service_plan' in validated_data:
-            service_plan_serializer = self.fields['service_plan']
-            service_plan_serializer.partial = True
-            service_plan_instance = instance.service_plan
-            service_plan_data = validated_data.pop('service_plan')
-            service_plan_serializer.update(service_plan_instance, service_plan_data)
+        # if 'service_plan' in validated_data:
+        #     service_plan_serializer = self.fields['service_plan']
+        #     service_plan_serializer.partial = True
+        #     service_plan_instance = instance.service_plan
+        #     service_plan_data = validated_data.pop('service_plan')
+        #     service_plan_serializer.update(service_plan_instance, service_plan_data)
         password = validated_data.pop("password", None)
         raise_errors_on_nested_writes('update', self, validated_data)
         for attr, value in validated_data.items():
@@ -193,18 +166,18 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         sps = ServicePlanSerializer()
-        if "service_plan" in validated_data:
-            service_plan_data = validated_data.pop("service_plan")
-            service_plan = sps.create(service_plan_data)
-        elif "plan" in validated_data:
-            plan_fields = [f.name for f in PlanBase._meta.fields if f.name != "id"]
-            plan_values = dict([(x, getattr(validated_data["plan"], x)) for x in plan_fields])
-            service_plan = sps.create(plan_values)
+        # if "service_plan" in validated_data:
+        #     service_plan_data = validated_data.pop("service_plan")
+        #     service_plan = sps.create(service_plan_data)
+        # if "plan" in validated_data:
+        plan_fields = [f.name for f in PlanBase._meta.fields if f.name != "id"]
+        plan_values = dict([(x, getattr(validated_data["plan"], x)) for x in plan_fields])
+        service_plan = sps.create(plan_values)
         password = validated_data.pop("password", None)
-        template = validated_data.pop("template", None)
-        if template:
-            service_plan.template = template
-            service_plan.type = template.type
+        # template = validated_data.pop("template", None)
+        # if template:
+        #     service_plan.template = template
+        #     service_plan.type = template.type
         service = super().create(validated_data)
         service_plan.storage = service.node.node_disk.filter(primary=True).first()
         service_plan.save()
