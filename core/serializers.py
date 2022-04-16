@@ -93,8 +93,8 @@ class PlanSerializer(serializers.ModelSerializer):
 
 
 class ServicePlanSerializer(serializers.ModelSerializer):
-    template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all())
-    storage = serializers.SlugRelatedField(slug_field='name', queryset=NodeDisk.objects.all())
+    # template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all())
+    # storage = serializers.SlugRelatedField(slug_field='name', queryset=NodeDisk.objects.all())
 
     class Meta:
         model = ServicePlan
@@ -120,8 +120,8 @@ class ServiceSerializer(serializers.ModelSerializer):
     domain_validator = RegexValidator(domain_pattern)
     # service_plan = ServicePlanSerializer(read_only=True)
     owner = Owner(slug_field='username')
-    plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
-    node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
+    # plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
+    # node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
     password = serializers.CharField(write_only=True, required=False)
     # machine_id = serializers.CharField(required=False)
     hostname = serializers.CharField(validators=[domain_validator])
