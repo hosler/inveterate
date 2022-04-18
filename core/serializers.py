@@ -119,7 +119,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     )
     domain_validator = RegexValidator(domain_pattern)
     # service_plan = ServicePlanSerializer(read_only=True)
-    owner = Owner(slug_field='username')
+    owner = Owner(slug_field='id')
     # plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
     # node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
     password = serializers.CharField(write_only=True, required=False)
@@ -194,8 +194,8 @@ class ServiceSerializer(serializers.ModelSerializer):
 
 
 class NewServiceSerializer(ServiceSerializer):
-    template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
-    owner = Owner(slug_field='username')
+    # template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
+    owner = Owner(slug_field='id')
 
     # def create(self, validated_data):
     #     super().create(validated_data)
@@ -208,8 +208,8 @@ class NewServiceSerializer(ServiceSerializer):
 
 
 class CustomerServiceSerializer(ServiceSerializer):
-    owner = Owner(slug_field='username')
-    template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
+    owner = Owner(slug_field='id')
+    # template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
     service_plan = ServicePlanSerializer()
 
     def __init__(self, *args, **kwargs):
@@ -226,7 +226,7 @@ class CustomerServiceSerializer(ServiceSerializer):
 
 
 class CustomerServiceListSerializer(ServiceSerializer):
-    template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
+    # template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
     service_plan = ServicePlanSerializer()
 
     def __init__(self, *args, **kwargs):
