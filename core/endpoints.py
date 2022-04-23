@@ -86,8 +86,9 @@ class ServiceNetworkEndpoint(DynamicPageEndpoint):
 
 @register
 class ServicePlanEndpoint(DynamicPageEndpoint):
-    permission_classes = [IsAdminUser | ReadOnly]
-    model = models.ServicePlan
+    viewset = viewsets.ServicePlanViewSet
+    # permission_classes = [IsAdminUser | ReadOnly]
+    # model = models.ServicePlan
 
 
 @register

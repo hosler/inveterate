@@ -7,7 +7,7 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
-from core.permissions import ReadOnlyAnonymous
+from core.permissions import ReadOnlyAnonymous, ReadOnly
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
     reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, get_vm_ips, get_vm_tasks
 
@@ -23,7 +23,7 @@ from .serializers import \
     CustomerServiceSerializer, \
     CustomerServiceListSerializer, \
     DashboardSummarySerializer, \
-    GenericActionSerializer
+    GenericActionSerializer, ServicePlanSerializer
 
 from .models import \
     IPPool, \
@@ -34,7 +34,8 @@ from .models import \
     Cluster, \
     Node, \
     Inventory, \
-    DashboardSummary
+    DashboardSummary, \
+    ServicePlan
 
 import random
 from proxmoxer import ProxmoxAPI
@@ -121,6 +122,16 @@ class InventoryViewSet(DynamicPageModelViewSet):
     def calculate(self, request):
         task = calculate_inventory.delay()
         return Response({"task_id": task.id}, status=202)
+
+
+class ServicePlanViewSet(DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser | ReadOnly]
+    serializer_class = ServicePlanSerializer
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return ServicePlan.objects.all().exclude(service__status='destroyed').order_by('pk')
+        return ServicePlan.objects.filter(service__owner=self.request.user).exclude(service__status='destroyed').order_by('pk')
 
 
 class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
