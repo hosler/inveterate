@@ -17,13 +17,10 @@ from rest_framework.decorators import action
 from .serializers import \
     ServiceSerializer, \
     IPPoolSerializer, \
-    NewServiceSerializer, \
     ClusterSerializer, \
     InventorySerializer, \
-    CustomerServiceSerializer, \
-    CustomerServiceListSerializer, \
     DashboardSummarySerializer, \
-    GenericActionSerializer, ServicePlanSerializer
+    GenericActionSerializer, ServicePlanSerializer, ServiceSerializerClient
 
 from .models import \
     IPPool, \
@@ -147,12 +144,12 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'metadata': ServiceSerializer,
     }
     serializer_action_classes = {
-        'list': ServiceSerializer,
-        'retrieve': ServiceSerializer,
-        'update': ServiceSerializer,
-        'create': ServiceSerializer,
+        'list': ServiceSerializerClient,
+        'retrieve': ServiceSerializerClient,
+        'update': ServiceSerializerClient,
+        'create': ServiceSerializerClient,
         'default': GenericActionSerializer,
-        'metadata': ServiceSerializer
+        'metadata': ServiceSerializerClient
     }
 
     @action(methods=['post'], detail=True)

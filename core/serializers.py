@@ -193,53 +193,13 @@ class ServiceSerializer(serializers.ModelSerializer):
         return service
 
 
-class NewServiceSerializer(ServiceSerializer):
-    # template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
-    owner = Owner(slug_field='id')
-
-    # def create(self, validated_data):
-    #     super().create(validated_data)
-
-    class Meta:
-        model = Service
-        fields = (
-            'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type'
-        )
-
-
-class CustomerServiceSerializer(ServiceSerializer):
-    owner = Owner(slug_field='id')
-    # template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
-    service_plan = ServicePlanSerializer()
+class ServiceSerializerClient(ServiceSerializer):
 
     def __init__(self, *args, **kwargs):
-        super(CustomerServiceSerializer, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field not in ['owner', 'hostname', 'password', 'template', 'plan', 'node', 'billing_type']:
+            if field not in ['hostname', 'password', 'template', 'plan']:
                 self.fields[field].read_only = True
-
-    class Meta:
-        model = Service
-        fields = (
-            'id', 'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
-        )
-
-
-class CustomerServiceListSerializer(ServiceSerializer):
-    # template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all(), required=False)
-    service_plan = ServicePlanSerializer()
-
-    def __init__(self, *args, **kwargs):
-        super(CustomerServiceListSerializer, self).__init__(*args, **kwargs)
-        for field in self.fields:
-            if field not in ['hostname', 'password']:
-                self.fields[field].read_only = True
-
-    class Meta:
-        model = Service
-        fields = (
-            'id', 'owner', 'hostname', 'plan', 'node', 'password', 'template', 'billing_type', 'service_plan'
-        )
 
 
 class InventorySerializer(serializers.ModelSerializer):
