@@ -20,7 +20,7 @@ from .serializers import \
     ClusterSerializer, \
     InventorySerializer, \
     DashboardSummarySerializer, \
-    GenericActionSerializer, ServicePlanSerializer, ServiceSerializerClient
+    GenericActionSerializer, ServicePlanSerializer, ServiceSerializerClient, ServicePlanSerializerClient
 
 from .models import \
     IPPool, \
@@ -121,9 +121,26 @@ class InventoryViewSet(DynamicPageModelViewSet):
         return Response({"task_id": task.id}, status=202)
 
 
-class ServicePlanViewSet(DynamicPageModelViewSet):
-    permission_classes = [IsAdminUser | ReadOnly]
-    serializer_class = ServicePlanSerializer
+class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser | IsAuthenticated]
+
+    default_serializer_class = ServicePlanSerializer
+    admin_serializer_action_classes = {
+        'list': ServicePlanSerializer,
+        'retrieve': ServicePlanSerializer,
+        'update': ServicePlanSerializer,
+        'create': ServicePlanSerializer,
+        'default': GenericActionSerializer,
+        'metadata': ServicePlanSerializer,
+    }
+    serializer_action_classes = {
+        'list': ServicePlanSerializerClient,
+        'retrieve': ServicePlanSerializerClient,
+        'update': ServicePlanSerializerClient,
+        'create': ServicePlanSerializerClient,
+        'default': GenericActionSerializer,
+        'metadata': ServicePlanSerializerClient
+    }
 
     def get_queryset(self):
         if self.request.user.is_staff:

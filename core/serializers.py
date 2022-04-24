@@ -93,12 +93,19 @@ class PlanSerializer(serializers.ModelSerializer):
 
 
 class ServicePlanSerializer(serializers.ModelSerializer):
-    # template = serializers.SlugRelatedField(slug_field='name', queryset=Template.objects.all())
-    # storage = serializers.SlugRelatedField(slug_field='name', queryset=NodeDisk.objects.all())
 
     class Meta:
         model = ServicePlan
-        exclude = ('id',)
+        fields = '__all__'
+
+
+class ServicePlanSerializerClient(ServicePlanSerializer):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields:
+            if field not in ['template']:
+                self.fields[field].read_only = True
 
 
 class Owner(serializers.SlugRelatedField):
@@ -198,7 +205,7 @@ class ServiceSerializerClient(ServiceSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field not in ['hostname', 'password', 'template', 'plan']:
+            if field not in ['hostname', 'password', 'plan']:
                 self.fields[field].read_only = True
 
 
