@@ -316,6 +316,17 @@ class Domain(models.Model):
         ordering = ['-created']
 
 
+class Stream(models.Model):
+    name = models.CharField(null=False, max_length=255)
+    port = models.IntegerField(null=False)
+    service = models.ForeignKey(Service, on_delete=models.SET_NULL, related_name='domain', null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
+
+
 class DashboardSummary(models.Model):
     user_count = models.IntegerField()
     plan_count = models.IntegerField()

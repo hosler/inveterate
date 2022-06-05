@@ -53,6 +53,12 @@ class DomainEndpoint(DynamicPageEndpoint):
 
 
 @register
+class StreamEndpoint(DynamicPageEndpoint):
+    permission_classes = [IsAdminUser]
+    model = models.Stream
+
+
+@register
 class NodeDiskEndpoint(DynamicPageEndpoint):
     permission_classes = [IsAdminUser]
     model = models.NodeDisk
