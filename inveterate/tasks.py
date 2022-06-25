@@ -3,7 +3,7 @@ import time
 import traceback
 from datetime import datetime
 
-import stripe
+#import stripe
 from celery import shared_task
 from celery_singleton import Singleton
 from dateutil.relativedelta import relativedelta
@@ -16,13 +16,13 @@ from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
 
-from app.blesta.api import BlestaApi
-from app.blesta.objects import BlestaUser, BlestaPlan
+from .blesta.api import BlestaApi
+from .blesta.objects import BlestaUser, BlestaPlan
 from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork
 
-if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
-    import djstripe.settings
-    from djstripe.models import Product, Price, Customer
+# if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
+#     import djstripe.settings
+#     from djstripe.models import Product, Price, Customer
 
 logger = logging.getLogger()
 

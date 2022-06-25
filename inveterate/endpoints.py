@@ -3,12 +3,11 @@ from drf_auto_endpoint.factories import serializer_factory
 from drf_auto_endpoint.router import register
 from rest_framework.permissions import IsAdminUser
 
-from core import models
-from core import serializers
-from core import viewsets
-from core.permissions import ReadOnly
-from core.viewsets import DynamicPageModelViewSet
-from users.viewsets import UserViewSet
+from . import models
+from . import serializers
+from . import viewsets
+from .permissions import ReadOnly
+from .viewsets import DynamicPageModelViewSet
 
 
 class DynamicPageEndpoint(Endpoint):
@@ -132,4 +131,4 @@ class DashboardEndpoint(DynamicPageEndpoint):
 
 @register
 class UserEndpoint(DynamicPageEndpoint):
-    viewset = UserViewSet
+    viewset = viewsets.UserViewSet

@@ -1,5 +1,3 @@
-import djstripe.settings
-import stripe
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
@@ -7,12 +5,15 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
-from core.permissions import ReadOnlyAnonymous, ReadOnly
+from .permissions import ReadOnlyAnonymous, ReadOnly
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
     reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, get_vm_ips, get_vm_tasks
 
 if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
+    import djstripe.settings
+    import stripe
     from djstripe.models import Session, Customer, Product, Price
+
 from rest_framework.decorators import action
 from .serializers import \
     ServiceSerializer, \
@@ -40,7 +41,24 @@ from proxmoxer.core import ResourceException
 import string
 
 UserModel = get_user_model()
+from rest_framework import viewsets
+from rest_framework.permissions import IsAdminUser
+from .serializers import UserDetailsSerializerWithType
 
+
+
+class UserViewSet(viewsets.ModelViewSet):
+    serializer_class = UserDetailsSerializerWithType
+    permission_classes = (IsAdminUser,)
+
+    def get_queryset(self):
+        return UserModel.objects.all()
+
+    def paginate_queryset(self, queryset):
+        if 'no_page' in self.request.query_params:
+            return None
+
+        return super().paginate_queryset(queryset)
 
 class DynamicPageModelViewSet(viewsets.ModelViewSet):
     def paginate_queryset(self, queryset):
