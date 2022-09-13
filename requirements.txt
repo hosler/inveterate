@@ -4,7 +4,7 @@ kombu==5.2.3
 stripe==2.66.0
 proxmoxer==1.2.0
 python-dateutil==2.8.2
-flower==1.0.0
+flower==1.2.0
 gevent==21.12.0
 gunicorn==20.1.0
 supervisor==4.2.4
