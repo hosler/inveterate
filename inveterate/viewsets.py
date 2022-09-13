@@ -1,11 +1,11 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
-from rest_framework import viewsets, status
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .permissions import ReadOnlyAnonymous, ReadOnly
+from .permissions import ReadOnlyAnonymous
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
     reset_vm, shutdown_vm, provision_billing, get_vm_status, get_cluster_resources, get_vm_ips, get_vm_tasks
 
@@ -15,41 +15,25 @@ if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
     from djstripe.models import Session, Customer, Product, Price
 
 from rest_framework.decorators import action
-from .serializers import \
-    ServiceSerializer, \
-    IPPoolSerializer, \
-    ClusterSerializer, \
-    InventorySerializer, \
-    DashboardSummarySerializer, \
-    GenericActionSerializer, ServicePlanSerializer, ServiceSerializerClient, ServicePlanSerializerClient
-
-from .models import \
-    IPPool, \
-    IP, \
-    Plan, \
-    Service, \
-    Template, \
-    Cluster, \
-    Node, \
-    Inventory, \
-    DashboardSummary, \
-    ServicePlan
-
+from rest_framework import viewsets
+from rest_framework.permissions import IsAdminUser
+from .permissions import ReadOnly
+from . import models
+from . import serializers
 import random
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 import string
 
-UserModel = get_user_model()
-from rest_framework import viewsets
-from rest_framework.permissions import IsAdminUser
-from .serializers import UserDetailsSerializerWithType
 
+from rest_framework_datatables.pagination import DatatablesPageNumberPagination
+
+UserModel = get_user_model()
 
 
 class UserViewSet(viewsets.ModelViewSet):
-    serializer_class = UserDetailsSerializerWithType
-    permission_classes = (IsAdminUser,)
+    serializer_class = serializers.UserDetailsSerializerWithType
+    permission_classes = [IsAdminUser]
 
     def get_queryset(self):
         return UserModel.objects.all()
@@ -60,12 +44,22 @@ class UserViewSet(viewsets.ModelViewSet):
 
         return super().paginate_queryset(queryset)
 
+
 class DynamicPageModelViewSet(viewsets.ModelViewSet):
     def paginate_queryset(self, queryset):
         if 'no_page' in self.request.query_params:
             return None
 
         return super().paginate_queryset(queryset)
+
+    def list(self, request, *args, **kwargs):
+        if request.accepted_renderer.format == 'form':
+            # Per HTMLFormRenderer docs create a serializer with no object for an empty form
+            serializer = self.get_serializer()
+            return Response(serializer.data)
+        else:
+            return super().list(request, *args, **kwargs)
+
 
 
 class MultiSerializerViewSetMixin(object):
@@ -86,14 +80,14 @@ class MultiSerializerViewSetMixin(object):
 
 class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
-    queryset = Cluster.objects.order_by('pk')
-    default_serializer_class = ClusterSerializer
+    queryset = models.Cluster.objects.order_by('pk')
+    default_serializer_class = serializers.ClusterSerializer
     admin_serializer_action_classes = {
-        'list': ClusterSerializer,
-        'retrieve': ClusterSerializer,
-        'update': ClusterSerializer,
-        'create': ClusterSerializer,
-        'default': ClusterSerializer
+        'list': serializers.ClusterSerializer,
+        'retrieve': serializers.ClusterSerializer,
+        'update': serializers.ClusterSerializer,
+        'create': serializers.ClusterSerializer,
+        'default': serializers.ClusterSerializer
     }
     serializer_action_classes = {}
 
@@ -112,16 +106,64 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         stats = get_cluster_resources(pk=pk, query_type="storage")
         return Response(stats, status=202)
 
+    @action(methods=['get'], detail=False)
+    def stats(self, request, pk=None):
+        stats = {
+            'cluster': {
+                'type': 'count',
+                'label': 'Clusters',
+                'value': models.Cluster.objects.all().count()
+            },
+            'node': {
+                'type': 'count',
+                'label': 'Nodes',
+                'value': models.Node.objects.all().count()
+            },
+            'service': {
+                'type': 'count',
+                'label': 'Services',
+                'value': models.Service.objects.all().exclude(status='destroyed').count()
+            }
+        }
+        return Response(stats, status=202)
+
+
+class NodeViewSet(DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = models.Node.objects.order_by('pk')
+    serializer_class = serializers.NodeSerializer
+
+    @action(methods=['get'], detail=False)
+    def stats(self, request, pk=None):
+        stats = {
+            'cluster': {
+                'type': 'count',
+                'label': 'Clusters',
+                'value': models.Cluster.objects.all().count()
+            },
+            'node': {
+                'type': 'count',
+                'label': 'Nodes',
+                'value': models.Node.objects.all().count()
+            },
+            'service': {
+                'type': 'count',
+                'label': 'Services',
+                'value': models.Service.objects.all().exclude(status='destroyed').count()
+            }
+        }
+        return Response(stats, status=202)
+
 
 class IPPoolViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
-    queryset = IPPool.objects.order_by('pk')
-    serializer_class = IPPoolSerializer
+    queryset = models.IPPool.objects.order_by('pk')
+    serializer_class = serializers.IPPoolSerializer
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance:
-            used_ips = IP.objects.filter(pool=instance, owner__isnull=False).count()
+            used_ips = models.IP.objects.filter(pool=instance, owner__isnull=False).count()
             if used_ips > 0:
                 return Response(data={'message': "IPs in pool are currently in use"},
                                 status=status.HTTP_400_BAD_REQUEST)
@@ -130,8 +172,8 @@ class IPPoolViewSet(DynamicPageModelViewSet):
 
 class InventoryViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | ReadOnlyAnonymous]
-    queryset = Inventory.objects.order_by('pk')
-    serializer_class = InventorySerializer
+    queryset = models.Inventory.objects.order_by('pk')
+    serializer_class = serializers.InventorySerializer
 
     @action(methods=['post'], detail=False)
     def calculate(self, request):
@@ -139,52 +181,113 @@ class InventoryViewSet(DynamicPageModelViewSet):
         return Response({"task_id": task.id}, status=202)
 
 
+class IPViewSet(DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = models.IP.objects.order_by('pk')
+    serializer_class = serializers.IPSerializer
+
+    @action(methods=['get'], detail=False)
+    def stats(self, request, pk=None):
+        stats = {
+            'private': {
+                'type': 'count',
+                'label': 'Internal IPs',
+                'value': models.IP.objects.filter(pool__internal=True).count()
+            },
+            'ipv4': {
+                'type': 'count',
+                'label': 'IPv4 IPs',
+                'value': models.IP.objects.filter(pool__internal=False).filter(pool__type='ipv4').count()
+            },
+            'ipv6': {
+                'type': 'count',
+                'label': 'IPv6 IPs',
+                'value': models.IP.objects.filter(pool__internal=False).filter(pool__type='ipv6').count()
+            }
+        }
+        return Response(stats, status=202)
+
+class PlanViewSet(DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser | ReadOnlyAnonymous]
+    queryset = models.Plan.objects.order_by('pk')
+    serializer_class = serializers.PlanSerializer
+
+    @action(methods=['get'], detail=False)
+    def stats(self, request, pk=None):
+        stats = {
+            'plans': {
+                'type': 'count',
+                'label': 'Plans',
+                'value': models.Plan.objects.all().count()
+            }
+        }
+        return Response(stats, status=202)
+
+
+class TemplateViewSet(DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = models.Template.objects.order_by('pk')
+    serializer_class = serializers.TemplateSerializer
+
+    @action(methods=['get'], detail=False)
+    def stats(self, request, pk=None):
+        stats = {
+            'templates': {
+                'type': 'count',
+                'label': 'KVM Plans',
+                'value': models.Template.objects.all().count()
+            }
+        }
+        return Response(stats, status=202)
+
+
 class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
 
-    default_serializer_class = ServicePlanSerializer
+    default_serializer_class = serializers.ServicePlanSerializer
     admin_serializer_action_classes = {
-        'list': ServicePlanSerializer,
-        'retrieve': ServicePlanSerializer,
-        'update': ServicePlanSerializer,
-        'create': ServicePlanSerializer,
-        'default': GenericActionSerializer,
-        'metadata': ServicePlanSerializer,
+        'list': serializers.ServicePlanSerializer,
+        'retrieve': serializers.ServicePlanSerializer,
+        'update': serializers.ServicePlanSerializer,
+        'create': serializers.ServicePlanSerializer,
+        'default': serializers.GenericActionSerializer,
+        'metadata': serializers.ServicePlanSerializer,
     }
     serializer_action_classes = {
-        'list': ServicePlanSerializerClient,
-        'retrieve': ServicePlanSerializerClient,
-        'update': ServicePlanSerializerClient,
-        'create': ServicePlanSerializerClient,
-        'default': GenericActionSerializer,
-        'metadata': ServicePlanSerializerClient
+        'list': serializers.ServicePlanSerializerClient,
+        'retrieve': serializers.ServicePlanSerializerClient,
+        'update': serializers.ServicePlanSerializerClient,
+        'create': serializers.ServicePlanSerializerClient,
+        'default': serializers.GenericActionSerializer,
+        'metadata': serializers.ServicePlanSerializerClient
     }
 
     def get_queryset(self):
         if self.request.user.is_staff:
-            return ServicePlan.objects.all().exclude(service__status='destroyed').order_by('pk')
-        return ServicePlan.objects.filter(service__owner=self.request.user).exclude(service__status='destroyed').order_by('pk')
+            return models.ServicePlan.objects.all().exclude(service__status='destroyed').order_by('pk')
+        return models.ServicePlan.objects.filter(service__owner=self.request.user).exclude(
+            service__status='destroyed').order_by('pk')
 
 
 class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
 
-    default_serializer_class = ServiceSerializer
+    default_serializer_class = serializers.ServiceSerializer
     admin_serializer_action_classes = {
-        'list': ServiceSerializer,
-        'retrieve': ServiceSerializer,
-        'update': ServiceSerializer,
-        'create': ServiceSerializer,
-        'default': GenericActionSerializer,
-        'metadata': ServiceSerializer,
+        'list': serializers.ServiceSerializer,
+        'retrieve': serializers.ServiceSerializer,
+        'update': serializers.ServiceSerializer,
+        'create': serializers.ServiceSerializer,
+        'default': serializers.GenericActionSerializer,
+        'metadata': serializers.ServiceSerializer,
     }
     serializer_action_classes = {
-        'list': ServiceSerializerClient,
-        'retrieve': ServiceSerializerClient,
-        'update': ServiceSerializerClient,
-        'create': ServiceSerializerClient,
-        'default': GenericActionSerializer,
-        'metadata': ServiceSerializerClient
+        'list': serializers.ServiceSerializerClient,
+        'retrieve': serializers.ServiceSerializerClient,
+        'update': serializers.ServiceSerializerClient,
+        'create': serializers.ServiceSerializerClient,
+        'default': serializers.GenericActionSerializer,
+        'metadata': serializers.ServiceSerializerClient
     }
 
     @action(methods=['post'], detail=True)
@@ -243,7 +346,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
             service_id = pk
         except KeyError:
             raise
-        service = Service.objects.get(id=service_id)
+        service = models.Service.objects.get(id=service_id)
         customer = Customer.objects.get(subscriber_id=service.owner.id)
         try:
             session = Session.objects.get(customer=customer, client_reference_id=service_id)
@@ -295,7 +398,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         except KeyError:
             raise
         else:
-            service = Service.objects.get(id=pk)
+            service = models.Service.objects.get(id=pk)
             proxmox_user = f'inveterate{service.owner_id}'
             password = ''.join(
                 random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation) for _ in
@@ -324,23 +427,23 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 
     def get_queryset(self):
         if self.request.user.is_staff:
-            return Service.objects.all().exclude(status='destroyed').order_by('pk')
-        return Service.objects.filter(owner=self.request.user).exclude(status='destroyed').order_by('pk')
+            return models.Service.objects.all().exclude(status='destroyed').order_by('pk')
+        return models.Service.objects.filter(owner=self.request.user).exclude(status='destroyed').order_by('pk')
 
 
 class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAdminUser]
-    queryset = DashboardSummary.objects.order_by('pk')
-    serializer_class = DashboardSummarySerializer
+    queryset = models.DashboardSummary.objects.order_by('pk')
+    serializer_class = serializers.DashboardSummarySerializer
 
     @action(methods=['get'], detail=False)
     def summary(self, request):
         user_count = UserModel.objects.count()
-        plan_count = Plan.objects.count()
-        ip_count = IP.objects.count()
-        template_count = Template.objects.count()
-        service_count = Service.objects.count()
-        node_count = Node.objects.count()
+        plan_count = models.Plan.objects.count()
+        ip_count = models.IP.objects.count()
+        template_count = models.Template.objects.count()
+        service_count = models.Service.objects.count()
+        node_count = models.Node.objects.count()
         data = {
             'users': user_count,
             'plans': plan_count,

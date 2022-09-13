@@ -8,10 +8,13 @@ from . import serializers
 from . import viewsets
 from .permissions import ReadOnly
 from .viewsets import DynamicPageModelViewSet
+from rest_framework_datatables.pagination import DatatablesPageNumberPagination
 
 
 class DynamicPageEndpoint(Endpoint):
     base_viewset = DynamicPageModelViewSet
+    pagination_class = DatatablesPageNumberPagination
+
 
 
 class MultiSerializerViewSetMixin:
@@ -36,8 +39,7 @@ class MultiSerializerViewSetMixin:
 
 @register
 class TemplateEndpoint(DynamicPageEndpoint):
-    permission_classes = [IsAdminUser]
-    model = models.Template
+    viewset = viewsets.TemplateViewSet
 
 
 @register
@@ -71,10 +73,7 @@ class BlestaBackendEndpoint(DynamicPageEndpoint):
 
 @register
 class NodeEndpoint(DynamicPageEndpoint):
-    permission_classes = [IsAdminUser]
-    model = models.Node
-    serializer = serializer_factory(model=model, fields=('id', 'name', 'type', 'cluster', 'cores', 'size', 'ram',
-                                                         'swap', 'bandwidth'))
+    viewset = viewsets.NodeViewSet
 
 
 @register
@@ -98,8 +97,7 @@ class ServicePlanEndpoint(DynamicPageEndpoint):
 
 @register
 class IPEndpoint(DynamicPageEndpoint):
-    permission_classes = [IsAdminUser]
-    model = models.IP
+    viewset = viewsets.IPViewSet
 
 
 @register
@@ -109,9 +107,7 @@ class IPPoolEndpoint(DynamicPageEndpoint):
 
 @register
 class PlanEndpoint(DynamicPageEndpoint):
-    permission_classes = [IsAdminUser | ReadOnly]
-    model = models.Plan
-    serializer = serializers.PlanSerializer
+    viewset = viewsets.PlanViewSet
 
 
 @register

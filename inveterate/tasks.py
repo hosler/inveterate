@@ -2,12 +2,10 @@ import logging
 import time
 import traceback
 from datetime import datetime
-
-#import stripe
+from django.conf import settings
 from celery import shared_task
 from celery_singleton import Singleton
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
@@ -20,9 +18,10 @@ from .blesta.api import BlestaApi
 from .blesta.objects import BlestaUser, BlestaPlan
 from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork
 
-# if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
-#     import djstripe.settings
-#     from djstripe.models import Product, Price, Customer
+if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
+    import stripe
+    import djstripe.settings
+    from djstripe.models import Product, Price, Customer
 
 logger = logging.getLogger()
 

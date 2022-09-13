@@ -8,9 +8,7 @@ from nginx.config.api import Section, Location
 from rest_framework import serializers
 from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
-from .models import IPPool, Inventory, IP, Plan, Service, \
-    ServicePlan, Template, NodeDisk, \
-    Cluster, Node, Domain, PlanBase, DashboardSummary
+from . import models
 from .tasks import provision_service, provision_billing, assign_ips
 
 
@@ -22,6 +20,7 @@ UserModel = get_user_model()
 
 
 class UserDetailsSerializerWithType(UserDetailsSerializer):
+    id = serializers.IntegerField(source='pk')
     __str__ = SerializerMethodField('display_name')
 
     def display_name(self, obj):
@@ -29,12 +28,12 @@ class UserDetailsSerializerWithType(UserDetailsSerializer):
 
     class Meta:
         model = UserModel
-        fields = ('pk', 'username', 'email', 'first_name', 'last_name', 'is_staff', '__str__')
+        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'is_staff', '__str__')
         read_only_fields = ('pk', 'email', 'is_staff')
 
 class DomainSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Domain
+        model = models.Domain
         fields = '__all__'
 
     def create(self, validated_data):
@@ -61,7 +60,7 @@ class IPPoolSerializer(serializers.ModelSerializer):
     end_address = serializers.CharField(max_length=255, write_only=True, required=False)
 
     class Meta:
-        model = IPPool
+        model = models.IPPool
         fields = '__all__'
 
     def create(self, validated_data):
@@ -76,7 +75,7 @@ class IPPoolSerializer(serializers.ModelSerializer):
             for network in networks:
                 for ip in network:
                     try:
-                        IP.objects.create(pool=ip_pool, value=str(ip))
+                        models.IP.objects.create(pool=ip_pool, value=str(ip))
                     except IntegrityError:
                         pass
         return ip_pool
@@ -89,7 +88,18 @@ class ClusterSerializer(serializers.ModelSerializer):
         return obj.name
 
     class Meta:
-        model = Cluster
+        model = models.Cluster
+        fields = '__all__'
+
+
+class NodeSerializer(serializers.ModelSerializer):
+    __str__ = SerializerMethodField('display_name')
+
+    def display_name(self, obj):
+        return obj.name
+
+    class Meta:
+        model = models.Node
         fields = '__all__'
 
 
@@ -106,14 +116,14 @@ class PlanSerializer(serializers.ModelSerializer):
     internal_ips = serializers.IntegerField(min_value=0)
 
     class Meta:
-        model = Plan
+        model = models.Plan
         fields = '__all__'
 
 
 class ServicePlanSerializer(serializers.ModelSerializer):
 
     class Meta:
-        model = ServicePlan
+        model = models.ServicePlan
         fields = '__all__'
 
 
@@ -162,7 +172,7 @@ class ServiceSerializer(serializers.ModelSerializer):
                 self.fields[field].read_only = True
 
     class Meta:
-        model = Service
+        model = models.Service
         fields = (
             'id', 'owner', 'password', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
             'billing_type', 'status_msg', '__str__'
@@ -195,7 +205,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         #     service_plan_data = validated_data.pop("service_plan")
         #     service_plan = sps.create(service_plan_data)
         # if "plan" in validated_data:
-        plan_fields = [f.name for f in PlanBase._meta.fields if f.name != "id"]
+        plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != "id"]
         plan_values = dict([(x, getattr(validated_data["plan"], x)) for x in plan_fields])
         service_plan = sps.create(plan_values)
         password = validated_data.pop("password", None)
@@ -229,13 +239,24 @@ class ServiceSerializerClient(ServiceSerializer):
 
 class InventorySerializer(serializers.ModelSerializer):
     class Meta:
-        model = Inventory
+        model = models.Inventory
+        fields = '__all__'
+
+
+class IPSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.IP
+        fields = '__all__'
+
+class TemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Template
         fields = '__all__'
 
 
 class DashboardSummarySerializer(serializers.ModelSerializer):
     class Meta:
-        model = DashboardSummary
+        model = models.DashboardSummary
         fields = '__all__'
 
 
