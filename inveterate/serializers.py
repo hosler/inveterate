@@ -4,7 +4,6 @@ import re
 from django.contrib.auth.models import User
 from django.core.validators import RegexValidator
 from django.db import IntegrityError
-from nginx.config.api import Section, Location
 from rest_framework import serializers
 from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
