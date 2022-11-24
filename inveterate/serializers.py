@@ -4,7 +4,6 @@ import re
 from django.contrib.auth.models import User
 from django.core.validators import RegexValidator
 from django.db import IntegrityError
-from nginx.config.api import Section, Location
 from rest_framework import serializers
 from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
@@ -36,22 +35,22 @@ class DomainSerializer(serializers.ModelSerializer):
         model = models.Domain
         fields = '__all__'
 
-    def create(self, validated_data):
-        domain = super().create(validated_data)
-        name = validated_data.pop("name")
-        section = Section(
-            'server',
-            Location(
-                '/foo',
-                proxy_pass='upstream',
-            ),
-            server_name=name,
-            listen='80'
-        )
-        with open(f"/home/hosler/nfs/PycharmProjects/inveterate/conf/sites/{name}", "w") as f:
-            f.write(str(section))
+    # def create(self, validated_data):
+    #     domain = super().create(validated_data)
+    #     name = validated_data.pop("name")
+    #     section = Section(
+    #         'server',
+    #         Location(
+    #             '/foo',
+    #             proxy_pass='upstream',
+    #         ),
+    #         server_name=name,
+    #         listen='80'
+    #     )
+    #     with open(f"/home/hosler/nfs/PycharmProjects/inveterate/conf/sites/{name}", "w") as f:
+    #         f.write(str(section))
 
-        return domain
+        # return domain
 
 
 class IPPoolSerializer(serializers.ModelSerializer):
