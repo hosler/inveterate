@@ -109,7 +109,7 @@ class PlanBase(models.Model):
     ipv6_ips = models.IntegerField(default=0)
     ipv4_ips = models.IntegerField(default=0)
     internal_ips = models.IntegerField(default=0)
-    ip_pools = models.ManyToManyField(IPPool)
+    #ip_pools = models.ManyToManyField(IPPool)
 
 
 class Plan(PlanBase):

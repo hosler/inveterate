@@ -62,6 +62,11 @@ class IPPoolSerializer(serializers.ModelSerializer):
         model = models.IPPool
         fields = '__all__'
 
+    def to_internal_value(self, data):
+        if isinstance(data['nodes'], str):
+            data['nodes'] = [data['nodes']]
+        return super().to_internal_value(data)
+
     def create(self, validated_data):
         generate_ips = validated_data.pop("generate_ips")
         start_address = validated_data.pop("start_address")
@@ -156,6 +161,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     owner = Owner(slug_field='id')
     # plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
     # node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
+    template = serializers.SlugRelatedField(slug_field='name', queryset=models.Template.objects.all(), write_only=True)
     password = serializers.CharField(write_only=True, required=False)
     # machine_id = serializers.CharField(required=False)
     hostname = serializers.CharField(validators=[domain_validator])
@@ -173,7 +179,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Service
         fields = (
-            'id', 'owner', 'password', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
+            'id', 'owner', 'password', 'template', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
             'billing_type', 'status_msg', '__str__'
         )
 
@@ -208,10 +214,10 @@ class ServiceSerializer(serializers.ModelSerializer):
         plan_values = dict([(x, getattr(validated_data["plan"], x)) for x in plan_fields])
         service_plan = sps.create(plan_values)
         password = validated_data.pop("password", None)
-        # template = validated_data.pop("template", None)
-        # if template:
-        #     service_plan.template = template
-        #     service_plan.type = template.type
+        template = validated_data.pop("template", None)
+        if template:
+            service_plan.template = template
+            service_plan.type = template.type
         service = super().create(validated_data)
         service_plan.storage = service.node.node_disk.filter(primary=True).first()
         service_plan.save()

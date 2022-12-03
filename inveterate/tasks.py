@@ -16,7 +16,7 @@ from requests.exceptions import ConnectionError
 
 from .blesta.api import BlestaApi
 from .blesta.objects import BlestaUser, BlestaPlan
-from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork
+from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork, IPPool
 
 if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
     import stripe
@@ -69,8 +69,9 @@ def assign_ips(service_id):
             ipv4_ips -= 1
         elif ip.pool.type == "ipv6":
             ipv6_ips -= 1
+    ip_pools = IPPool.objects.filter(nodes=service.node).all()
     for i in range(internal_ips):
-        for pool in service_plan.ip_pools.all():
+        for pool in ip_pools:
             if pool.internal is False:
                 continue
             with transaction.atomic():
@@ -81,7 +82,7 @@ def assign_ips(service_id):
                     ip.save()
                     break
     for i in range(ipv4_ips):
-        for pool in service_plan.ip_pools.all():
+        for pool in ip_pools:
             if pool.type != "ipv4" or pool.internal is True:
                 continue
             with transaction.atomic():
@@ -92,7 +93,7 @@ def assign_ips(service_id):
                     ip.save()
                     break
     for i in range(ipv6_ips):
-        for pool in service_plan.ip_pools.all():
+        for pool in ip_pools:
             if pool.type != "ipv6" or pool.internal is True:
                 continue
             with transaction.atomic():
