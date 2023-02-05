@@ -1,15 +1,18 @@
 from django.conf.urls import include
 from django.urls import path
-from drf_auto_endpoint.router import router
+from rest_framework import routers
+from . import viewsets
+router = routers.SimpleRouter()
+router.register(r'users', viewsets.UserViewSet)
+router.register(r'clusters', viewsets.ClusterViewSet)
+router.register(r'nodes', viewsets.NodeViewSet)
+router.register(r'ippools', viewsets.IPPoolViewSet)
+router.register(r'inventory', viewsets.InventoryViewSet)
+router.register(r'ips', viewsets.IPViewSet)
+router.register(r'plans', viewsets.PlanViewSet)
+router.register(r'templates', viewsets.TemplateViewSet)
+router.register(r'serviceplans', viewsets.ServicePlanViewSet, basename="serviceplan")
+router.register(r'dashboard', viewsets.DashboardViewSet)
 
-# class MyRouter(EndpointRouter):
-#     def __init__(self, *args, **kwargs):
-#         self.APIRootView._ignore_model_permissions = False
-#         #self.APIRootView.permission_classes = [IsAuthenticated]
-#         super().__init__(*args, **kwargs)
+urlpatterns = router.urls
 
-#router.APIRootView._ignore_model_permissions = False
-
-urlpatterns = [
-    path('', include(router.urls)),
-]

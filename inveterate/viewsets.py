@@ -34,9 +34,10 @@ UserModel = get_user_model()
 class UserViewSet(viewsets.ModelViewSet):
     serializer_class = serializers.UserDetailsSerializerWithType
     permission_classes = [IsAdminUser]
+    queryset = UserModel.objects.all()
 
-    def get_queryset(self):
-        return UserModel.objects.all()
+    # def get_queryset(self):
+    #     return UserModel.objects.all()
 
     def paginate_queryset(self, queryset):
         if 'no_page' in self.request.query_params:
@@ -180,7 +181,6 @@ class InventoryViewSet(DynamicPageModelViewSet):
         task = calculate_inventory.delay()
         return Response({"task_id": task.id}, status=202)
 
-
 class IPViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = models.IP.objects.order_by('pk')
@@ -223,7 +223,6 @@ class PlanViewSet(DynamicPageModelViewSet):
         }
         return Response(stats, status=202)
 
-
 class TemplateViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = models.Template.objects.order_by('pk')
@@ -239,7 +238,6 @@ class TemplateViewSet(DynamicPageModelViewSet):
             }
         }
         return Response(stats, status=202)
-
 
 class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
