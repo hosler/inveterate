@@ -107,6 +107,17 @@ class NodeSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class NodeDiskSerializer(serializers.ModelSerializer):
+    __str__ = SerializerMethodField('display_name')
+
+    def display_name(self, obj):
+        return obj.name
+
+    class Meta:
+        model = models.NodeDisk
+        fields = '__all__'
+
+
 class PlanSerializer(serializers.ModelSerializer):
     size = serializers.IntegerField(min_value=4)
     ram = serializers.IntegerField(min_value=64)
@@ -159,6 +170,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     domain_validator = RegexValidator(domain_pattern)
     # service_plan = ServicePlanSerializer(read_only=True)
     owner = Owner(slug_field='id')
+    plan_name = serializers.ReadOnlyField(source='plan.name')
     # plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
     # node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
     template = serializers.SlugRelatedField(slug_field='name', queryset=models.Template.objects.all(), write_only=True)
@@ -179,7 +191,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Service
         fields = (
-            'id', 'owner', 'password', 'template', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
+            'id', 'plan_name', 'owner', 'password', 'template', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
             'billing_type', 'status_msg', '__str__'
         )
 
@@ -225,7 +237,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         service.save()
         assign_ips(service.id)
         if service.billing_type is None:
-            provision_service.delay(service.id, password)
+            provision_service(service.id, password)
         else:
             provision_billing(service.id)
             if service.billing_type.type == "blesta":

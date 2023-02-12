@@ -204,6 +204,9 @@ class ServiceBandwidth(models.Model):
     class Meta:
         ordering = ['-created']
 
+    def __str__(self):
+        return str(self.id)
+
 
 class Service(models.Model):
     STATUS_CHOICES = (

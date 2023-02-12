@@ -14,6 +14,7 @@ router.register(r'templates', viewsets.TemplateViewSet)
 router.register(r'serviceplans', viewsets.ServicePlanViewSet, basename="serviceplan")
 router.register(r'dashboard', viewsets.DashboardViewSet)
 router.register(r'services', viewsets.ServiceViewSet, basename="service")
+router.register(r'nodedisks', viewsets.NodeDiskViewSet)
 
 urlpatterns = router.urls
 

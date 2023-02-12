@@ -16,7 +16,7 @@ from requests.exceptions import ConnectionError
 
 from .blesta.api import BlestaApi
 from .blesta.objects import BlestaUser, BlestaPlan
-from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork, IPPool
+from .models import Node, Plan, Inventory, Service, ServiceBandwidth, BillingType, Cluster, IP, ServiceNetwork, IPPool, NodeDisk
 
 if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
     import stripe
@@ -118,6 +118,10 @@ def provision_service(service_id, password):
     except ResourceException:
         pass
 
+    # If you got no storage you get some storage
+    if not service.service_plan.storage:
+        service.service_plan.storage = NodeDisk.objects.get(node=service.node, primary=True)
+
     service.machine_id = f"1{service.id:06}"
     try:
         if service_type == "kvm":
@@ -136,7 +140,7 @@ def provision_service(service_id, password):
             else:
                 if "members" in kvm_templates:
                     for member in kvm_templates["members"]:
-                        if member["vmid"] != service.service_plan.template.file:
+                        if member["vmid"] != int(service.service_plan.template.file):
                             continue
                         else:
                             clone_node = proxmox.nodes(member["node"])
@@ -146,7 +150,10 @@ def provision_service(service_id, password):
                 clone_node.qemu(service.service_plan.template.file).clone.post(**clone_data)
                 lock = True
                 while lock:
-                    status = node.qemu(service.machine_id).status.current.get()
+                    try:
+                        status = node.qemu(service.machine_id).status.current.get()
+                    except ResourceException as e:
+                        status = clone_node(service.machine_id).status.current.get()
                     if "lock" not in status:
                         lock = False
                     else:

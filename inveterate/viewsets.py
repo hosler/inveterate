@@ -128,6 +128,12 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         }
         return Response(stats, status=202)
 
+    @action(methods=['get'], detail=False)
+    def test(self, request, pk=None):
+        stats = { "wat": 'hi'
+        }
+        return Response(stats, status=202)
+
 
 class NodeViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
@@ -154,6 +160,11 @@ class NodeViewSet(DynamicPageModelViewSet):
             }
         }
         return Response(stats, status=202)
+
+class NodeDiskViewSet(DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = models.NodeDisk.objects.order_by('pk')
+    serializer_class = serializers.NodeDiskSerializer
 
 
 class IPPoolViewSet(DynamicPageModelViewSet):
@@ -320,7 +331,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 
     @action(methods=['post'], detail=True)
     def provision(self, request, pk=None):
-        task = provision_service.delay(service_id=pk, password=None)
+        task = provision_service(service_id=pk, password=None)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
