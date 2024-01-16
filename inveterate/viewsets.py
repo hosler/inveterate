@@ -166,6 +166,11 @@ class NodeDiskViewSet(DynamicPageModelViewSet):
     queryset = models.NodeDisk.objects.order_by('pk')
     serializer_class = serializers.NodeDiskSerializer
 
+class BillingTypeViewSet(DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = models.BillingType.objects.order_by('pk')
+    serializer_class = serializers.BillingTypeSerializer
+
 
 class IPPoolViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
@@ -331,13 +336,16 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 
     @action(methods=['post'], detail=True)
     def provision(self, request, pk=None):
-        task = provision_service(service_id=pk, password=None)
+        task = provision_service.delay(service_id=pk, password=None)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
     def provision_billing(self, request, pk=None):
-        task = provision_billing.delay(pk)
-        return Response({"task_id": task.id}, status=202)
+        try:
+            task = provision_billing.delay(pk)
+            return Response({"task_id": task.id}, status=202)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 
     @action(methods=['get'], detail=True)
     def ips(self, request, pk=None):
@@ -349,21 +357,25 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         tasks = get_vm_tasks(pk)
         return Response(tasks, status=202)
 
-    @action(detail=True)
+    @action(methods=['post'], detail=True)
     def billing(self, request, pk=None):
         try:
             service_id = pk
         except KeyError:
             raise
         service = models.Service.objects.get(id=service_id)
+        if service.billing_type is None:
+            return Response(status=404)
+
         customer = Customer.objects.get(subscriber_id=service.owner.id)
+        djsettings = djstripe.settings
         try:
             session = Session.objects.get(customer=customer, client_reference_id=service_id)
         except Session.DoesNotExist:
-            product = Product.objects.get(livemode=djstripe.settings.STRIPE_LIVE_MODE,
+            product = Product.objects.get(livemode=djsettings.settings.STRIPE_LIVE_MODE,
                                           name=service.plan.name,
                                           active=True)
-            price = Price.objects.get(livemode=djstripe.settings.STRIPE_LIVE_MODE,
+            price = Price.objects.get(livemode=djsettings.settings.STRIPE_LIVE_MODE,
                                       active=True,
                                       product=product,
                                       unit_amount=int(service.plan.price * 100),
@@ -391,12 +403,12 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
                     }
                 }
             }
-            stripe.api_key = djstripe.settings.STRIPE_SECRET_KEY
+            stripe.api_key = djsettings.djstripe_settings.STRIPE_SECRET_KEY
             session = stripe.checkout.Session.create(**data)
             Session._create_from_stripe_object(data=session)
         return Response(
             {"type": "stripe",
-             "key": djstripe.settings.STRIPE_PUBLIC_KEY,
+             "key": djsettings.djstripe_settings.STRIPE_PUBLIC_KEY,
              "service_id": service_id,
              "sessionid": session.id})
 
@@ -408,6 +420,8 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
             raise
         else:
             service = models.Service.objects.get(id=pk)
+            if not service.machine_id:
+                return Response({'error': 'No machine provisioned for this service'}, status=500)
             proxmox_user = f'inveterate{service.owner_id}'
             password = ''.join(
                 random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation) for _ in
