@@ -63,8 +63,9 @@ class IPPoolSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def to_internal_value(self, data):
+        data = data.copy()
         if isinstance(data['nodes'], str):
-            data['nodes'] = [data['nodes']]
+            data['nodes'] = data['nodes']
         return super().to_internal_value(data)
 
     def create(self, validated_data):
@@ -87,13 +88,14 @@ class IPPoolSerializer(serializers.ModelSerializer):
 
 class ClusterSerializer(serializers.ModelSerializer):
     __str__ = SerializerMethodField('display_name')
+    key = serializers.CharField(write_only=True)
 
     def display_name(self, obj):
         return obj.name
 
     class Meta:
         model = models.Cluster
-        fields = '__all__'
+        fields = ('id','__str__','name','host','user','key','type')
 
 
 class NodeSerializer(serializers.ModelSerializer):
@@ -104,7 +106,7 @@ class NodeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Node
-        fields = '__all__'
+        fields = ('id','name','size','ram','swap','bandwidth','cores','type','cluster','__str__')
 
 
 class NodeDiskSerializer(serializers.ModelSerializer):
@@ -115,6 +117,17 @@ class NodeDiskSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.NodeDisk
+        fields = '__all__'
+
+
+class BillingTypeSerializer(serializers.ModelSerializer):
+    __str__ = SerializerMethodField('display_name')
+
+    def display_name(self, obj):
+        return obj.name
+
+    class Meta:
+        model = models.BillingType
         fields = '__all__'
 
 
@@ -217,16 +230,18 @@ class ServiceSerializer(serializers.ModelSerializer):
         return instance
 
     def create(self, validated_data):
+        request = self.context.get('request', None)
         sps = ServicePlanSerializer()
-        # if "service_plan" in validated_data:
-        #     service_plan_data = validated_data.pop("service_plan")
-        #     service_plan = sps.create(service_plan_data)
-        # if "plan" in validated_data:
         plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != "id"]
         plan_values = dict([(x, getattr(validated_data["plan"], x)) for x in plan_fields])
         service_plan = sps.create(plan_values)
         password = validated_data.pop("password", None)
         template = validated_data.pop("template", None)
+        if "owner" not in validated_data:
+            validated_data["owner"] = User.objects.get(username=request.user)
+        if "node" not in validated_data:
+            inventory = models.Inventory.objects.filter(plan=validated_data["plan"]).first()
+            validated_data["node"] = inventory.node
         if template:
             service_plan.template = template
             service_plan.type = template.type
@@ -237,7 +252,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         service.save()
         assign_ips(service.id)
         if service.billing_type is None:
-            provision_service(service.id, password)
+            provision_service.delay(service.id, password)
         else:
             provision_billing(service.id)
             if service.billing_type.type == "blesta":
@@ -250,7 +265,7 @@ class ServiceSerializerClient(ServiceSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field not in ['hostname', 'password', 'plan']:
+            if field not in ['hostname', 'password', 'plan', 'template']:
                 self.fields[field].read_only = True
 
 
