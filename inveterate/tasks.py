@@ -145,7 +145,7 @@ def provision_service(service_id, password):
                         else:
                             clone_node = proxmox.nodes(member["node"])
                             break
-
+            #TODO: create vm on clone node and then migrate
             try:
                 clone_node.qemu(service.service_plan.template.file).clone.post(**clone_data)
                 lock = True
@@ -517,8 +517,9 @@ def provision_billing(service_id):
         if service.billing_type.id != instance.id:
             continue
         Customer.get_or_create(service.owner)
+        djsettings = djstripe.settings
         try:
-            product = Product.objects.get(livemode=djstripe.settings.STRIPE_LIVE_MODE,
+            product = Product.objects.get(livemode=djsettings.settings.STRIPE_LIVE_MODE,
                                           name=service.plan.name,
                                           active=True)
         except Product.DoesNotExist:
@@ -526,12 +527,12 @@ def provision_billing(service_id):
                 'name': service.plan.name,
                 'active': True
             }
-            stripe.api_key = djstripe.settings.STRIPE_SECRET_KEY
+            stripe.api_key = djsettings.djstripe_settings.STRIPE_SECRET_KEY
             stripe_product = stripe.Product.create(**new_product)
             product = Product._create_from_stripe_object(data=stripe_product)
 
         try:
-            Price.objects.get(livemode=djstripe.settings.STRIPE_LIVE_MODE,
+            Price.objects.get(livemode=djsettings.settings.STRIPE_LIVE_MODE,
                               active=True,
                               product=product,
                               billing_scheme='per_unit',
@@ -553,7 +554,7 @@ def provision_billing(service_id):
                     "usage_type": "licensed"
                 },
             }
-            stripe.api_key = djstripe.settings.STRIPE_SECRET_KEY
+            stripe.api_key = djsettings.djstripe_settings.STRIPE_SECRET_KEY
             stripe_price = stripe.Price.create(**new_price)
             Price._create_from_stripe_object(data=stripe_price)
 
