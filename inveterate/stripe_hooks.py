@@ -29,14 +29,14 @@ def payment_succeeded(event, **kwargs):
     record_payment(service_id=service.id, amt=amt, currency=data["currency"], reference_id=data["charge"])
 
 
-@webhooks.handler("customer.subscription.deleted")
-def session_completed(event, **kwargs):
-    data = event.data["object"]
-    try:
-        service = Service.objects.get(billing_id=data["id"])
-        cancel_service.delay(service.id)
-    except Service.DoesNotExist:
-        pass
+# @webhooks.handler("customer.subscription.deleted")
+# def session_completed(event, **kwargs):
+#     data = event.data["object"]
+#     try:
+#         service = Service.objects.get(billing_id=data["id"])
+#         cancel_service.delay(service.id)
+#     except Service.DoesNotExist:
+#         pass
 
 
 subscription_transitions = {
