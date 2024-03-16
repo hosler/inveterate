@@ -140,7 +140,7 @@ class NodeViewSet(DynamicPageModelViewSet):
     queryset = models.Node.objects.order_by('pk')
     serializer_class = serializers.NodeSerializer
 
-    @action(methods=['get'], detail=False)
+    @action(methods=['get'], detail=False, description="the stats")
     def stats(self, request, pk=None):
         stats = {
             'cluster': {
@@ -357,7 +357,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         tasks = get_vm_tasks(pk)
         return Response(tasks, status=202)
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['get'], detail=True)
     def billing(self, request, pk=None):
         try:
             service_id = pk
@@ -412,8 +412,8 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
              "service_id": service_id,
              "sessionid": session.id})
 
-    @action(methods=['post'], detail=True)
-    def console_login(self, request, pk=None):
+    @action(methods=['get'], detail=True)
+    def console(self, request, pk=None):
         try:
             service_id = pk
         except KeyError:
