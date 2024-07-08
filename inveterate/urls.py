@@ -3,7 +3,6 @@ from django.urls import path
 from rest_framework import routers
 from . import viewsets
 router = routers.DefaultRouter()
-router.register(r'users', viewsets.UserViewSet)
 router.register(r'clusters', viewsets.ClusterViewSet)
 router.register(r'nodes', viewsets.NodeViewSet)
 router.register(r'ippools', viewsets.IPPoolViewSet)
@@ -15,7 +14,6 @@ router.register(r'serviceplans', viewsets.ServicePlanViewSet, basename="servicep
 router.register(r'dashboard', viewsets.DashboardViewSet)
 router.register(r'services', viewsets.ServiceViewSet, basename="service")
 router.register(r'nodedisks', viewsets.NodeDiskViewSet)
-router.register(r'billing-type', viewsets.BillingTypeViewSet, basename="billing-type")
 
 urlpatterns = router.urls
 

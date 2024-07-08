@@ -10,53 +10,6 @@ VM_TYPES = (
 )
 
 
-class Config(models.Model):
-    name = models.CharField(max_length=255)
-    value = models.CharField(max_length=255)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']
-
-    def __str__(self):
-        return self.name
-
-
-class BillingType(models.Model):
-    BILLING_CHOICES = (
-        ("blesta", "Blesta"),
-        ("stripe", "Stripe"),
-    )
-    type = models.CharField(max_length=255, default="stripe", choices=BILLING_CHOICES)
-    name = models.CharField(max_length=255)
-    mirror = models.BooleanField(default=False)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']
-
-    def __str__(self):
-        return self.name
-
-
-class BlestaBackend(models.Model):
-    billing_type = models.OneToOneField(BillingType, on_delete=models.CASCADE, related_name="backend")
-    host = models.CharField(max_length=255, null=True)
-    user = models.CharField(max_length=255, null=True)
-    key = models.CharField(max_length=255, null=True)
-    company_hostname = models.CharField(max_length=255, null=True)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']
-
-    def __str__(self):
-        return self.billing_type
-
-
 class Template(models.Model):
     name = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="lxc", choices=VM_TYPES)
@@ -114,9 +67,6 @@ class PlanBase(models.Model):
 
 class Plan(PlanBase):
     name = models.CharField(max_length=255)
-    price = models.FloatField(default=0.0)
-    term = models.IntegerField(default='1')
-    period = models.CharField(default='monthly', max_length=255)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -128,14 +78,10 @@ class Plan(PlanBase):
 
 
 class Cluster(models.Model):
-    NODE_CHOICES = (
-        ("proxmox", "Proxmox"),
-    )
     name = models.CharField(max_length=255)
     host = models.CharField(max_length=255)
     user = models.CharField(max_length=255)
     key = models.CharField(max_length=255)
-    type = models.CharField(max_length=255, default="proxmox", choices=NODE_CHOICES)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -147,11 +93,7 @@ class Cluster(models.Model):
 
 
 class Node(PlanBase):
-    NODE_CHOICES = (
-        ("proxmox", "Proxmox"),
-    )
     name = models.CharField(max_length=255)
-    type = models.CharField(max_length=255, default="proxmox", choices=NODE_CHOICES)
     cluster = models.ForeignKey(Cluster, on_delete=models.SET_NULL, null=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
@@ -178,10 +120,13 @@ class NodeDisk(models.Model):
         return f"{self.name} ({self.node.name})"
 
 
-class ServicePlan(PlanBase):
-    type = models.CharField(max_length=255, choices=VM_TYPES)
-    template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
-    storage = models.ForeignKey(NodeDisk, null=True, on_delete=models.SET_NULL)
+
+class ServiceBandwidth(models.Model):
+    bandwidth = models.IntegerField(default=0)
+    bandwidth_banked = models.IntegerField(default=0)
+    bandwidth_stale = models.IntegerField(default=0)
+    system_tick = models.IntegerField(default=0)
+    renewal_dtm = models.DateTimeField(null=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -191,13 +136,10 @@ class ServicePlan(PlanBase):
     def __str__(self):
         return str(self.id)
 
-
-class ServiceBandwidth(models.Model):
-    bandwidth = models.IntegerField(default=0)
-    bandwidth_banked = models.IntegerField(default=0)
-    bandwidth_stale = models.IntegerField(default=0)
-    system_tick = models.IntegerField(default=0)
-    renewal_dtm = models.DateTimeField(null=True)
+class ServicePlan(PlanBase):
+    type = models.CharField(max_length=255, choices=VM_TYPES)
+    template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
+    storage = models.ForeignKey(NodeDisk, null=True, on_delete=models.SET_NULL)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -223,8 +165,6 @@ class Service(models.Model):
     status = models.CharField(max_length=255, default='pending', choices=STATUS_CHOICES)
     status_msg = models.CharField(max_length=255, null=True, blank=True)
     hostname = models.CharField(max_length=255)
-    billing_type = models.ForeignKey(BillingType, null=True, on_delete=models.SET_NULL)
-    billing_id = models.CharField(max_length=255, null=True)
     machine_id = models.IntegerField(null=True, blank=True)
     node = models.ForeignKey(Node, null=True, on_delete=models.SET_NULL, related_name='services')
     service_plan = models.OneToOneField(ServicePlan, on_delete=models.SET_NULL, null=True, related_name='service')
@@ -271,9 +211,8 @@ class ServiceNetwork(models.Model):
 
 
 class ServiceDisk(models.Model):
-    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='service_disk')
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='disks')
     size = models.IntegerField()
-    node = models.ForeignKey(Node, on_delete=models.CASCADE)
     file = models.CharField(null=True, max_length=255)
     primary = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
@@ -301,17 +240,6 @@ class Inventory(models.Model):
     plan = models.ForeignKey(Plan, on_delete=models.CASCADE)
     node = models.ForeignKey(Node, on_delete=models.CASCADE)
     quantity = models.IntegerField(default=0)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']
-
-
-class Domain(models.Model):
-    name = models.CharField(null=False, max_length=255)
-    ssl = models.BooleanField(default=False)
-    service = models.ForeignKey(Service, on_delete=models.SET_NULL, related_name='domain', null=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

@@ -1,56 +1,20 @@
 import ipaddress
 import re
 
-from django.contrib.auth.models import User
+#from django.contrib.auth.models import User
 from django.core.validators import RegexValidator
 from django.db import IntegrityError
 from rest_framework import serializers
 from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
 from . import models
-from .tasks import provision_service, provision_billing, assign_ips
+from .tasks import provision_service, assign_ips
 
 
 from django.contrib.auth import get_user_model
-from dj_rest_auth.serializers import UserDetailsSerializer
 from rest_framework.serializers import SerializerMethodField
 
 UserModel = get_user_model()
-
-
-class UserDetailsSerializerWithType(UserDetailsSerializer):
-    id = serializers.IntegerField(source='pk')
-    __str__ = SerializerMethodField('display_name')
-
-    def display_name(self, obj):
-        return obj.username
-
-    class Meta:
-        model = UserModel
-        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'is_staff', '__str__')
-        read_only_fields = ('pk', 'email', 'is_staff')
-
-class DomainSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = models.Domain
-        fields = '__all__'
-
-    # def create(self, validated_data):
-    #     domain = super().create(validated_data)
-    #     name = validated_data.pop("name")
-    #     section = Section(
-    #         'server',
-    #         Location(
-    #             '/foo',
-    #             proxy_pass='upstream',
-    #         ),
-    #         server_name=name,
-    #         listen='80'
-    #     )
-    #     with open(f"/home/hosler/nfs/PycharmProjects/inveterate/conf/sites/{name}", "w") as f:
-    #         f.write(str(section))
-
-        # return domain
 
 
 class IPPoolSerializer(serializers.ModelSerializer):
@@ -95,7 +59,7 @@ class ClusterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Cluster
-        fields = ('id','__str__','name','host','user','key','type')
+        fields = ('id','__str__','name','host','user','key')
 
 
 class NodeSerializer(serializers.ModelSerializer):
@@ -106,7 +70,7 @@ class NodeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Node
-        fields = ('id','name','size','ram','swap','bandwidth','cores','type','cluster','__str__')
+        fields = ('id','name','size','ram','swap','bandwidth','cores', 'cluster','__str__')
 
 
 class NodeDiskSerializer(serializers.ModelSerializer):
@@ -117,17 +81,6 @@ class NodeDiskSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.NodeDisk
-        fields = '__all__'
-
-
-class BillingTypeSerializer(serializers.ModelSerializer):
-    __str__ = SerializerMethodField('display_name')
-
-    def display_name(self, obj):
-        return obj.name
-
-    class Meta:
-        model = models.BillingType
         fields = '__all__'
 
 
@@ -166,7 +119,7 @@ class ServicePlanSerializerClient(ServicePlanSerializer):
 
 class Owner(serializers.SlugRelatedField):
     def get_queryset(self):
-        queryset = User.objects.all()
+        queryset = UserModel.objects.all()
         request = self.context.get('request', None)
         if not request.user.is_superuser:
             queryset = queryset.filter(username=request.user)
@@ -198,14 +151,14 @@ class ServiceSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field in ['service_plan', 'billing_id', 'machine_id', 'status_msg']:
+            if field in ['service_plan', 'machine_id', 'status_msg']:
                 self.fields[field].read_only = True
 
     class Meta:
         model = models.Service
         fields = (
-            'id', 'plan_name', 'owner', 'password', 'template', 'billing_id', 'machine_id', 'hostname', 'plan', 'node', 'status', 'service_plan',
-            'billing_type', 'status_msg', '__str__'
+            'id', 'plan_name', 'owner', 'password', 'template', 'machine_id', 'hostname', 'plan',
+            'node', 'status', 'service_plan', 'status_msg', '__str__'
         )
 
     # Use this method for the custom field
@@ -238,7 +191,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         password = validated_data.pop("password", None)
         template = validated_data.pop("template", None)
         if "owner" not in validated_data:
-            validated_data["owner"] = User.objects.get(username=request.user)
+            validated_data["owner"] = UserModel.objects.get(username=request.user)
         if "node" not in validated_data:
             inventory = models.Inventory.objects.filter(plan=validated_data["plan"]).first()
             validated_data["node"] = inventory.node
@@ -251,12 +204,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         service.service_plan = service_plan
         service.save()
         assign_ips(service.id)
-        if service.billing_type is None:
-            provision_service.delay(service.id, password)
-        else:
-            provision_billing(service.id)
-            if service.billing_type.type == "blesta":
-                provision_service.delay(service.id, password)
+        provision_service.delay(service.id, password)
         return service
 
 
