@@ -2,6 +2,7 @@ from django.conf.urls import include
 from django.urls import path
 from rest_framework import routers
 from . import viewsets
+
 router = routers.DefaultRouter()
 router.register(r'clusters', viewsets.ClusterViewSet)
 router.register(r'nodes', viewsets.NodeViewSet)
@@ -16,4 +17,3 @@ router.register(r'services', viewsets.ServiceViewSet, basename="service")
 router.register(r'nodedisks', viewsets.NodeDiskViewSet)
 
 urlpatterns = router.urls
-

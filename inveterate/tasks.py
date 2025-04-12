@@ -361,17 +361,17 @@ def get_vm_ips(service_id):
     return ips
 
 
-def get_vm_tasks(service_id):
-    task_objects = TaskResult.objects.filter(task_args__startswith=f"\"('{service_id}',").order_by('-date_done')
-    tasks = []
-    for task in task_objects:
-        task_data = {
-            "id": task.task_id,
-            "name": task.task_name,
-            "date": task.date_done
-        }
-        tasks.append(task_data)
-    return tasks
+# def get_vm_tasks(service_id):
+#     task_objects = TaskResult.objects.filter(task_args__startswith=f"\"('{service_id}',").order_by('-date_done')
+#     tasks = []
+#     for task in task_objects:
+#         task_data = {
+#             "id": task.task_id,
+#             "name": task.task_name,
+#             "date": task.date_done
+#         }
+#         tasks.append(task_data)
+#     return tasks
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
@@ -465,6 +465,74 @@ def meter_bandwidth():
         bandwidth.system_tick = tick
         bandwidth.save()
 
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def create_backup(backup_id):
+    backup = VMBackup.objects.get(id=backup_id)
+    try:
+        backup.status = 'running'
+        backup.started_at = timezone.now()
+        backup.save()
+
+        machine, service = get_vm(backup.service.id)
+        
+        # Create the backup using Proxmox API
+        backup_name = f"backup_{backup.id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}"
+        machine.snapshot.post(snapname=backup_name)
+        
+        # Get backup size
+        snapshot = machine.snapshot(backup_name).get()
+        backup.size = snapshot.get('size', 0)
+        
+        backup.status = 'completed'
+        backup.completed_at = timezone.now()
+        backup.save()
+
+    except Exception as e:
+        backup.status = 'failed'
+        backup.status_message = str(e)
+        backup.save()
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def cleanup_old_backups():
+    for plan in BackupPlan.objects.all():
+        for service in Service.objects.filter(backups__backup_plan=plan):
+            backups = service.backups.filter(
+                backup_plan=plan,
+                status='completed'
+            ).order_by('-created')
+            
+            # Delete backups beyond max_backups
+            if backups.count() > plan.max_backups:
+                for backup in backups[plan.max_backups:]:
+                    delete_backup.delay(backup.id)
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def delete_backup(backup_id):
+    backup = VMBackup.objects.get(id=backup_id)
+    machine, service = get_vm(backup.service.id)
+    
+    try:
+        machine.snapshot(backup.name).delete()
+        backup.delete()
+    except Exception as e:
+        backup.status = 'failed'
+        backup.status_message = f"Failed to delete: {str(e)}"
+        backup.save()
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def restore_backup(backup_id):
+    backup = VMBackup.objects.get(id=backup_id)
+    machine, service = get_vm(backup.service.id)
+    
+    try:
+        machine.snapshot(backup.name).rollback.post()
+        return True
+    except Exception as e:
+        backup.status = 'failed'
+        backup.status_message = f"Failed to restore: {str(e)}"
+        backup.save()
+        return False
 
 @shared_task()
 def test_task():

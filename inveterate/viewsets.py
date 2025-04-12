@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from .permissions import ReadOnlyAnonymous
 from .tasks import provision_service, calculate_inventory, start_vm, stop_vm, reboot_vm, \
-    reset_vm, shutdown_vm, get_vm_status, get_cluster_resources, get_vm_ips, get_vm_tasks
+    reset_vm, shutdown_vm, get_vm_status, get_cluster_resources, get_vm_ips
 
 if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
     import djstripe.settings
@@ -23,10 +23,6 @@ from . import serializers
 import random
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
-import string
-
-
-#from rest_framework_datatables.pagination import DatatablesPageNumberPagination
 
 UserModel = get_user_model()
 
@@ -45,7 +41,6 @@ class DynamicPageModelViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         else:
             return super().list(request, *args, **kwargs)
-
 
 
 class MultiSerializerViewSetMixin(object):
@@ -324,10 +319,10 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         ips = get_vm_ips(pk)
         return Response(ips, status=202)
 
-    @action(methods=['get'], detail=True)
-    def tasks(self, request, pk=None):
-        tasks = get_vm_tasks(pk)
-        return Response(tasks, status=202)
+    # @action(methods=['get'], detail=True)
+    # def tasks(self, request, pk=None):
+    #     tasks = get_vm_tasks(pk)
+    #     return Response(tasks, status=202)
 
 
     @action(methods=['get'], detail=True)
