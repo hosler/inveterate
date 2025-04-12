@@ -9,7 +9,6 @@ from dateutil.relativedelta import relativedelta
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
-from django_celery_results.models import TaskResult
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
