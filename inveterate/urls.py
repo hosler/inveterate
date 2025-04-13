@@ -3,6 +3,8 @@ from django.urls import path
 from rest_framework import routers
 from . import viewsets
 
+app_name = "inveterate"
+
 router = routers.DefaultRouter()
 router.register(r'clusters', viewsets.ClusterViewSet)
 router.register(r'nodes', viewsets.NodeViewSet)
