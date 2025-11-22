@@ -1,5 +1,43 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*$py.class
 
+# Environment
 /.env
+.env
+.python-version
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+.codebuddy/
+.qodo/
+*.swp
+*.swo
+*~
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+/media
+/staticfiles
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Testing
+.tox/
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Migrations (optional - uncomment if you don't want to track migrations)
+# */migrations/*.py
+# !*/migrations/__init__.py

@@ -1,0 +1,33 @@
+# Core Django
+Django>=3.2
+
+# Task Queue
+celery>=5.2.7
+django-celery-beat>=2.4.0
+django-celery-results>=2.4.0
+celery-singleton>=0.3.1
+
+# API Framework
+djangorestframework>=3.14.0
+
+# Proxmox Integration
+proxmoxer>=2.0.1
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Payment Processing (optional)
+dj-stripe>=2.7.3
+
+# Date Utilities
+python-dateutil>=2.8.0
+
+# Security - Field Encryption
+django-fernet-fields>=0.6
+
+# Production Server
+gunicorn>=21.2.0
+gevent>=23.9.0
+
+# Optional Development Tools
+# django-extensions>=3.2.0
+# ipython>=8.0.0

@@ -8,7 +8,7 @@ from rest_framework import serializers
 from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
 from . import models
-from .tasks import provision_service, assign_ips
+from .tasks import provision_service
 
 
 from django.contrib.auth import get_user_model
@@ -203,7 +203,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         service_plan.save()
         service.service_plan = service_plan
         service.save()
-        assign_ips(service.id)
+        # IP assignment happens inside provision_service task
         provision_service.delay(service.id, password)
         return service
 

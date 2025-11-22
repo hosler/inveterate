@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Inveterate - Proxmox VPS Management{% endblock %}</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Alpine.js for interactivity -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{% static 'css/main.css' %}">
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-50 min-h-screen">
+    {% load static %}
+
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <h1 class="text-2xl font-bold text-blue-600">Inveterate</h1>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        {% if user.is_authenticated %}
+                            {% if user.is_staff %}
+                                <a href="{% url 'dashboard' %}" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                                    Dashboard
+                                </a>
+                                <a href="{% url 'clusters' %}" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                                    Clusters
+                                </a>
+                                <a href="{% url 'nodes' %}" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                                    Nodes
+                                </a>
+                            {% endif %}
+                            <a href="{% url 'services' %}" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                                My Services
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="flex items-center">
+                    {% if user.is_authenticated %}
+                        <span class="text-gray-700 mr-4">{{ user.username }}</span>
+                        <a href="{% url 'logout' %}" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                            Logout
+                        </a>
+                    {% else %}
+                        <a href="{% url 'login' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                            Login
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+        {% for message in messages %}
+        <div class="rounded-md {% if message.tags == 'error' %}bg-red-50 border-red-200{% elif message.tags == 'success' %}bg-green-50 border-green-200{% else %}bg-blue-50 border-blue-200{% endif %} border p-4 mb-4">
+            <p class="{% if message.tags == 'error' %}text-red-800{% elif message.tags == 'success' %}text-green-800{% else %}text-blue-800{% endif %}">
+                {{ message }}
+            </p>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <p class="text-center text-gray-500 text-sm">
+                &copy; {% now "Y" %} Inveterate - Proxmox VPS Management
+            </p>
+        </div>
+    </footer>
+
+    <!-- Custom JS -->
+    <script src="{% static 'js/api.js' %}"></script>
+    <script src="{% static 'js/main.js' %}"></script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

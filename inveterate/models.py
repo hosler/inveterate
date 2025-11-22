@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from fernet_fields import EncryptedCharField
 
 # Get the UserModel
 UserModel = get_user_model()
@@ -81,7 +82,7 @@ class Cluster(models.Model):
     name = models.CharField(max_length=255)
     host = models.CharField(max_length=255)
     user = models.CharField(max_length=255)
-    key = models.CharField(max_length=255)
+    key = EncryptedCharField(max_length=255)  # Encrypted at rest for security
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

@@ -104,56 +104,82 @@ Here's why:
 <!-- GETTING STARTED -->
 ## Getting Started
 
-Besides a proxmox node you will also need a machine to run the app (perhaps a vps :)
+Besides a Proxmox node you will also need a machine to run the app (perhaps a VPS :)
 
 ### Prerequisites
 
-* Postgresql 13
-* Redis
+* Python 3.8+
+* PostgreSQL 13+
+* Redis 6+
 * Optional: Nginx or Apache for reverse proxy
+
+```bash
+sudo apt install postgresql postgresql-contrib redis-server nginx libpq-dev python3-pip python3-venv -y
 ```
-$ sudo apt install postgresql postgresql-contrib redis-server nginx libpq-dev -y
-```
+
 ### Installation
 
-Basic installation with Ubuntu Focal Server
-1. Set up your environment using conda, virtualenv, or whatever.
-In this example i'll use Ubuntu's packaged python and pip. Ubuntu Focal 
-users will need to run the following:
+1. **Clone the repository**
+```bash
+git clone https://github.com/hosler/inveterate.git
+cd inveterate
 ```
-$ sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
-update-alternatives: using /usr/bin/python3 to provide /usr/bin/python (python) in auto mode
+
+2. **Create and activate virtual environment**
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
-2. Install pip:
+
+3. **Install dependencies**
+```bash
+pip install -r requirements.txt
 ```
-$ sudo apt install python3-pip -y
+
+4. **Configure environment variables**
+```bash
+cp .env.example .env
+vim .env  # or use your preferred editor
 ```
-3. Clone and install requirements
-```
-$ git clone https://github.com/hosler/inveterate.git
-$ cd inveterate
-$ pip install --user -r requirements.txt
-```
-4. Populate the env file
-```
-$ vim .env
-```
-At a minimum you will need database and redis info:
-```
-DEBUG=on # Turn off in production
+
+Required environment variables:
+```bash
+# Django
+DEBUG=on                          # Turn off in production
+SECRET_KEY=your-secret-key-here
+ALLOWED_HOSTS=localhost,127.0.0.1
+
+# Database
+DB_NAME=inveterate
+DB_USER=postgres
+DB_PASSWORD=your-password
+DB_HOST=localhost
+DB_PORT=5432
+
+# Redis (for Celery)
 REDIS_HOST=localhost
-DB_HOST=localhost #leave blank to use socket
-DB_USER=<username>
-DB_PASSWORD=<paassword>
-DB=<username>
-SECRET_KEY=randomstring
+
+# Encryption (generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+FERNET_KEY=your-fernet-key-here
 ```
-5. Setup tables and admin user
+
+5. **Setup database and create admin user**
+```bash
+python manage.py migrate
+python manage.py createcachetable
+python manage.py createsuperuser
 ```
-$ python manage.py makemigrations
-$ python manage.py migrate
-$ python manage.py createcachetable
-$ python manage.py createsuperuser
+
+6. **Run development server**
+```bash
+# Terminal 1: Django dev server
+python manage.py runserver
+
+# Terminal 2: Celery worker
+celery -A config worker -l INFO
+
+# Terminal 3: Celery beat (for scheduled tasks)
+celery -A config beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
 ```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -161,76 +187,101 @@ $ python manage.py createsuperuser
 
 
 <!-- USAGE EXAMPLES -->
-## Usage
+## Production Deployment
 
-Inveterate was designed to run via supervisord and sit behind a reverse proxy.
-Let's go ahead and set that up.
-```angular2html
-$ cd ~/inveterate
-$ mkdir logs
-$ vim supervisord.conf
+Inveterate is designed to run via Supervisor and sit behind a reverse proxy.
+
+### Production Setup
+
+1. **Set production environment variables**
+```bash
+export DJANGO_SETTINGS_MODULE=config.settings.production
+export DEBUG=off
+# Set all other required variables in .env or environment
 ```
-Here is a basic supervisor config file
-```angular2html
+
+2. **Create logs directory**
+```bash
+mkdir -p ~/inveterate/logs
+```
+
+3. **Collect static files**
+```bash
+python manage.py collectstatic --noinput
+```
+
+4. **Create Supervisor configuration**
+```bash
+vim supervisord.conf
+```
+
+Supervisor config file:
+```ini
 [supervisord]
-logfile = ~/inveterate/supervisord.log
+logfile = ~/inveterate/logs/supervisord.log
 childlogdir = ~/inveterate/logs
 logfile_maxbytes = 50MB
 pidfile = ~/inveterate/supervisord.pid
-directory=~/inveterate
-
+directory = ~/inveterate
 
 [inet_http_server]
-port=127.0.0.1:9001
+port = 127.0.0.1:9001
 
 [supervisorctl]
-serverurl=http://127.0.0.1:9001
+serverurl = http://127.0.0.1:9001
 
 [rpcinterface:supervisor]
 supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 
 [program:celery_worker]
-numprocs=1
-process_name=%(program_name)s-%(process_num)s
-command=celery -A app worker -l INFO --concurrency=4 -Q celery
-autostart=true
-autorestart=true
-startretries=99999
-startsecs=10
-stopsignal=TERM
-stopwaitsecs=7200
-killasgroup=false
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-
+command = celery -A config worker -l INFO --concurrency=4
+directory = %(here)s
+user = %(ENV_USER)s
+autostart = true
+autorestart = true
+startretries = 99999
+startsecs = 10
+stopsignal = TERM
+stopwaitsecs = 7200
+stdout_logfile = %(here)s/logs/celery_worker.log
+stderr_logfile = %(here)s/logs/celery_worker_error.log
 
 [program:celery_beat]
-numprocs=1
-process_name=%(program_name)s-%(process_num)s
-command=celery -A app beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
-autostart=true
-autorestart=true
-startretries=99999
-startsecs=10
-stopsignal=TERM
-stopwaitsecs=7200
-killasgroup=false
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
+command = celery -A config beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
+directory = %(here)s
+user = %(ENV_USER)s
+autostart = true
+autorestart = true
+startretries = 99999
+startsecs = 10
+stopsignal = TERM
+stopwaitsecs = 7200
+stdout_logfile = %(here)s/logs/celery_beat.log
+stderr_logfile = %(here)s/logs/celery_beat_error.log
 
 [program:inveterate]
-command=gunicorn -k gevent -b 127.0.0.1:8000 --worker-connections=1000 --timeout 60 --workers 4 app.wsgi
-autostart=true
-autorestart=true
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
+command = gunicorn -k gevent -b 127.0.0.1:8000 --worker-connections=1000 --timeout 60 --workers 4 config.wsgi:application
+directory = %(here)s
+user = %(ENV_USER)s
+autostart = true
+autorestart = true
+stdout_logfile = %(here)s/logs/gunicorn.log
+stderr_logfile = %(here)s/logs/gunicorn_error.log
 ```
+
+5. **Start services**
+```bash
+supervisord -c supervisord.conf
+supervisorctl -c supervisord.conf status
+```
+
+### Scheduled Tasks
+
+Configure these periodic tasks in Django admin (django_celery_beat):
+
+- `inveterate.tasks.meter_bandwidth` - Run every 5-15 minutes to track VM bandwidth
+- `inveterate.tasks.calculate_inventory` - Run every hour to update available capacity
+- `inveterate.tasks.cleanup_console_users` - Run daily to remove orphaned Proxmox console users
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 

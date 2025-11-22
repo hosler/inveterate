@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Nodes - Inveterate{% endblock %}
+
+{% block content %}
+<div x-data="nodeList()" x-init="init()">
+    <div class="mb-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Proxmox Nodes</h1>
+            <p class="mt-2 text-gray-600">Manage your Proxmox nodes</p>
+        </div>
+        <a href="/admin/inveterate/node/add/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            + Add Node
+        </a>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="flex justify-center py-12">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Nodes Grid -->
+    <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <template x-for="node in nodes" :key="node.id">
+            <div class="bg-white rounded-lg shadow-md p-6 card-hover">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900" x-text="node.name"></h3>
+                        <p class="text-sm text-gray-500" x-text="`Cluster: ${node.cluster_name || 'N/A'}`"></p>
+                    </div>
+                    <span x-show="nodeStatus[node.id]"
+                          :class="`px-2 py-1 rounded text-xs font-semibold ${nodeStatus[node.id]?.online ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`"
+                          x-text="nodeStatus[node.id]?.online ? 'Online' : 'Offline'"></span>
+                </div>
+
+                <!-- Node Resources -->
+                <div class="space-y-3 mb-4">
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">CPU:</span>
+                            <span class="font-medium" x-text="nodeStatus[node.id]?.cpu ? `${(nodeStatus[node.id].cpu * 100).toFixed(1)}%` : 'N/A'"></span>
+                        </div>
+                        <div x-show="nodeStatus[node.id]?.cpu" class="resource-bar">
+                            <div class="resource-bar-fill"
+                                 :class="getResourceClass(nodeStatus[node.id].cpu * 100)"
+                                 :style="`width: ${nodeStatus[node.id].cpu * 100}%`"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">Memory:</span>
+                            <span class="font-medium" x-text="nodeStatus[node.id]?.memory ? `${(nodeStatus[node.id].memory.usage * 100).toFixed(1)}%` : 'N/A'"></span>
+                        </div>
+                        <div x-show="nodeStatus[node.id]?.memory" class="resource-bar">
+                            <div class="resource-bar-fill"
+                                 :class="getResourceClass(nodeStatus[node.id].memory?.usage * 100)"
+                                 :style="`width: ${nodeStatus[node.id].memory?.usage * 100}%`"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Uptime:</span>
+                        <span class="font-medium" x-text="nodeStatus[node.id]?.uptime || 'N/A'"></span>
+                    </div>
+                </div>
+
+                <div class="flex space-x-2">
+                    <button @click="refreshNodeStatus(node.id)"
+                            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md text-sm font-medium">
+                        Refresh
+                    </button>
+                    <a :href="`/admin/inveterate/node/${node.id}/change/`"
+                       class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-md text-sm font-medium">
+                        Edit
+                    </a>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="!loading && nodes.length === 0" class="text-center py-12 bg-white rounded-lg shadow-md">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No nodes configured</h3>
+        <p class="mt-1 text-sm text-gray-500">Add nodes from your Proxmox clusters.</p>
+        <div class="mt-6">
+            <a href="/admin/inveterate/node/add/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                + Add Node
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+function nodeList() {
+    return {
+        nodes: [],
+        nodeStatus: {},
+        loading: true,
+
+        async init() {
+            await this.loadNodes();
+        },
+
+        async loadNodes() {
+            try {
+                const response = await api.getNodes();
+                this.nodes = response.results || response;
+                // Load status for each node
+                this.nodes.forEach(node => {
+                    this.loadNodeStatus(node.id);
+                });
+            } catch (error) {
+                showError('Failed to load nodes: ' + error.message);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadNodeStatus(nodeId) {
+            try {
+                const status = await api.getNodeStatus(nodeId);
+                this.nodeStatus[nodeId] = status;
+            } catch (error) {
+                console.error(`Failed to load node ${nodeId} status:`, error);
+                this.nodeStatus[nodeId] = { online: false };
+            }
+        },
+
+        async refreshNodeStatus(nodeId) {
+            await this.loadNodeStatus(nodeId);
+            showSuccess('Status refreshed');
+        },
+
+        getResourceClass(percentage) {
+            if (percentage > 80) return 'high';
+            if (percentage > 60) return 'medium';
+            return 'low';
+        }
+    }
+}
+</script>
+{% endblock %}

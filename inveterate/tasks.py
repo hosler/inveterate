@@ -2,6 +2,8 @@ import logging
 import time
 import traceback
 from datetime import datetime
+from sqlite3 import IntegrityError
+
 from django.conf import settings
 from celery import shared_task
 from celery_singleton import Singleton
@@ -17,11 +19,12 @@ from .blesta.api import BlestaApi
 from .blesta.objects import BlestaUser, BlestaPlan
 from .models import Node, Plan, Inventory, Service, ServiceBandwidth, Cluster, IP, ServiceNetwork, IPPool, NodeDisk
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def calculate_inventory():
+    logger.info("Starting inventory calculation")
     plans = Plan.objects.all()
     nodes = Node.objects.all()
     inventory_fields = ['cores', 'ram', 'swap', 'size', 'bandwidth']
@@ -46,10 +49,13 @@ def calculate_inventory():
             inventory, created = Inventory.objects.get_or_create(plan=plan, node=node)
             inventory.quantity = lowest
             inventory.save()
+            logger.debug(f"Node {node.name}, Plan {plan.name}: {inventory.quantity} slots available")
+    logger.info("Inventory calculation completed")
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def assign_ips(service_id):
+    logger.info(f"Assigning IPs for service {service_id}")
     service = Service.objects.get(pk=service_id)
     service_plan = service.service_plan
     internal_ips = service_plan.internal_ips
@@ -101,7 +107,10 @@ def assign_ips(service_id):
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def provision_service(service_id, password):
+    logger.info(f"Starting provisioning for service {service_id}")
     service = Service.objects.get(pk=service_id)
+    logger.info(f"Provisioning {service.service_plan.type} service '{service.hostname}' on node {service.node.name}")
+
     proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
                          token_value=service.node.cluster.key,
                          verify_ssl=False, port=8006, timeout=600)
@@ -109,6 +118,7 @@ def provision_service(service_id, password):
     service_type = service.service_plan.type
     try:
         proxmox.pools.post(poolid="inveterate")
+        logger.debug("Created or verified 'inveterate' pool exists")
     except ResourceException:
         pass
 
@@ -118,6 +128,10 @@ def provision_service(service_id, password):
 
     service.machine_id = f"1{service.id:06}"
     try:
+        logger.debug(f"Assigning IPs for service {service_id}")
+        assign_ips(service_id)
+        logger.debug(f"IP assignment completed for service {service_id}")
+
         if service_type == "kvm":
             clone_data = {
                 'newid': service.machine_id,
@@ -185,7 +199,8 @@ def provision_service(service_id, password):
                 'searchdomain': service.hostname,
                 'pool': 'inveterate'
             }
-        assign_ips(service_id)
+
+        # Build network configuration from assigned IPs
         for network in service.service_network.all():
             firewall = 0
             if network.ip.pool.internal is True:
@@ -213,8 +228,10 @@ def provision_service(service_id, password):
 
             vm_data[f'net{network.net_id}'] = ",".join([f'{key}={value}' for key, value in net_data.items()])
 
-        service_bandwidth, created = ServiceBandwidth.objects.get_or_create(service=service)
-        if created:
+        try:
+            service_bandwidth = ServiceBandwidth.objects.get(service=service)
+        except ServiceBandwidth.DoesNotExist:
+            service_bandwidth = ServiceBandwidth.objects.create(bandwidth=10240)
             now = datetime.now()
             service_bandwidth.renewal_dtm = now + relativedelta(months=1)
             service_bandwidth.save()
@@ -256,13 +273,41 @@ def provision_service(service_id, password):
             machine.firewall.rules.post(type="group", action="inveterate", enable=1)
 
         proxmox.pools("inveterate").put(vms=service.machine_id)
+        logger.info(f"Successfully provisioned service {service_id} with machine_id {service.machine_id}")
+    except NodeDisk.DoesNotExist:
+        error_msg = f"No primary storage disk configured for node {service.node.name}"
+        logger.error(f"Failed to provision service {service_id}: {error_msg}")
+        service.status = "error"
+        service.status_msg = error_msg
+        service.save()
+        raise
+    except ConnectionError as e:
+        error_msg = f"Cannot connect to Proxmox cluster at {service.node.cluster.host}"
+        logger.error(f"Failed to provision service {service_id}: {error_msg} - {str(e)}")
+        service.status = "error"
+        service.status_msg = error_msg
+        service.save()
+        raise
+    except ResourceException as e:
+        error_msg = f"Proxmox API error: {str(e)}"
+        logger.error(f"Failed to provision service {service_id}: {error_msg}")
+        service.status = "error"
+        service.status_msg = error_msg
+        service.save()
+        raise
     except Exception as e:
+        error_msg = f"Unexpected error during provisioning: {str(e)}"
+        logger.error(f"Failed to provision service {service_id}: {error_msg}", exc_info=True)
         service.status = "error"
         service.status_msg = str(e)
+        service.save()
+        raise
     else:
         service.status = "active"
         service.status_msg = None
-    service.save()
+        service.save()
+        logger.info(f"Service {service_id} status updated to {service.status}")
+
     calculate_inventory.delay()
 
 
@@ -300,30 +345,35 @@ def get_cluster(cluster_id):
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def start_vm(service_id):
+    logger.info(f"Starting VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.start.post()
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def stop_vm(service_id):
+    logger.info(f"Stopping VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.stop.post()
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def reset_vm(service_id):
+    logger.info(f"Resetting VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.reset.post()
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def shutdown_vm(service_id):
+    logger.info(f"Shutting down VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.shutdown.post()
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def reboot_vm(service_id):
+    logger.info(f"Rebooting VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.reboot.post()
 
@@ -339,8 +389,8 @@ def get_vm_status(service_id):
         "disk_max": vm_stats['maxdisk'],
         "disk_used": vm_stats['diskwrite'],
         "cpu_util": vm_stats['cpu'],
-        "bandwidth_max": service.service_plan.bandwidth * 1024 * 1024,
-        "bandwidth_used": service.bandwidth.bandwidth + service.bandwidth.bandwidth_banked
+        #"bandwidth_max": service.service_plan.bandwidth * 1024 * 1024,
+        #"bandwidth_used": service.bandwidth.bandwidth + service.bandwidth.bandwidth_banked
     }
     return stats
 
@@ -420,120 +470,157 @@ def cancel_service(service_id, cancel_date=datetime.now()):
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def meter_bandwidth():
+    logger.info("Starting bandwidth metering")
     api_objects = {}
-    for service in Service.objects.all().filter(status="active"):
-        node_name = service.node.name
-        if node_name not in api_objects:
-            api_objects[node_name] = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user,
-                                                token_name='inveterate', token_value=service.node.cluster.key,
-                                                verify_ssl=False, port=8006)
-        node = api_objects[node_name].nodes(node_name)
+    bandwidths_to_update = []
+    now = timezone.now()
 
-        now = timezone.now()
+    # Optimize query with select_related to avoid N+1 queries
+    services = Service.objects.filter(status="active").select_related(
+        'node', 'node__cluster', 'service_plan', 'bandwidth'
+    )
+
+    services_processed = 0
+    services_failed = 0
+
+    for service in services:
         try:
-            bandwidth = ServiceBandwidth.objects.get(id=service.bandwidth_id)
-        except ServiceBandwidth.DoesNotExist:
-            continue
-        if now > bandwidth.renewal_dtm:
-            start = now
-            bandwidth.renewal_dtm = start + relativedelta(months=1)
-            bandwidth.bandwidth_stale += bandwidth.bandwidth
-            bandwidth.bandwidth_banked = 0
+            # Skip if no bandwidth tracking
+            if not service.bandwidth_id:
+                logger.debug(f"Service {service.id} has no bandwidth tracking, skipping")
+                continue
 
-        if service.service_plan.type == "lxc":
-            machine = node.lxc(service.machine_id)
-        elif service.service_plan.type == "kvm":
-            machine = node.qemu(service.machine_id)
+            node_name = service.node.name
+            if node_name not in api_objects:
+                api_objects[node_name] = ProxmoxAPI(
+                    service.node.cluster.host,
+                    user=service.node.cluster.user,
+                    token_name='inveterate',
+                    token_value=service.node.cluster.key,
+                    verify_ssl=False,
+                    port=8006
+                )
+            node = api_objects[node_name].nodes(node_name)
 
-        data = machine.status.current.get()
-        tick = data["uptime"]
-        if tick > bandwidth.system_tick:
-            try:
-                bandwidth.bandwidth = data["netin"] + data["netout"]
-            except KeyError as e:
-                logger.info(e)
-        elif tick < bandwidth.system_tick:
-            banked = bandwidth.bandwidth - bandwidth.bandwidth_stale
-            bandwidth.bandwidth_banked += banked
-            bandwidth.bandwidth = 0
-            bandwidth.bandwidth_stale = 0
-            try:
-                bandwidth.bandwidth = data["netin"] + data["netout"]
-            except KeyError as e:
-                logger.info(e)
-        bandwidth.system_tick = tick
-        bandwidth.save()
+            bandwidth = service.bandwidth
 
+            # Handle bandwidth renewal
+            if now > bandwidth.renewal_dtm:
+                bandwidth.renewal_dtm = now + relativedelta(months=1)
+                bandwidth.bandwidth_stale += bandwidth.bandwidth
+                bandwidth.bandwidth_banked = 0
+                logger.info(f"Renewed bandwidth for service {service.id}")
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
-def create_backup(backup_id):
-    backup = VMBackup.objects.get(id=backup_id)
-    try:
-        backup.status = 'running'
-        backup.started_at = timezone.now()
-        backup.save()
+            # Get VM stats
+            if service.service_plan.type == "lxc":
+                machine = node.lxc(service.machine_id)
+            elif service.service_plan.type == "kvm":
+                machine = node.qemu(service.machine_id)
+            else:
+                logger.warning(f"Unknown service type {service.service_plan.type} for service {service.id}")
+                continue
 
-        machine, service = get_vm(backup.service.id)
-        
-        # Create the backup using Proxmox API
-        backup_name = f"backup_{backup.id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}"
-        machine.snapshot.post(snapname=backup_name)
-        
-        # Get backup size
-        snapshot = machine.snapshot(backup_name).get()
-        backup.size = snapshot.get('size', 0)
-        
-        backup.status = 'completed'
-        backup.completed_at = timezone.now()
-        backup.save()
+            data = machine.status.current.get()
+            tick = data["uptime"]
 
-    except Exception as e:
-        backup.status = 'failed'
-        backup.status_message = str(e)
-        backup.save()
+            if tick > bandwidth.system_tick:
+                try:
+                    bandwidth.bandwidth = data["netin"] + data["netout"]
+                except KeyError as e:
+                    logger.warning(f"Missing network data for service {service.id}: {e}")
+            elif tick < bandwidth.system_tick:
+                # VM was restarted
+                banked = bandwidth.bandwidth - bandwidth.bandwidth_stale
+                bandwidth.bandwidth_banked += banked
+                bandwidth.bandwidth = 0
+                bandwidth.bandwidth_stale = 0
+                try:
+                    bandwidth.bandwidth = data["netin"] + data["netout"]
+                except KeyError as e:
+                    logger.warning(f"Missing network data for service {service.id}: {e}")
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
-def cleanup_old_backups():
-    for plan in BackupPlan.objects.all():
-        for service in Service.objects.filter(backups__backup_plan=plan):
-            backups = service.backups.filter(
-                backup_plan=plan,
-                status='completed'
-            ).order_by('-created')
-            
-            # Delete backups beyond max_backups
-            if backups.count() > plan.max_backups:
-                for backup in backups[plan.max_backups:]:
-                    delete_backup.delay(backup.id)
+            bandwidth.system_tick = tick
+            bandwidths_to_update.append(bandwidth)
+            services_processed += 1
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
-def delete_backup(backup_id):
-    backup = VMBackup.objects.get(id=backup_id)
-    machine, service = get_vm(backup.service.id)
-    
-    try:
-        machine.snapshot(backup.name).delete()
-        backup.delete()
-    except Exception as e:
-        backup.status = 'failed'
-        backup.status_message = f"Failed to delete: {str(e)}"
-        backup.save()
+        except ResourceException as e:
+            logger.error(f"Proxmox API error for service {service.id}: {str(e)}")
+            services_failed += 1
+        except Exception as e:
+            logger.error(f"Failed to meter bandwidth for service {service.id}: {str(e)}", exc_info=True)
+            services_failed += 1
+
+    # Bulk update all bandwidth records
+    if bandwidths_to_update:
+        ServiceBandwidth.objects.bulk_update(
+            bandwidths_to_update,
+            ['bandwidth', 'bandwidth_stale', 'bandwidth_banked', 'system_tick', 'renewal_dtm']
+        )
+        logger.info(f"Bandwidth metering completed: {services_processed} services processed, {services_failed} failed, {len(bandwidths_to_update)} updated")
+    else:
+        logger.info("No bandwidth data to update")
+
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
-def restore_backup(backup_id):
-    backup = VMBackup.objects.get(id=backup_id)
-    machine, service = get_vm(backup.service.id)
-    
-    try:
-        machine.snapshot(backup.name).rollback.post()
-        return True
-    except Exception as e:
-        backup.status = 'failed'
-        backup.status_message = f"Failed to restore: {str(e)}"
-        backup.save()
-        return False
+def cleanup_console_users():
+    """
+    Clean up orphaned Proxmox console users for deleted services.
+    Console users are created with pattern: inveterate{owner_id}@pve
+    """
+    logger.info("Starting console user cleanup")
 
-@shared_task()
-def test_task():
-    print("HI!")
-    return True
+    # Get all active service owner IDs
+    active_owner_ids = set(
+        Service.objects.exclude(status='destroyed')
+        .values_list('owner_id', flat=True)
+        .distinct()
+    )
+
+    cleaned_up = 0
+    errors = 0
+
+    # Process each cluster
+    for cluster in Cluster.objects.all():
+        try:
+            proxmox = ProxmoxAPI(
+                cluster.host,
+                user=cluster.user,
+                token_name='inveterate',
+                token_value=cluster.key,
+                verify_ssl=False,
+                port=8006,
+                timeout=30
+            )
+
+            # Get all users
+            users = proxmox.access.users.get()
+
+            for user in users:
+                userid = user.get('userid', '')
+
+                # Check if this is an inveterate console user
+                if userid.startswith('inveterate') and userid.endswith('@pve'):
+                    # Extract owner_id from userid (format: inveterate{owner_id}@pve)
+                    try:
+                        owner_id_str = userid.replace('inveterate', '').replace('@pve', '')
+                        owner_id = int(owner_id_str)
+
+                        # Delete if owner has no active services
+                        if owner_id not in active_owner_ids:
+                            proxmox.access.users(userid).delete()
+                            logger.info(f"Deleted orphaned console user: {userid}")
+                            cleaned_up += 1
+                    except (ValueError, IndexError):
+                        logger.warning(f"Could not parse owner_id from console user: {userid}")
+
+        except ConnectionError as e:
+            logger.error(f"Cannot connect to cluster {cluster.name}: {str(e)}")
+            errors += 1
+        except ResourceException as e:
+            logger.error(f"Proxmox API error on cluster {cluster.name}: {str(e)}")
+            errors += 1
+        except Exception as e:
+            logger.error(f"Failed to cleanup console users on cluster {cluster.name}: {str(e)}", exc_info=True)
+            errors += 1
+
+    logger.info(f"Console user cleanup completed: {cleaned_up} users removed, {errors} clusters with errors")
