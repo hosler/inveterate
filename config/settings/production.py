@@ -25,9 +25,7 @@ LOGGING['root']['level'] = 'INFO'
 LOGGING['loggers']['inveterate']['level'] = 'INFO'
 LOGGING['loggers']['django']['level'] = 'WARNING'
 
-# Ensure SECRET_KEY and FERNET_KEY are set
+# Ensure SECRET_KEY is set
 if not os.environ.get('SECRET_KEY'):
     raise ValueError("SECRET_KEY environment variable must be set in production")
 
-if not os.environ.get('FERNET_KEY'):
-    raise ValueError("FERNET_KEY environment variable must be set in production")

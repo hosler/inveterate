@@ -18,7 +18,7 @@ class ReadOnlyAnonymous(BasePermission):
 
 class IsAuthenticated(BasePermission):
     def has_permission(self, request, view):
-        if view.action in ['provision_billing', 'destroy', 'calculate']:
+        if view.action in ['destroy', 'calculate']:
             return False
 
         return bool(

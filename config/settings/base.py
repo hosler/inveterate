@@ -32,18 +32,10 @@ INSTALLED_APPS = [
     # Third party apps
     'rest_framework',
     'django_celery_beat',
-    'django_celery_results',
 
     # Inveterate app
     'inveterate',
 ]
-
-# Stripe integration (optional)
-STRIPE_LIVE_SECRET_KEY = os.environ.get('STRIPE_LIVE_SECRET_KEY', '')
-STRIPE_TEST_SECRET_KEY = os.environ.get('STRIPE_TEST_SECRET_KEY', '')
-
-if STRIPE_LIVE_SECRET_KEY or STRIPE_TEST_SECRET_KEY:
-    INSTALLED_APPS.append('djstripe')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -129,18 +121,11 @@ REST_FRAMEWORK = {
 
 # Celery Configuration
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:6379/0")
-CELERY_RESULT_BACKEND = 'django-db'
-CELERY_CACHE_BACKEND = 'django-cache'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_IGNORE_RESULT = True
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
-
-# Fernet encryption for sensitive fields
-FERNET_KEYS = [
-    os.environ.get('FERNET_KEY', os.environ.get('SECRET_KEY', 'change-this-key-in-production'))
-]
 
 # Logging
 LOGGING = {

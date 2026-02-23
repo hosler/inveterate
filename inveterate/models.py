@@ -1,6 +1,5 @@
 from django.db import models
 from django.contrib.auth import get_user_model
-from fernet_fields import EncryptedCharField
 
 # Get the UserModel
 UserModel = get_user_model()
@@ -37,6 +36,7 @@ class IPPool(models.Model):
     gateway = models.GenericIPAddressField()
     internal = models.BooleanField(default=False)
     interface = models.CharField(max_length=255, default='vmbr0')
+    vlan_tag = models.IntegerField(null=True, blank=True)
     dns = models.GenericIPAddressField()
     nodes = models.ManyToManyField("Node")
     created = models.DateTimeField(auto_now_add=True)
@@ -50,6 +50,13 @@ class IPPool(models.Model):
 
 
 class PlanBase(models.Model):
+    """Resource specification fields.
+
+    On Plan/ServicePlan: per-service allocation.
+    On Node: total node capacity limits.
+    Shared field names enable the inventory calculation loop.
+    """
+
     class Meta:
         abstract = True
 
@@ -63,7 +70,7 @@ class PlanBase(models.Model):
     ipv6_ips = models.IntegerField(default=0)
     ipv4_ips = models.IntegerField(default=0)
     internal_ips = models.IntegerField(default=0)
-    #ip_pools = models.ManyToManyField(IPPool)
+
 
 
 class Plan(PlanBase):
@@ -82,7 +89,7 @@ class Cluster(models.Model):
     name = models.CharField(max_length=255)
     host = models.CharField(max_length=255)
     user = models.CharField(max_length=255)
-    key = EncryptedCharField(max_length=255)  # Encrypted at rest for security
+    key = models.CharField(max_length=255)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -111,33 +118,28 @@ class NodeDisk(models.Model):
     name = models.CharField(max_length=255, null=False)
     size = models.IntegerField()
     primary = models.BooleanField(default=True)
+    shared = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['node', 'primary'],
+                condition=models.Q(primary=True),
+                name='unique_primary_per_node'
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.node.name})"
 
 
 
-class ServiceBandwidth(models.Model):
-    bandwidth = models.IntegerField(default=0)
-    bandwidth_banked = models.IntegerField(default=0)
-    bandwidth_stale = models.IntegerField(default=0)
-    system_tick = models.IntegerField(default=0)
-    renewal_dtm = models.DateTimeField(null=True)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']
-
-    def __str__(self):
-        return str(self.id)
 
 class ServicePlan(PlanBase):
+    name = models.CharField(max_length=255, default='')
     type = models.CharField(max_length=255, choices=VM_TYPES)
     template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
     storage = models.ForeignKey(NodeDisk, null=True, on_delete=models.SET_NULL)
@@ -162,15 +164,17 @@ class Service(models.Model):
     )
 
     owner = models.ForeignKey(UserModel, on_delete=models.CASCADE)
-    plan = models.ForeignKey(Plan, null=True, on_delete=models.SET_NULL)
     status = models.CharField(max_length=255, default='pending', choices=STATUS_CHOICES)
     status_msg = models.CharField(max_length=255, null=True, blank=True)
     hostname = models.CharField(max_length=255)
     machine_id = models.IntegerField(null=True, blank=True)
     node = models.ForeignKey(Node, null=True, on_delete=models.SET_NULL, related_name='services')
     service_plan = models.OneToOneField(ServicePlan, on_delete=models.SET_NULL, null=True, related_name='service')
-    bandwidth = models.OneToOneField(ServiceBandwidth, on_delete=models.SET_NULL,
-                                     null=True, blank=True, related_name='service')
+    bw_usage = models.BigIntegerField(default=0)
+    bw_banked = models.BigIntegerField(default=0)
+    bw_stale = models.BigIntegerField(default=0)
+    bw_system_tick = models.IntegerField(default=0)
+    bw_renewal_dtm = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -181,8 +185,6 @@ class Service(models.Model):
         super().delete(*args, **kwargs)
         if self.service_plan:
             self.service_plan.delete()
-        if self.bandwidth:
-            self.bandwidth.delete()
 
     def __str__(self):
         return f"{self.id} ({self.hostname})"
@@ -211,18 +213,6 @@ class ServiceNetwork(models.Model):
         return super().save(*args, **kwargs)
 
 
-class ServiceDisk(models.Model):
-    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='disks')
-    size = models.IntegerField()
-    file = models.CharField(null=True, max_length=255)
-    primary = models.BooleanField(default=True)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']
-
-
 class IP(models.Model):
     value = models.GenericIPAddressField(unique=True)
     pool = models.ForeignKey(IPPool, on_delete=models.CASCADE)
@@ -248,26 +238,3 @@ class Inventory(models.Model):
         ordering = ['-created']
 
 
-class Stream(models.Model):
-    name = models.CharField(null=False, max_length=255)
-    port = models.IntegerField(null=False)
-    service = models.ForeignKey(Service, on_delete=models.SET_NULL, related_name='stream', null=True)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']
-
-
-class DashboardSummary(models.Model):
-    user_count = models.IntegerField()
-    plan_count = models.IntegerField()
-    ip_count = models.IntegerField()
-    template_count = models.IntegerField()
-    service_count = models.IntegerField()
-    node_count = models.IntegerField()
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']

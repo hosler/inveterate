@@ -30,11 +30,6 @@ urlpatterns = [
     path('api/', include('inveterate.urls')),
 ]
 
-# Add Stripe webhook endpoints if configured
-if hasattr(settings, 'STRIPE_LIVE_SECRET_KEY') or hasattr(settings, 'STRIPE_TEST_SECRET_KEY'):
-    if settings.STRIPE_LIVE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY:
-        urlpatterns.append(path('stripe/', include('djstripe.urls', namespace='djstripe')))
-
 # Serve static/media files in development
 if settings.DEBUG:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

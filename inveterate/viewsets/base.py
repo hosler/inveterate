@@ -35,4 +35,4 @@ class MultiSerializerViewSetMixin(object):
         try:
             return action_classes[self.action]
         except (KeyError, AttributeError):
-            return action_classes['default']
+            return self.default_serializer_class

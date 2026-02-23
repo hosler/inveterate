@@ -5,7 +5,7 @@ from . import models
 class NodeDiskInline(admin.TabularInline):
     model = models.NodeDisk
     extra = 1
-    fields = ('name', 'size', 'primary')
+    fields = ('name', 'size', 'primary', 'shared')
 
 class ServiceNetworkInline(admin.TabularInline):
     model = models.ServiceNetwork
@@ -80,12 +80,16 @@ class IPAdmin(admin.ModelAdmin):
 
 @admin.register(models.Service)
 class ServiceAdmin(admin.ModelAdmin):
-    list_display = ('hostname', 'owner', 'plan', 'node', 'status', 'created')
+    list_display = ('hostname', 'owner', 'plan_name', 'node', 'status', 'created')
     list_filter = ('status', 'node')
     search_fields = ('hostname', 'owner__username')
-    readonly_fields = ('created', 'updated', 'machine_id')
+    readonly_fields = ('created', 'updated', 'machine_id', 'bw_usage', 'bw_banked', 'bw_stale', 'bw_system_tick', 'bw_renewal_dtm')
     inlines = [ServiceNetworkInline]
     actions = ['start_service', 'stop_service', 'provision_service']
+
+    def plan_name(self, obj):
+        return obj.service_plan.name if obj.service_plan else '-'
+    plan_name.short_description = 'Plan'
 
     def start_service(self, request, queryset):
         for service in queryset:
@@ -107,7 +111,3 @@ class ServicePlanAdmin(admin.ModelAdmin):
     list_filter = ('type',)
     readonly_fields = ('created', 'updated')
 
-@admin.register(models.ServiceBandwidth)
-class ServiceBandwidthAdmin(admin.ModelAdmin):
-    list_display = ('id', 'bandwidth', 'bandwidth_banked', 'renewal_dtm', 'created')
-    readonly_fields = ('created', 'updated')

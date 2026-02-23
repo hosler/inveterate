@@ -34,7 +34,6 @@ class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'retrieve': serializers.ServicePlanSerializer,
         'update': serializers.ServicePlanSerializer,
         'create': serializers.ServicePlanSerializer,
-        'default': serializers.GenericActionSerializer,
         'metadata': serializers.ServicePlanSerializer,
     }
     serializer_action_classes = {
@@ -42,8 +41,7 @@ class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'retrieve': serializers.ServicePlanSerializerClient,
         'update': serializers.ServicePlanSerializerClient,
         'create': serializers.ServicePlanSerializerClient,
-        'default': serializers.GenericActionSerializer,
-        'metadata': serializers.ServicePlanSerializerClient
+        'metadata': serializers.ServicePlanSerializerClient,
     }
 
     def get_queryset(self):
@@ -62,7 +60,6 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'retrieve': serializers.ServiceSerializer,
         'update': serializers.ServiceSerializer,
         'create': serializers.ServiceSerializer,
-        'default': serializers.GenericActionSerializer,
         'metadata': serializers.ServiceSerializer,
     }
     serializer_action_classes = {
@@ -70,55 +67,56 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'retrieve': serializers.ServiceSerializerClient,
         'update': serializers.ServiceSerializerClient,
         'create': serializers.ServiceSerializerClient,
-        'default': serializers.GenericActionSerializer,
-        'metadata': serializers.ServiceSerializerClient
+        'metadata': serializers.ServiceSerializerClient,
     }
 
     @action(methods=['post'], detail=True)
     def start(self, request, pk=None):
-        task = start_vm.delay(pk)
+        service = self.get_object()
+        task = start_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
     def shutdown(self, request, pk=None):
-        task = shutdown_vm.delay(pk)
+        service = self.get_object()
+        task = shutdown_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
     def reset(self, request, pk=None):
-        task = reset_vm.delay(pk)
+        service = self.get_object()
+        task = reset_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
     def stop(self, request, pk=None):
-        task = stop_vm.delay(pk)
+        service = self.get_object()
+        task = stop_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
     def reboot(self, request, pk=None):
-        task = reboot_vm.delay(pk)
+        service = self.get_object()
+        task = reboot_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
     def status(self, request, pk=None):
-        stats = get_vm_status(pk)
+        service = self.get_object()
+        stats = get_vm_status(service.pk)
         return Response(stats, status=202)
 
     @action(methods=['post'], detail=True)
     def provision(self, request, pk=None):
-        task = provision_service.delay(service_id=pk, password=None)
+        service = self.get_object()
+        task = provision_service.delay(service_id=service.pk, password=None)
         return Response({"task_id": task.id}, status=202)
 
     @action(methods=['get'], detail=True)
     def ips(self, request, pk=None):
-        ips = get_vm_ips(pk)
+        service = self.get_object()
+        ips = get_vm_ips(service.pk)
         return Response(ips, status=202)
-
-    # @action(methods=['get'], detail=True)
-    # def tasks(self, request, pk=None):
-    #     tasks = get_vm_tasks(pk)
-    #     return Response(tasks, status=202)
-
 
     @action(methods=['get'], detail=True)
     def console(self, request, pk=None):
@@ -129,43 +127,37 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         PVEVMUser role scoped to this specific VM. Orphaned console users are
         periodically cleaned up by the cleanup_console_users task.
         """
+        service = self.get_object()
+        if not service.machine_id:
+            return Response({'error': 'No machine provisioned for this service'}, status=500)
+
+        proxmox_user = f'inveterate{service.owner_id}'
+        password = ''.join(
+            random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation) for _ in
+            range(10))
+        proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
+                             token_value=service.node.cluster.key,
+                             verify_ssl=False, port=8006)
+
+        # Create or reset console user
         try:
-            service_id = pk
-        except KeyError:
-            raise
-        else:
-            service = models.Service.objects.get(id=pk)
-            if not service.machine_id:
-                return Response({'error': 'No machine provisioned for this service'}, status=500)
-
-            proxmox_user = f'inveterate{service.owner_id}'
-            password = ''.join(
-                random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation) for _ in
-                range(10))
-            proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
-                                 token_value=service.node.cluster.key,
-                                 verify_ssl=False, port=8006)
-
-            # Create or reset console user
-            try:
+            proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
+        except ResourceException as e:
+            if "already exists" in str(e):
+                proxmox.access.users(f"{proxmox_user}@pve").delete()
                 proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
-            except ResourceException as e:
-                if "already exists" in str(e):
-                    proxmox.access.users(f"{proxmox_user}@pve").delete()
-                    proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
-            proxmox.access.acl.put(path=f"/vms/{service.machine_id}", roles=["PVEVMUser"],
-                                   users=[f"{proxmox_user}@pve"])
-            type = "lxc" if service.service_plan.type == "lxc" else "qemu"
-            response = Response(
-                {"username": f"{proxmox_user}@pve",
-                 "password": password,
-                 "node": service.node.name,
-                 "machine": service.machine_id,
-                 "type": type}
-            )
-        return response
+        proxmox.access.acl.put(path=f"/vms/{service.machine_id}", roles=["PVEVMUser"],
+                               users=[f"{proxmox_user}@pve"])
+        vm_type = "lxc" if service.service_plan.type == "lxc" else "qemu"
+        return Response(
+            {"username": f"{proxmox_user}@pve",
+             "password": password,
+             "node": service.node.name,
+             "machine": service.machine_id,
+             "type": vm_type}
+        )
 
-    @action(methods=['post'], detail=False)
+    @action(methods=['post'], detail=False, permission_classes=[IsAdminUser])
     def bulk_import(self, request):
         """Import multiple VMs/LXCs from Proxmox nodes"""
         vms_data = request.data.get('vms', [])
@@ -227,6 +219,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 
                 # Create ServicePlan with VM specifications
                 service_plan = models.ServicePlan.objects.create(
+                    name=f'Imported {service_type.upper()}',
                     type=service_type,
                     # Convert bytes to appropriate units
                     size=int(vm_maxdisk / (1024**3)) if vm_maxdisk else 8,  # GB

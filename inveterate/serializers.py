@@ -1,7 +1,6 @@
 import ipaddress
 import re
 
-#from django.contrib.auth.models import User
 from django.core.validators import RegexValidator
 from django.db import IntegrityError
 from rest_framework import serializers
@@ -12,7 +11,6 @@ from .tasks import provision_service
 
 
 from django.contrib.auth import get_user_model
-from rest_framework.serializers import SerializerMethodField
 
 UserModel = get_user_model()
 
@@ -28,8 +26,8 @@ class IPPoolSerializer(serializers.ModelSerializer):
 
     def to_internal_value(self, data):
         data = data.copy()
-        if isinstance(data['nodes'], str):
-            data['nodes'] = data['nodes']
+        if 'nodes' in data and isinstance(data['nodes'], str):
+            data['nodes'] = [int(n) for n in data['nodes'].split(',') if n]
         return super().to_internal_value(data)
 
     def create(self, validated_data):
@@ -134,14 +132,11 @@ class ServiceSerializer(serializers.ModelSerializer):
         r'[A-Za-z]$'  # Last character of the gTLD
     )
     domain_validator = RegexValidator(domain_pattern)
-    # service_plan = ServicePlanSerializer(read_only=True)
     owner = Owner(slug_field='id')
-    plan_name = serializers.ReadOnlyField(source='plan.name')
-    # plan = serializers.SlugRelatedField(slug_field='name', queryset=Plan.objects.all())
-    # node = serializers.SlugRelatedField(slug_field='name', queryset=Node.objects.all())
+    plan_name = serializers.ReadOnlyField(source='service_plan.name')
+    plan = serializers.PrimaryKeyRelatedField(queryset=models.Plan.objects.all(), write_only=True, required=False)
     template = serializers.SlugRelatedField(slug_field='name', queryset=models.Template.objects.all(), write_only=True)
     password = serializers.CharField(write_only=True, required=False)
-    # machine_id = serializers.CharField(required=False)
     hostname = serializers.CharField(validators=[domain_validator])
     __str__ = SerializerMethodField('display_name')
 
@@ -161,19 +156,7 @@ class ServiceSerializer(serializers.ModelSerializer):
             'node', 'status', 'service_plan', 'status_msg', '__str__'
         )
 
-    # Use this method for the custom field
-    def _user(self, obj):
-        request = self.context.get('request', None)
-        if request:
-            return request.user
-
     def update(self, instance, validated_data):
-        # if 'service_plan' in validated_data:
-        #     service_plan_serializer = self.fields['service_plan']
-        #     service_plan_serializer.partial = True
-        #     service_plan_instance = instance.service_plan
-        #     service_plan_data = validated_data.pop('service_plan')
-        #     service_plan_serializer.update(service_plan_instance, service_plan_data)
         password = validated_data.pop("password", None)
         raise_errors_on_nested_writes('update', self, validated_data)
         for attr, value in validated_data.items():
@@ -184,16 +167,21 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get('request', None)
-        sps = ServicePlanSerializer()
-        plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != "id"]
-        plan_values = dict([(x, getattr(validated_data["plan"], x)) for x in plan_fields])
-        service_plan = sps.create(plan_values)
+        plan = validated_data.pop("plan")
         password = validated_data.pop("password", None)
         template = validated_data.pop("template", None)
+
+        # Snapshot plan fields into ServicePlan
+        plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != "id"]
+        plan_values = dict([(x, getattr(plan, x)) for x in plan_fields])
+        plan_values['name'] = plan.name
+        sps = ServicePlanSerializer()
+        service_plan = sps.create(plan_values)
+
         if "owner" not in validated_data:
             validated_data["owner"] = UserModel.objects.get(username=request.user)
         if "node" not in validated_data:
-            inventory = models.Inventory.objects.filter(plan=validated_data["plan"]).first()
+            inventory = models.Inventory.objects.filter(plan=plan).first()
             validated_data["node"] = inventory.node
         if template:
             service_plan.template = template
@@ -232,13 +220,3 @@ class TemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Template
         fields = '__all__'
-
-
-class DashboardSummarySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = models.DashboardSummary
-        fields = '__all__'
-
-
-class GenericActionSerializer(serializers.Serializer):
-    pass

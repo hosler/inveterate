@@ -7,7 +7,6 @@ from rest_framework.serializers import ModelSerializer
 
 from .base import DynamicPageModelViewSet
 from .. import models
-from .. import serializers
 
 UserModel = get_user_model()
 
@@ -27,10 +26,8 @@ class CustomerViewSet(DynamicPageModelViewSet):
         return UserSerializer
 
 
-class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
+class DashboardViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
-    queryset = models.DashboardSummary.objects.order_by('pk')
-    serializer_class = serializers.DashboardSummarySerializer
 
     @action(methods=['get'], detail=False)
     def summary(self, request):

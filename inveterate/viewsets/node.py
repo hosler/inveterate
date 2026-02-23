@@ -455,7 +455,8 @@ class NodeDiskViewSet(DynamicPageModelViewSet):
                                 node=node,
                                 name=f"{storage_name} ({storage_type})",
                                 size=size_gb,
-                                primary=storage_type in ['local', 'local-lvm', 'dir']  # Common primary storage types
+                                primary=storage_type in ['local', 'local-lvm', 'dir'],
+                                shared=True
                             )
 
                             imported_disks.append({

@@ -1,5 +1,3 @@
-from django.conf.urls import include
-from django.urls import path
 from rest_framework import routers
 from . import viewsets
 
@@ -14,7 +12,7 @@ router.register(r'ips', viewsets.IPViewSet)
 router.register(r'plans', viewsets.PlanViewSet)
 router.register(r'templates', viewsets.TemplateViewSet)
 router.register(r'serviceplans', viewsets.ServicePlanViewSet, basename="serviceplan")
-router.register(r'dashboard', viewsets.DashboardViewSet)
+router.register(r'dashboard', viewsets.DashboardViewSet, basename="dashboard")
 router.register(r'services', viewsets.ServiceViewSet, basename="service")
 router.register(r'nodedisks', viewsets.NodeDiskViewSet)
 router.register(r'customers', viewsets.CustomerViewSet)

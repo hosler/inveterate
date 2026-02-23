@@ -14,12 +14,6 @@ import json
 
 from .models import Service
 
-# Load stripe hooks if configured
-try:
-    from . import stripe_hooks
-except ImportError:
-    pass
-
 
 # Authentication Views
 class LoginView(auth_views.LoginView):

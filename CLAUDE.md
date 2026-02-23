@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Inveterate is a standalone Django application for VPS hosting providers. It provides a REST API for managing Proxmox virtual machines and containers, handling provisioning, billing integration, and customer lifecycle management.
+Inveterate is a standalone Django application for VPS hosting providers. It provides a REST API for managing Proxmox virtual machines and containers, handling provisioning and customer lifecycle management.
 
 ## Architecture
 
@@ -25,9 +25,9 @@ Inveterate is a standalone Django application for VPS hosting providers. It prov
 **Data Models** (`inveterate/models.py`)
 - **Cluster**: Proxmox cluster with connection credentials (host, user, API token)
 - **Node**: Individual Proxmox node within a cluster, inherits resource limits from `PlanBase`
-- **NodeDisk**: Storage volumes available on nodes
-- **Service**: A provisioned VM/LXC with lifecycle status tracking (`pending`, `active`, `destroyed`, `suspended`, `error`, `past_due`)
-- **ServicePlan**: Snapshot of plan specifications at time of provisioning (RAM, CPU, disk, bandwidth, IPs)
+- **NodeDisk**: Storage volumes available on nodes (has `shared` flag for Ceph vs local distinction)
+- **Service**: A provisioned VM/LXC with lifecycle status tracking and inline bandwidth metering (`bw_usage`, `bw_banked`, `bw_stale`, `bw_system_tick`, `bw_renewal_dtm`)
+- **ServicePlan**: Snapshot of plan specifications at time of provisioning (name, RAM, CPU, disk, bandwidth, IPs)
 - **Plan**: Template defining resource allocations for services
 - **Template**: OS templates for KVM or LXC
 - **IPPool**: IP address ranges (IPv4/IPv6, internal/external) associated with nodes
@@ -45,11 +45,6 @@ Inveterate is a standalone Django application for VPS hosting providers. It prov
    - Configures networking with assigned IPs
    - Sets up firewall with IP filtering
 5. Service status updated to `active` or `error`
-
-**Blesta Integration** (`inveterate/blesta/`)
-- Optional billing system integration via REST API client (`blesta/api.py`)
-- Handles user creation, package management, service lifecycle, invoicing
-- Not required for core Proxmox functionality
 
 ### Key Patterns
 
@@ -110,11 +105,6 @@ inveterate/                        # Project root
 python manage.py migrate
 python manage.py createcachetable
 python manage.py createsuperuser
-```
-
-**Generate encryption key for FERNET_KEY:**
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 ### Running the Application
@@ -198,11 +188,9 @@ All Proxmox connections use API token authentication:
 
 **Required environment variables** (see `.env.example`):
 - `SECRET_KEY`: Django secret key (generate new for production)
-- `FERNET_KEY`: Encryption key for Cluster.key field (use `Fernet.generate_key()`)
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`: PostgreSQL connection
 - `REDIS_HOST` or `REDIS_URL`: Redis for Celery broker
 - `ALLOWED_HOSTS`: Comma-separated list of allowed hosts in production
-- Optional: `STRIPE_LIVE_SECRET_KEY`, `STRIPE_TEST_SECRET_KEY` for Stripe integration
 
 **Settings organization:**
 - Development: Loads from `config.settings.dev` (default in manage.py)
@@ -212,12 +200,10 @@ All Proxmox connections use API token authentication:
 ## Important Notes
 
 ### Security
-- **Encrypted credentials**: `Cluster.key` field uses `EncryptedCharField` to encrypt Proxmox API tokens at rest
-- **Fernet encryption**: Requires `FERNET_KEY` environment variable (generate with `Fernet.generate_key()`)
 - **Console user cleanup**: Temporary Proxmox users (`inveterate{owner_id}@pve`) should be periodically cleaned up using the `cleanup_console_users` task
 
 ### Data Integrity
-- Service deletion cascades to `ServicePlan` and `ServiceBandwidth` (see `Service.delete()` override in models.py:179)
+- Service deletion cascades to `ServicePlan` (see `Service.delete()` override in models.py)
 - IP addresses are assigned atomically using `select_for_update(skip_locked=True)` to prevent race conditions (tasks.py:74)
 - VMs are organized in Proxmox pool named `inveterate` for easy identification
 

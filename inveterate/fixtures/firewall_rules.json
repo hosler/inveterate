@@ -1,0 +1,15 @@
+{
+  "group": "inveterate",
+  "comment": "Default rules for customer VMs. Order matters — specific ACCEPT rules must precede blanket DROP rules.",
+  "rules": [
+    {"type": "out", "action": "ACCEPT", "dest": "10.10.10.3", "comment": "firewall mune", "enable": 1},
+    {"type": "out", "action": "ACCEPT", "dest": "10.10.10.2", "comment": "firewall masa", "enable": 1},
+    {"type": "out", "action": "ACCEPT", "dest": "10.10.10.1", "comment": "firewall carp", "enable": 1},
+    {"type": "in",  "action": "ACCEPT", "source": "10.10.10.1", "enable": 1},
+    {"type": "in",  "action": "ACCEPT", "source": "10.10.10.40", "enable": 1},
+    {"type": "in",  "action": "ACCEPT", "source": "192.168.10.0/24", "enable": 1},
+    {"type": "in",  "action": "ACCEPT", "source": "192.168.0.40", "enable": 1},
+    {"type": "out", "action": "DROP",   "dest": "10.10.10.0/24", "comment": "no access to other vms", "enable": 1},
+    {"type": "out", "action": "DROP",   "dest": "192.168.0.0/24", "comment": "no access to mgt", "enable": 1}
+  ]
+}

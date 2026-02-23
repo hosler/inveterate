@@ -1,8 +1,6 @@
 import logging
 import time
-import traceback
 from datetime import datetime
-from sqlite3 import IntegrityError
 
 from django.conf import settings
 from celery import shared_task
@@ -15,9 +13,7 @@ from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
 
-from .blesta.api import BlestaApi
-from .blesta.objects import BlestaUser, BlestaPlan
-from .models import Node, Plan, Inventory, Service, ServiceBandwidth, Cluster, IP, ServiceNetwork, IPPool, NodeDisk
+from .models import Node, Plan, Inventory, Service, Cluster, IP, ServiceNetwork, IPPool, NodeDisk
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +23,7 @@ def calculate_inventory():
     logger.info("Starting inventory calculation")
     plans = Plan.objects.all()
     nodes = Node.objects.all()
-    inventory_fields = ['cores', 'ram', 'swap', 'size', 'bandwidth']
+    inventory_fields = ['cores', 'ram', 'swap', 'bandwidth']
     for node in nodes:
         services = node.services.all().exclude(status='destroyed')
         for plan in plans:
@@ -46,8 +42,28 @@ def calculate_inventory():
                     lowest = quantity
                 elif quantity < lowest:
                     lowest = quantity
+
+            # Disk accounting: shared vs local storage
+            primary_disk = node.node_disk.filter(primary=True).first()
+            if primary_disk and plan.size > 0:
+                if primary_disk.shared:
+                    # Sum usage across all nodes sharing this storage name
+                    disk_used = Service.objects.filter(
+                        service_plan__storage__name=primary_disk.name,
+                        service_plan__storage__shared=True
+                    ).exclude(status='destroyed').aggregate(
+                        total=Sum('service_plan__size')
+                    )['total'] or 0
+                else:
+                    disk_used = services.aggregate(
+                        total=Sum('service_plan__size')
+                    )['total'] or 0
+                disk_slots = int((primary_disk.size - disk_used) / plan.size)
+                if lowest is None or disk_slots < lowest:
+                    lowest = disk_slots
+
             inventory, created = Inventory.objects.get_or_create(plan=plan, node=node)
-            inventory.quantity = lowest
+            inventory.quantity = lowest if lowest is not None else 0
             inventory.save()
             logger.debug(f"Node {node.name}, Plan {plan.name}: {inventory.quantity} slots available")
     logger.info("Inventory calculation completed")
@@ -126,46 +142,78 @@ def provision_service(service_id, password):
     if not service.service_plan.storage:
         service.service_plan.storage = NodeDisk.objects.get(node=service.node, primary=True)
 
-    service.machine_id = f"1{service.id:06}"
+    # Generate machine_id, avoiding collisions with both cluster VMIDs
+    # and machine_ids already assigned to other services (prevents races).
+    if not service.machine_id:
+        candidate = int(f"1{service.id:06}")
+        existing_vmids = {
+            r['vmid']
+            for r in proxmox.cluster.resources.get(type='vm')
+        }
+        existing_vmids.update(
+            Service.objects.exclude(machine_id=None)
+            .values_list('machine_id', flat=True)
+        )
+        while candidate in existing_vmids:
+            candidate += 1
+        service.machine_id = candidate
+        service.save(update_fields=['machine_id'])
     try:
         logger.debug(f"Assigning IPs for service {service_id}")
         assign_ips(service_id)
         logger.debug(f"IP assignment completed for service {service_id}")
 
         if service_type == "kvm":
+            # Find which node has the template
+            clone_node = node
+            template_vmid = int(service.service_plan.template.file)
+            for resource in proxmox.cluster.resources.get(type='vm'):
+                if resource['vmid'] == template_vmid:
+                    clone_node = proxmox.nodes(resource['node'])
+                    break
+
+            # Cross-node clone requires shared storage; use it as
+            # intermediate then move to the target disk if needed.
+            target_storage = service.service_plan.storage.name
+            clone_storage = target_storage
+            cross_node = (clone_node is not node)
+            if cross_node:
+                shared_disk = NodeDisk.objects.filter(
+                    node=service.node, shared=True
+                ).first()
+                if shared_disk:
+                    clone_storage = shared_disk.name
+
             clone_data = {
                 'newid': service.machine_id,
-                'storage': service.service_plan.storage.name,
+                'storage': clone_storage,
                 'full': 1,
-                'target': service.node.name
-                # 'pool': 'inveterate'
+                'target': service.node.name,
             }
-            clone_node = node
-            try:
-                kvm_templates = proxmox.pools('templates').get()
-            except ResourceException:
-                pass
-            else:
-                if "members" in kvm_templates:
-                    for member in kvm_templates["members"]:
-                        if member["vmid"] != int(service.service_plan.template.file):
-                            continue
-                        else:
-                            clone_node = proxmox.nodes(member["node"])
-                            break
-            #TODO: create vm on clone node and then migrate
             try:
                 clone_node.qemu(service.service_plan.template.file).clone.post(**clone_data)
-                lock = True
-                while lock:
-                    try:
-                        status = node.qemu(service.machine_id).status.current.get()
-                    except ResourceException as e:
-                        status = clone_node(service.machine_id).status.current.get()
-                    if "lock" not in status:
-                        lock = False
-                    else:
-                        time.sleep(1)
+                # Wait for clone to finish (check both source and target
+                # nodes since the VM may briefly live on the source).
+                locked = True
+                while locked:
+                    time.sleep(2)
+                    for check_node in (node, clone_node):
+                        try:
+                            status = check_node.qemu(service.machine_id).status.current.get()
+                            if "lock" not in status:
+                                locked = False
+                            break
+                        except ResourceException:
+                            continue
+                # For cross-node clones, wait until the VM actually
+                # appears on the target node (migration after clone).
+                if cross_node:
+                    while True:
+                        try:
+                            node.qemu(service.machine_id).status.current.get()
+                            break
+                        except ResourceException:
+                            time.sleep(2)
             except ResourceException as e:
                 if "config file already exists" in str(e):
                     pass
@@ -187,11 +235,11 @@ def provision_service(service_id, password):
             vm_data = {
                 'ostemplate': f'local:vztmpl/{service.service_plan.template.file}',
                 'hostname': service.hostname,
-                'storage': 'local-lvm',
+                'storage': service.service_plan.storage.name,
                 'memory': service.service_plan.ram,
                 'swap': service.service_plan.swap,
                 'cores': service.service_plan.cores,
-                'rootfs': f'{service.service_plan.size}',
+                'rootfs': f'{service.service_plan.storage.name}:{service.service_plan.size}',
                 'password': password,
                 'unprivileged': '1',
                 'onboot': '1',
@@ -207,8 +255,10 @@ def provision_service(service_id, password):
                 firewall = 1
             net_data = {
                 'bridge': network.ip.pool.interface,
-                'firewall': firewall
+                'firewall': firewall,
             }
+            if network.ip.pool.vlan_tag:
+                net_data['tag'] = network.ip.pool.vlan_tag
             if service_type == "kvm":
                 net_data['model'] = 'virtio'
                 if network.ip.pool.type == "ipv4":
@@ -228,13 +278,9 @@ def provision_service(service_id, password):
 
             vm_data[f'net{network.net_id}'] = ",".join([f'{key}={value}' for key, value in net_data.items()])
 
-        try:
-            service_bandwidth = ServiceBandwidth.objects.get(service=service)
-        except ServiceBandwidth.DoesNotExist:
-            service_bandwidth = ServiceBandwidth.objects.create(bandwidth=10240)
-            now = datetime.now()
-            service_bandwidth.renewal_dtm = now + relativedelta(months=1)
-            service_bandwidth.save()
+        if not service.bw_renewal_dtm:
+            service.bw_renewal_dtm = datetime.now() + relativedelta(months=1)
+            service.save()
 
         machine = None
         if service_type == "kvm":
@@ -249,7 +295,17 @@ def provision_service(service_id, password):
             node.qemu(service.machine_id).resize.put(disk='scsi0', size=f'{service.service_plan.size}G')
             machine = node.qemu(service.machine_id)
         if service_type == "lxc":
-            node.lxc.create(vmid=service.machine_id, **vm_data)
+            try:
+                node.lxc.create(vmid=service.machine_id, **vm_data)
+            except ResourceException as e:
+                if "already exists" in str(e):
+                    # Existing container — update config (skip create-only keys)
+                    update_data = {k: v for k, v in vm_data.items()
+                                   if k not in ('ostemplate', 'rootfs', 'password',
+                                                'unprivileged', 'storage', 'pool', 'start')}
+                    node.lxc(service.machine_id).config.put(**update_data)
+                else:
+                    raise
             machine = node.lxc(service.machine_id)
 
         for network in service.service_network.all():
@@ -272,7 +328,13 @@ def provision_service(service_id, password):
         else:
             machine.firewall.rules.post(type="group", action="inveterate", enable=1)
 
-        proxmox.pools("inveterate").put(vms=service.machine_id)
+        try:
+            proxmox.pools("inveterate").put(vms=service.machine_id)
+        except ResourceException as e:
+            if "already a pool member" in str(e):
+                pass
+            else:
+                raise
         logger.info(f"Successfully provisioned service {service_id} with machine_id {service.machine_id}")
     except NodeDisk.DoesNotExist:
         error_msg = f"No primary storage disk configured for node {service.node.name}"
@@ -390,7 +452,7 @@ def get_vm_status(service_id):
         "disk_used": vm_stats['diskwrite'],
         "cpu_util": vm_stats['cpu'],
         #"bandwidth_max": service.service_plan.bandwidth * 1024 * 1024,
-        #"bandwidth_used": service.bandwidth.bandwidth + service.bandwidth.bandwidth_banked
+        #"bandwidth_used": service.bw_usage + service.bw_banked
     }
     return stats
 
@@ -408,19 +470,6 @@ def get_vm_ips(service_id):
             ip["primary"] = False
         ips.append(ip)
     return ips
-
-
-# def get_vm_tasks(service_id):
-#     task_objects = TaskResult.objects.filter(task_args__startswith=f"\"('{service_id}',").order_by('-date_done')
-#     tasks = []
-#     for task in task_objects:
-#         task_data = {
-#             "id": task.task_id,
-#             "name": task.task_name,
-#             "date": task.date_done
-#         }
-#         tasks.append(task_data)
-#     return tasks
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
@@ -472,12 +521,12 @@ def cancel_service(service_id, cancel_date=datetime.now()):
 def meter_bandwidth():
     logger.info("Starting bandwidth metering")
     api_objects = {}
-    bandwidths_to_update = []
+    services_to_update = []
     now = timezone.now()
 
     # Optimize query with select_related to avoid N+1 queries
     services = Service.objects.filter(status="active").select_related(
-        'node', 'node__cluster', 'service_plan', 'bandwidth'
+        'node', 'node__cluster', 'service_plan'
     )
 
     services_processed = 0
@@ -486,7 +535,7 @@ def meter_bandwidth():
     for service in services:
         try:
             # Skip if no bandwidth tracking
-            if not service.bandwidth_id:
+            if not service.bw_renewal_dtm:
                 logger.debug(f"Service {service.id} has no bandwidth tracking, skipping")
                 continue
 
@@ -502,13 +551,11 @@ def meter_bandwidth():
                 )
             node = api_objects[node_name].nodes(node_name)
 
-            bandwidth = service.bandwidth
-
             # Handle bandwidth renewal
-            if now > bandwidth.renewal_dtm:
-                bandwidth.renewal_dtm = now + relativedelta(months=1)
-                bandwidth.bandwidth_stale += bandwidth.bandwidth
-                bandwidth.bandwidth_banked = 0
+            if now > service.bw_renewal_dtm:
+                service.bw_renewal_dtm = now + relativedelta(months=1)
+                service.bw_stale += service.bw_usage
+                service.bw_banked = 0
                 logger.info(f"Renewed bandwidth for service {service.id}")
 
             # Get VM stats
@@ -523,24 +570,24 @@ def meter_bandwidth():
             data = machine.status.current.get()
             tick = data["uptime"]
 
-            if tick > bandwidth.system_tick:
+            if tick > service.bw_system_tick:
                 try:
-                    bandwidth.bandwidth = data["netin"] + data["netout"]
+                    service.bw_usage = data["netin"] + data["netout"]
                 except KeyError as e:
                     logger.warning(f"Missing network data for service {service.id}: {e}")
-            elif tick < bandwidth.system_tick:
+            elif tick < service.bw_system_tick:
                 # VM was restarted
-                banked = bandwidth.bandwidth - bandwidth.bandwidth_stale
-                bandwidth.bandwidth_banked += banked
-                bandwidth.bandwidth = 0
-                bandwidth.bandwidth_stale = 0
+                banked = service.bw_usage - service.bw_stale
+                service.bw_banked += banked
+                service.bw_usage = 0
+                service.bw_stale = 0
                 try:
-                    bandwidth.bandwidth = data["netin"] + data["netout"]
+                    service.bw_usage = data["netin"] + data["netout"]
                 except KeyError as e:
                     logger.warning(f"Missing network data for service {service.id}: {e}")
 
-            bandwidth.system_tick = tick
-            bandwidths_to_update.append(bandwidth)
+            service.bw_system_tick = tick
+            services_to_update.append(service)
             services_processed += 1
 
         except ResourceException as e:
@@ -550,13 +597,13 @@ def meter_bandwidth():
             logger.error(f"Failed to meter bandwidth for service {service.id}: {str(e)}", exc_info=True)
             services_failed += 1
 
-    # Bulk update all bandwidth records
-    if bandwidths_to_update:
-        ServiceBandwidth.objects.bulk_update(
-            bandwidths_to_update,
-            ['bandwidth', 'bandwidth_stale', 'bandwidth_banked', 'system_tick', 'renewal_dtm']
+    # Bulk update all service bandwidth records
+    if services_to_update:
+        Service.objects.bulk_update(
+            services_to_update,
+            ['bw_usage', 'bw_stale', 'bw_banked', 'bw_system_tick', 'bw_renewal_dtm']
         )
-        logger.info(f"Bandwidth metering completed: {services_processed} services processed, {services_failed} failed, {len(bandwidths_to_update)} updated")
+        logger.info(f"Bandwidth metering completed: {services_processed} services processed, {services_failed} failed, {len(services_to_update)} updated")
     else:
         logger.info("No bandwidth data to update")
 
