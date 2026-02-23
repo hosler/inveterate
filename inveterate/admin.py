@@ -48,10 +48,36 @@ class NodeAdmin(admin.ModelAdmin):
 
 @admin.register(models.Template)
 class TemplateAdmin(admin.ModelAdmin):
-    list_display = ('name', 'type', 'file', 'created')
-    list_filter = ('type',)
-    search_fields = ('name', 'file')
+    list_display = ('name', 'type', 'file', 'status', 'node', 'created')
+    list_filter = ('type', 'status')
+    search_fields = ('name', 'file', 'source_url')
     readonly_fields = ('created', 'updated')
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'type', 'file'),
+        }),
+        ('Cloud Image Import', {
+            'classes': ('collapse',),
+            'fields': ('source_url', 'node', 'status', 'status_msg'),
+        }),
+        ('Timestamps', {
+            'fields': ('created', 'updated'),
+        }),
+    )
+    actions = ['import_kvm_templates']
+
+    def import_kvm_templates(self, request, queryset):
+        from .tasks import import_kvm_template
+        count = 0
+        for template in queryset.filter(type='kvm').exclude(source_url=''):
+            template.file = ''
+            template.status = 'pending'
+            template.status_msg = ''
+            template.save()
+            import_kvm_template.delay(template.id)
+            count += 1
+        self.message_user(request, f"Queued {count} KVM template(s) for import")
+    import_kvm_templates.short_description = "Import selected KVM cloud image templates"
 
 @admin.register(models.Plan)
 class PlanAdmin(admin.ModelAdmin):

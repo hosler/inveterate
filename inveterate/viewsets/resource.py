@@ -7,7 +7,7 @@ from .base import DynamicPageModelViewSet
 from .. import models
 from .. import serializers
 from ..permissions import ReadOnlyAnonymous
-from ..tasks import calculate_inventory
+from ..tasks import calculate_inventory, import_kvm_template
 
 
 class IPPoolViewSet(DynamicPageModelViewSet):
@@ -95,3 +95,23 @@ class TemplateViewSet(DynamicPageModelViewSet):
             }
         }
         return Response(stats, status=202)
+
+    @action(methods=['post'], detail=True)
+    def reimport(self, request, pk=None):
+        template = self.get_object()
+        if template.type != 'kvm':
+            return Response(
+                {'detail': 'Only KVM templates can be re-imported.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not template.source_url:
+            return Response(
+                {'detail': 'source_url is required for cloud image import.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        template.file = ''
+        template.status = 'pending'
+        template.status_msg = ''
+        template.save()
+        task = import_kvm_template.delay(template.id)
+        return Response({'task_id': task.id}, status=202)

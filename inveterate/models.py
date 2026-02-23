@@ -11,9 +11,20 @@ VM_TYPES = (
 
 
 class Template(models.Model):
+    TEMPLATE_STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('importing', 'Importing'),
+        ('ready', 'Ready'),
+        ('error', 'Error'),
+    )
+
     name = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="lxc", choices=VM_TYPES)
-    file = models.CharField(max_length=255)
+    file = models.CharField(max_length=255, blank=True, default='')
+    source_url = models.URLField(max_length=1024, blank=True, default='')
+    node = models.ForeignKey('Node', null=True, blank=True, on_delete=models.SET_NULL)
+    status = models.CharField(max_length=32, choices=TEMPLATE_STATUS_CHOICES, default='ready')
+    status_msg = models.CharField(max_length=512, blank=True, default='')
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

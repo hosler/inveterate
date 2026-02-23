@@ -220,3 +220,13 @@ class TemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Template
         fields = '__all__'
+        read_only_fields = ('status', 'status_msg')
+
+    def create(self, validated_data):
+        template = super().create(validated_data)
+        if template.type == 'kvm' and template.source_url:
+            template.status = 'pending'
+            template.save(update_fields=['status'])
+            from .tasks import import_kvm_template
+            import_kvm_template.delay(template.id)
+        return template
