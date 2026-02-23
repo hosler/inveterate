@@ -137,6 +137,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     plan = serializers.PrimaryKeyRelatedField(queryset=models.Plan.objects.all(), write_only=True, required=False)
     template = serializers.SlugRelatedField(slug_field='name', queryset=models.Template.objects.all(), write_only=True)
     password = serializers.CharField(write_only=True, required=False)
+    apps = serializers.PrimaryKeyRelatedField(queryset=models.AppProfile.objects.all(), many=True, required=False, write_only=True)
     hostname = serializers.CharField(validators=[domain_validator])
     __str__ = SerializerMethodField('display_name')
 
@@ -153,7 +154,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         model = models.Service
         fields = (
             'id', 'plan_name', 'owner', 'password', 'template', 'machine_id', 'hostname', 'plan',
-            'node', 'status', 'service_plan', 'status_msg', '__str__'
+            'node', 'status', 'service_plan', 'status_msg', 'apps', '__str__'
         )
 
     def update(self, instance, validated_data):
@@ -170,6 +171,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         plan = validated_data.pop("plan")
         password = validated_data.pop("password", None)
         template = validated_data.pop("template", None)
+        apps = validated_data.pop("apps", [])
 
         # Snapshot plan fields into ServicePlan
         plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != "id"]
@@ -189,6 +191,8 @@ class ServiceSerializer(serializers.ModelSerializer):
         service = super().create(validated_data)
         service_plan.storage = service.node.node_disk.filter(primary=True).first()
         service_plan.save()
+        if apps:
+            service_plan.apps.set(apps)
         service.service_plan = service_plan
         service.save()
         # IP assignment happens inside provision_service task
@@ -201,7 +205,7 @@ class ServiceSerializerClient(ServiceSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field not in ['hostname', 'password', 'plan', 'template']:
+            if field not in ['hostname', 'password', 'plan', 'template', 'apps']:
                 self.fields[field].read_only = True
 
 
@@ -215,6 +219,12 @@ class IPSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.IP
         fields = '__all__'
+
+class AppProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.AppProfile
+        fields = '__all__'
+
 
 class TemplateSerializer(serializers.ModelSerializer):
     class Meta:

@@ -10,7 +10,7 @@ from requests.exceptions import ConnectionError
 from rest_framework.test import APIClient, APIRequestFactory
 
 from .models import (
-    Cluster, Node, NodeDisk, Plan, ServicePlan, Service,
+    AppProfile, Cluster, Node, NodeDisk, Plan, ServicePlan, Service,
     Template, IPPool, IP, ServiceNetwork, Inventory,
 )
 
@@ -982,3 +982,232 @@ class TestTemplateSerializerImportTrigger(TestCase):
         self.assertTrue(ser.is_valid(), ser.errors)
         tpl = ser.save()
         self.assertEqual(tpl.status, 'ready')
+
+
+def _app_profile(name='Docker', cloud_init='packages:\n  - curl\nruncmd:\n  - echo hello'):
+    return AppProfile.objects.create(name=name, cloud_init=cloud_init)
+
+
+# ===================================================================
+# TestComposeCloudInit
+# ===================================================================
+
+class TestComposeCloudInit(TestCase):
+
+    def test_merges_packages_runcmd_write_files(self):
+        from .tasks import _compose_cloud_init
+        a1 = AppProfile.objects.create(
+            name='Docker',
+            cloud_init='packages:\n  - curl\nruncmd:\n  - curl -fsSL https://get.docker.com | sh',
+        )
+        a2 = AppProfile.objects.create(
+            name='Minecraft',
+            cloud_init=(
+                'packages:\n  - openjdk-21-jre-headless\n'
+                'write_files:\n  - path: /etc/mc.conf\n    content: hello\n'
+                'runcmd:\n  - echo mc'
+            ),
+        )
+        result = _compose_cloud_init(AppProfile.objects.filter(pk__in=[a1.pk, a2.pk]))
+        self.assertTrue(result.startswith('#cloud-config\n'))
+        import yaml
+        doc = yaml.safe_load(result)
+        self.assertEqual(doc['packages'], ['curl', 'openjdk-21-jre-headless'])
+        self.assertEqual(doc['runcmd'], ['curl -fsSL https://get.docker.com | sh', 'echo mc'])
+        self.assertEqual(len(doc['write_files']), 1)
+        self.assertEqual(doc['write_files'][0]['path'], '/etc/mc.conf')
+
+    def test_empty_apps_returns_empty_string(self):
+        from .tasks import _compose_cloud_init
+        result = _compose_cloud_init(AppProfile.objects.none())
+        self.assertEqual(result, '')
+
+    def test_invalid_yaml_skipped(self):
+        from .tasks import _compose_cloud_init
+        a1 = AppProfile.objects.create(name='Good', cloud_init='packages:\n  - curl')
+        a2 = AppProfile.objects.create(name='Bad', cloud_init='just a string')
+        result = _compose_cloud_init(AppProfile.objects.filter(pk__in=[a1.pk, a2.pk]))
+        import yaml
+        doc = yaml.safe_load(result)
+        self.assertEqual(doc['packages'], ['curl'])
+
+
+# ===================================================================
+# TestProvisionServiceApps
+# ===================================================================
+
+class TestProvisionServiceApps(TestCase):
+
+    def _setup_kvm_service(self):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        tpl = _template(type='kvm', file='100')
+        sp = _service_plan(template=tpl, storage=disk, type='kvm')
+        svc = _service(user, node, sp, status='pending')
+        return svc
+
+    @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.tasks.ProxmoxAPI')
+    def test_provision_uploads_snippet_when_apps_selected(self, mock_cls, _mock_inv):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+        mock_node.qemu.return_value.status.current.get.return_value = {'status': 'stopped'}
+        mock_node.qemu.return_value.firewall.rules.get.return_value = []
+        mock_node.qemu.return_value.firewall.ipset.return_value.get.return_value = []
+
+        svc = self._setup_kvm_service()
+        app = _app_profile(name='Docker', cloud_init='packages:\n  - curl\nruncmd:\n  - echo docker')
+        svc.service_plan.apps.add(app)
+
+        from .tasks import provision_service
+        provision_service(svc.id, 'testpass')
+        svc.refresh_from_db()
+
+        # Verify snippet was uploaded
+        mock_node.storage.return_value.upload.post.assert_called_once()
+        call_kwargs = mock_node.storage.return_value.upload.post.call_args[1]
+        self.assertEqual(call_kwargs['content'], 'snippets')
+        self.assertIn(f'ci-{svc.machine_id}', call_kwargs['filename'])
+
+        # Verify cicustom was set in vm config
+        config_call = mock_node.qemu.return_value.config.post
+        config_call.assert_called_once()
+        config_kwargs = config_call.call_args[1]
+        self.assertIn('cicustom', config_kwargs)
+        self.assertIn(f'ci-{svc.machine_id}.yml', config_kwargs['cicustom'])
+
+    @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.tasks.ProxmoxAPI')
+    def test_provision_skips_snippet_when_no_apps(self, mock_cls, _mock_inv):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+        mock_node.qemu.return_value.status.current.get.return_value = {'status': 'stopped'}
+        mock_node.qemu.return_value.firewall.rules.get.return_value = []
+        mock_node.qemu.return_value.firewall.ipset.return_value.get.return_value = []
+
+        svc = self._setup_kvm_service()
+
+        from .tasks import provision_service
+        provision_service(svc.id, 'testpass')
+
+        # Verify snippet was NOT uploaded
+        mock_node.storage.return_value.upload.post.assert_not_called()
+
+        # Verify cicustom was NOT set
+        config_kwargs = mock_node.qemu.return_value.config.post.call_args[1]
+        self.assertNotIn('cicustom', config_kwargs)
+
+
+# ===================================================================
+# TestCancelServiceSnippetCleanup
+# ===================================================================
+
+class TestCancelServiceSnippetCleanup(TestCase):
+
+    @patch('inveterate.tasks.ProxmoxAPI')
+    def test_cancel_service_cleans_up_snippet(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        tpl = _template(type='kvm', file='100')
+        sp = _service_plan(template=tpl, storage=disk, type='kvm')
+        svc = _service(user, node, sp, machine_id=1000001)
+
+        from .tasks import cancel_service
+        cancel_service(svc.id)
+
+        # Snippet delete should have been attempted
+        mock_node.storage.return_value.content.delete.assert_called_once_with(
+            f'snippets/ci-{svc.machine_id}.yml'
+        )
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'destroyed')
+
+    @patch('inveterate.tasks.ProxmoxAPI')
+    def test_cancel_service_ignores_snippet_error(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+        mock_node.storage.return_value.content.delete.side_effect = Exception("not found")
+
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        tpl = _template(type='kvm', file='100')
+        sp = _service_plan(template=tpl, storage=disk, type='kvm')
+        svc = _service(user, node, sp, machine_id=1000001)
+
+        from .tasks import cancel_service
+        cancel_service(svc.id)
+
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'destroyed')
+
+
+# ===================================================================
+# TestServiceSerializerApps
+# ===================================================================
+
+class TestServiceSerializerApps(TestCase):
+
+    def setUp(self):
+        self.user = _admin()
+        self.cluster = _cluster()
+        self.node = _node(cluster=self.cluster)
+        self.disk = _disk(self.node)
+        self.plan = _plan()
+        self.template = _template()
+        Inventory.objects.create(plan=self.plan, node=self.node, quantity=5)
+        self.factory = APIRequestFactory()
+
+    @patch('inveterate.serializers.provision_service')
+    def test_create_attaches_apps_to_service_plan(self, mock_prov):
+        mock_prov.delay.return_value = MagicMock(id='task-1')
+        app1 = _app_profile(name='Docker', cloud_init='packages:\n  - curl')
+        app2 = _app_profile(name='k3s', cloud_init='runcmd:\n  - echo k3s')
+
+        from .serializers import ServiceSerializer
+        request = self.factory.post('/api/services/')
+        request.user = self.user
+        data = {
+            'owner': self.user.id,
+            'hostname': 'apps.example.com',
+            'plan': self.plan.id,
+            'template': self.template.name,
+            'apps': [app1.id, app2.id],
+        }
+        ser = ServiceSerializer(data=data, context={'request': request})
+        self.assertTrue(ser.is_valid(), ser.errors)
+        svc = ser.save()
+        self.assertEqual(set(svc.service_plan.apps.values_list('pk', flat=True)), {app1.pk, app2.pk})
+
+    @patch('inveterate.serializers.provision_service')
+    def test_create_without_apps_leaves_empty(self, mock_prov):
+        mock_prov.delay.return_value = MagicMock(id='task-1')
+        from .serializers import ServiceSerializer
+        request = self.factory.post('/api/services/')
+        request.user = self.user
+        data = {
+            'owner': self.user.id,
+            'hostname': 'noapps.example.com',
+            'plan': self.plan.id,
+            'template': self.template.name,
+        }
+        ser = ServiceSerializer(data=data, context={'request': request})
+        self.assertTrue(ser.is_valid(), ser.errors)
+        svc = ser.save()
+        self.assertEqual(svc.service_plan.apps.count(), 0)

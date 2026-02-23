@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from .base import DynamicPageModelViewSet
 from .. import models
 from .. import serializers
-from ..permissions import ReadOnlyAnonymous
+from ..permissions import ReadOnly, ReadOnlyAnonymous
 from ..tasks import calculate_inventory, import_kvm_template
 
 
@@ -80,8 +80,14 @@ class PlanViewSet(DynamicPageModelViewSet):
         return Response(stats, status=202)
 
 
+class AppProfileViewSet(DynamicPageModelViewSet):
+    permission_classes = [IsAdminUser | ReadOnlyAnonymous]
+    queryset = models.AppProfile.objects.order_by('pk')
+    serializer_class = serializers.AppProfileSerializer
+
+
 class TemplateViewSet(DynamicPageModelViewSet):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminUser | ReadOnly]
     queryset = models.Template.objects.order_by('pk')
     serializer_class = serializers.TemplateSerializer
 

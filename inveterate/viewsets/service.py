@@ -13,6 +13,7 @@ from .. import models
 from .. import serializers
 from ..tasks import (
     provision_service,
+    cancel_service,
     start_vm,
     stop_vm,
     reboot_vm,
@@ -105,6 +106,12 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         service = self.get_object()
         stats = get_vm_status(service.pk)
         return Response(stats, status=202)
+
+    @action(methods=['post'], detail=True, permission_classes=[IsAdminUser])
+    def cancel(self, request, pk=None):
+        service = self.get_object()
+        task = cancel_service.delay(service.pk)
+        return Response({"task_id": task.id}, status=202)
 
     @action(methods=['post'], detail=True)
     def provision(self, request, pk=None):

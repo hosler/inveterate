@@ -1,0 +1,216 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Templates - Inveterate{% endblock %}
+
+{% block content %}
+<div x-data="templatesManager()" x-init="init()">
+    <div class="mb-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Templates</h1>
+            <p class="mt-2 text-gray-600">Manage OS templates for KVM and LXC</p>
+        </div>
+        <button @click="openCreate()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            + New Template
+        </button>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="flex justify-center py-12">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Templates Table -->
+    <div x-show="!loading" class="bg-white rounded-lg shadow-md overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File / VMID</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Node</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <template x-for="tpl in templates" :key="tpl.id">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="font-medium text-gray-900" x-text="tpl.name"></div>
+                                <div x-show="tpl.status_msg" class="text-xs text-red-500 mt-1" x-text="tpl.status_msg"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span :class="tpl.type === 'kvm' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'"
+                                      class="inline-flex px-2 py-1 rounded text-xs font-semibold" x-text="tpl.type.toUpperCase()"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span :class="`status-badge status-${tpl.status}`" x-text="tpl.status"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="tpl.file || '-'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="tpl.node || '-'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                                <button @click="openEdit(tpl)" class="text-blue-600 hover:text-blue-800">Edit</button>
+                                <button x-show="tpl.type === 'kvm' && tpl.source_url" @click="reimport(tpl)" class="text-yellow-600 hover:text-yellow-800">Reimport</button>
+                                <button @click="confirmDelete(tpl)" class="text-red-600 hover:text-red-800">Delete</button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div x-show="!loading && templates.length === 0" class="text-center py-12 text-gray-500">
+        No templates yet. Create one to get started.
+    </div>
+
+    <!-- Create/Edit Modal -->
+    <div x-show="showModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" x-cloak>
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4" x-text="editing ? 'Edit Template' : 'New Template'"></h3>
+            <div x-show="error" class="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm" x-text="error"></div>
+            <div class="space-y-3">
+                <div>
+                    <label class="form-label">Name</label>
+                    <input x-model="form.name" type="text" class="form-input" placeholder="ubuntu-24.04">
+                </div>
+                <div>
+                    <label class="form-label">Type</label>
+                    <select x-model="form.type" class="form-select">
+                        <option value="kvm">KVM</option>
+                        <option value="lxc">LXC</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">File <span class="text-xs text-gray-400">(template filename or VMID for KVM)</span></label>
+                    <input x-model="form.file" type="text" class="form-input" placeholder="e.g. ubuntu-24.04-standard_24.04-2_amd64.tar.zst">
+                </div>
+                <div>
+                    <label class="form-label">Source URL <span class="text-xs text-gray-400">(KVM cloud image URL)</span></label>
+                    <input x-model="form.source_url" type="url" class="form-input" placeholder="https://cloud-images.ubuntu.com/...">
+                </div>
+                <div>
+                    <label class="form-label">Node <span class="text-xs text-gray-400">(for KVM import target)</span></label>
+                    <select x-model="form.node" class="form-select">
+                        <option value="">Auto-select</option>
+                        <template x-for="n in nodes" :key="n.id">
+                            <option :value="n.id" x-text="n.name"></option>
+                        </template>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <button @click="showModal = false" class="px-4 py-2 text-gray-700 hover:text-gray-900 text-sm font-medium">Cancel</button>
+                <button @click="save()" :disabled="saving" class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-md text-sm font-medium">
+                    <span x-text="saving ? 'Saving...' : 'Save'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation -->
+    <div x-show="showDeleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" x-cloak>
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Delete Template</h3>
+            <p class="text-gray-600 mb-4">Are you sure you want to delete <strong x-text="deleteTarget?.name"></strong>?</p>
+            <div class="flex justify-end gap-3">
+                <button @click="showDeleteModal = false" class="px-4 py-2 text-gray-700 hover:text-gray-900 text-sm font-medium">Cancel</button>
+                <button @click="doDelete()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function templatesManager() {
+    return {
+        templates: [],
+        nodes: [],
+        loading: true,
+        showModal: false,
+        showDeleteModal: false,
+        editing: null,
+        deleteTarget: null,
+        saving: false,
+        error: '',
+        form: {},
+
+        defaultForm() {
+            return { name: '', type: 'lxc', file: '', source_url: '', node: '' };
+        },
+
+        async init() {
+            const [tplRes, nodesRes] = await Promise.all([
+                api.getTemplates({no_page: true}),
+                api.getNodes()
+            ]);
+            this.templates = tplRes.results || tplRes;
+            this.nodes = nodesRes.results || nodesRes;
+            this.loading = false;
+        },
+
+        openCreate() {
+            this.editing = null;
+            this.form = this.defaultForm();
+            this.error = '';
+            this.showModal = true;
+        },
+
+        openEdit(tpl) {
+            this.editing = tpl.id;
+            this.form = { name: tpl.name, type: tpl.type, file: tpl.file, source_url: tpl.source_url || '', node: tpl.node || '' };
+            this.error = '';
+            this.showModal = true;
+        },
+
+        async save() {
+            this.saving = true;
+            this.error = '';
+            try {
+                const data = { ...this.form };
+                if (!data.node) data.node = null;
+                if (this.editing) {
+                    await api.updateTemplate(this.editing, data);
+                } else {
+                    await api.createTemplate(data);
+                }
+                this.showModal = false;
+                await this.reload();
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        async reimport(tpl) {
+            if (!confirm(`Re-import ${tpl.name}? This will re-download the cloud image.`)) return;
+            try {
+                await api.reimportTemplate(tpl.id);
+                await this.reload();
+            } catch (e) { alert(e.message); }
+        },
+
+        confirmDelete(tpl) {
+            this.deleteTarget = tpl;
+            this.showDeleteModal = true;
+        },
+
+        async doDelete() {
+            try {
+                await api.deleteTemplate(this.deleteTarget.id);
+                this.showDeleteModal = false;
+                await this.reload();
+            } catch (e) { alert(e.message); }
+        },
+
+        async reload() {
+            const res = await api.getTemplates({no_page: true});
+            this.templates = res.results || res;
+        }
+    }
+}
+</script>
+{% endblock %}

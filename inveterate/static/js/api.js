@@ -44,10 +44,15 @@ class InveterateAPI {
 
         try {
             const response = await fetch(url, config);
+
+            if (response.status === 204) {
+                return null;
+            }
+
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+                throw new Error(data.detail || data.message || `HTTP ${response.status}: ${response.statusText}`);
             }
 
             return data;
@@ -58,12 +63,24 @@ class InveterateAPI {
     }
 
     // Service operations
-    async getServices() {
-        return this.request('/services/');
+    async getServices(params) {
+        const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+        return this.request(`/services/${qs}`);
     }
 
     async getService(id) {
         return this.request(`/services/${id}/`);
+    }
+
+    async createService(data) {
+        return this.request('/services/', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async cancelService(id) {
+        return this.request(`/services/${id}/cancel/`, { method: 'POST' });
     }
 
     async startService(id) {
@@ -144,22 +161,100 @@ class InveterateAPI {
         return this.request('/clusters/stats/');
     }
 
-    // Plans and Templates
-    async getPlans() {
-        return this.request('/plans/');
+    // Plans
+    async getPlans(params) {
+        const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+        return this.request(`/plans/${qs}`);
     }
 
-    async getTemplates() {
-        return this.request('/templates/');
+    async createPlan(data) {
+        return this.request('/plans/', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async updatePlan(id, data) {
+        return this.request(`/plans/${id}/`, {
+            method: 'PATCH',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async deletePlan(id) {
+        return this.request(`/plans/${id}/`, { method: 'DELETE' });
+    }
+
+    // Templates
+    async getTemplates(params) {
+        const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+        return this.request(`/templates/${qs}`);
+    }
+
+    async createTemplate(data) {
+        return this.request('/templates/', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async updateTemplate(id, data) {
+        return this.request(`/templates/${id}/`, {
+            method: 'PATCH',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async deleteTemplate(id) {
+        return this.request(`/templates/${id}/`, { method: 'DELETE' });
+    }
+
+    async reimportTemplate(id) {
+        return this.request(`/templates/${id}/reimport/`, { method: 'POST' });
+    }
+
+    // App Profiles
+    async getApps(params) {
+        const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+        return this.request(`/apps/${qs}`);
+    }
+
+    async createApp(data) {
+        return this.request('/apps/', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async updateApp(id, data) {
+        return this.request(`/apps/${id}/`, {
+            method: 'PATCH',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async deleteApp(id) {
+        return this.request(`/apps/${id}/`, { method: 'DELETE' });
     }
 
     // IP Pools
-    async getIPPools() {
-        return this.request('/ippools/');
+    async getIPPools(params) {
+        const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+        return this.request(`/ippools/${qs}`);
+    }
+
+    async getIPPoolStats() {
+        return this.request('/ips/stats/');
     }
 
     async getIPs() {
         return this.request('/ips/');
+    }
+
+    // Inventory
+    async getInventory(params) {
+        const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+        return this.request(`/inventory/${qs}`);
     }
 }
 

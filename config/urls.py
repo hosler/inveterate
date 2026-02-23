@@ -19,12 +19,18 @@ urlpatterns = [
     path('', views.home_view, name='home'),
     path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
     path('services/', views.ServiceListView.as_view(), name='services'),
+    path('services/order/', views.ServiceOrderView.as_view(), name='service-order'),
     path('services/<int:service_id>/', views.ServiceDetailView.as_view(), name='service-detail'),
     path('services/<int:service_id>/console/', views.ServiceConsoleView.as_view(), name='service-console'),
     path('services/<int:service_id>/console/auth/', views.console_auth_view, name='console-auth'),
     path('services/<int:service_id>/console/proxy/', views.console_proxy_view, name='console-proxy'),
     path('clusters/', views.ClusterListView.as_view(), name='clusters'),
     path('nodes/', views.NodeListView.as_view(), name='nodes'),
+    path('dashboard/services/', views.AdminServiceListView.as_view(), name='admin-services'),
+    path('dashboard/plans/', views.PlanListView.as_view(), name='admin-plans'),
+    path('dashboard/templates/', views.TemplateListView.as_view(), name='admin-templates'),
+    path('dashboard/apps/', views.AppProfileListView.as_view(), name='admin-apps'),
+    path('dashboard/ips/', views.IPPoolListView.as_view(), name='admin-ips'),
 
     # REST API
     path('api/', include('inveterate.urls')),

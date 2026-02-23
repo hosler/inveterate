@@ -17,6 +17,9 @@ urllib3>=2.3
 # Date Utilities
 python-dateutil>=2.9
 
+# YAML Processing
+PyYAML>=6.0
+
 # Database
 psycopg[binary]>=3.2
 

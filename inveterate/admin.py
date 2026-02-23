@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin
 from django.utils.html import format_html
 from . import models
@@ -12,6 +13,23 @@ class ServiceNetworkInline(admin.TabularInline):
     extra = 1
     readonly_fields = ('net_id',)
     fields = ('net_id', 'ip')
+
+class AppProfileForm(forms.ModelForm):
+    class Meta:
+        model = models.AppProfile
+        fields = '__all__'
+        widgets = {
+            'cloud_init': forms.Textarea(attrs={'rows': 20, 'cols': 80}),
+        }
+
+
+@admin.register(models.AppProfile)
+class AppProfileAdmin(admin.ModelAdmin):
+    form = AppProfileForm
+    list_display = ('name', 'created')
+    search_fields = ('name', 'description')
+    readonly_fields = ('created', 'updated')
+
 
 @admin.register(models.Cluster)
 class ClusterAdmin(admin.ModelAdmin):

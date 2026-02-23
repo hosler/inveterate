@@ -149,11 +149,26 @@ class NodeDisk(models.Model):
 
 
 
+class AppProfile(models.Model):
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    cloud_init = models.TextField()
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
+
+    def __str__(self):
+        return self.name
+
+
 class ServicePlan(PlanBase):
     name = models.CharField(max_length=255, default='')
     type = models.CharField(max_length=255, choices=VM_TYPES)
     template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
     storage = models.ForeignKey(NodeDisk, null=True, on_delete=models.SET_NULL)
+    apps = models.ManyToManyField(AppProfile, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

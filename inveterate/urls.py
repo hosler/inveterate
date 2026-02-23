@@ -4,6 +4,7 @@ from . import viewsets
 app_name = "inveterate"
 
 router = routers.DefaultRouter()
+router.register(r'apps', viewsets.AppProfileViewSet)
 router.register(r'clusters', viewsets.ClusterViewSet)
 router.register(r'nodes', viewsets.NodeViewSet)
 router.register(r'ippools', viewsets.IPPoolViewSet)

@@ -2,6 +2,7 @@ from .cluster import ClusterViewSet
 from .node import NodeViewSet, NodeDiskViewSet
 from .service import ServiceViewSet, ServicePlanViewSet
 from .resource import (
+    AppProfileViewSet,
     IPPoolViewSet,
     IPViewSet,
     PlanViewSet,
@@ -11,6 +12,7 @@ from .resource import (
 from .dashboard import DashboardViewSet, CustomerViewSet
 
 __all__ = [
+    'AppProfileViewSet',
     'ClusterViewSet',
     'NodeViewSet',
     'NodeDiskViewSet',

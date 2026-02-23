@@ -10,11 +10,9 @@
             <h1 class="text-3xl font-bold text-gray-900">My Services</h1>
             <p class="mt-2 text-gray-600">Manage your virtual machines</p>
         </div>
-        {% if user.is_staff %}
-        <a href="/admin/inveterate/service/add/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+        <a href="{% url 'service-order' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
             + New Service
         </a>
-        {% endif %}
     </div>
 
     <!-- Loading State -->

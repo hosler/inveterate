@@ -1,6 +1,8 @@
 import logging
 import time
+from io import BytesIO
 
+import yaml
 from django.conf import settings
 from celery import shared_task
 from celery_singleton import Singleton
@@ -120,6 +122,22 @@ def assign_ips(service_id):
                     break
 
 
+def _compose_cloud_init(apps):
+    """Merge AppProfile cloud_init fragments into a single cloud-config document."""
+    merged_keys = ('packages', 'runcmd', 'write_files')
+    merged = {}
+    for app in apps.order_by('pk'):
+        fragment = yaml.safe_load(app.cloud_init)
+        if not isinstance(fragment, dict):
+            continue
+        for key in merged_keys:
+            if key in fragment:
+                merged.setdefault(key, []).extend(fragment[key])
+    if not merged:
+        return ''
+    return '#cloud-config\n' + yaml.dump(merged, default_flow_style=False)
+
+
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def provision_service(service_id, password):
     logger.info(f"Starting provisioning for service {service_id}")
@@ -230,6 +248,19 @@ def provision_service(service_id, password):
             }
             if password is not None:
                 vm_data['cipassword'] = password
+
+            # Compose and upload cloud-init snippet for selected app profiles
+            if service.service_plan.apps.exists():
+                ci_content = _compose_cloud_init(service.service_plan.apps.all())
+                if ci_content:
+                    snippet_name = f'ci-{service.machine_id}.yml'
+                    node.storage('local').upload.post(
+                        content='snippets',
+                        filename=snippet_name,
+                        file=BytesIO(ci_content.encode()),
+                    )
+                    vm_data['cicustom'] = f'user=local:snippets/{snippet_name}'
+
         if service_type == "lxc":
             vm_data = {
                 'ostemplate': f'local:vztmpl/{service.service_plan.template.file}',
@@ -517,6 +548,15 @@ def reinstate_service(service_id):
 def cancel_service(service_id):
     machine, service = get_vm(service_id)
     machine.delete(force=1)
+
+    # Clean up cloud-init snippet if one was uploaded
+    if service.service_plan and service.service_plan.type == 'kvm' and service.machine_id:
+        try:
+            node = get_service_node(service_id)
+            node.storage('local').content.delete(f'snippets/ci-{service.machine_id}.yml')
+        except Exception:
+            pass
+
     service.status = "destroyed"
     service.save()
 

@@ -83,6 +83,59 @@ class NodeListView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         return self.request.user.is_staff
 
 
+# Service Order View (any authenticated user)
+class ServiceOrderView(LoginRequiredMixin, TemplateView):
+    """Multi-step service ordering wizard"""
+    template_name = 'services/order.html'
+    login_url = '/login/'
+
+
+# Admin Management Views
+class AdminServiceListView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
+    """Admin view of all services"""
+    template_name = 'dashboard/services.html'
+    login_url = '/login/'
+
+    def test_func(self):
+        return self.request.user.is_staff
+
+
+class PlanListView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
+    """Manage plans"""
+    template_name = 'dashboard/plans.html'
+    login_url = '/login/'
+
+    def test_func(self):
+        return self.request.user.is_staff
+
+
+class TemplateListView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
+    """Manage templates"""
+    template_name = 'dashboard/templates.html'
+    login_url = '/login/'
+
+    def test_func(self):
+        return self.request.user.is_staff
+
+
+class AppProfileListView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
+    """Manage app profiles"""
+    template_name = 'dashboard/apps.html'
+    login_url = '/login/'
+
+    def test_func(self):
+        return self.request.user.is_staff
+
+
+class IPPoolListView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
+    """View IP pool statistics"""
+    template_name = 'dashboard/ips.html'
+    login_url = '/login/'
+
+    def test_func(self):
+        return self.request.user.is_staff
+
+
 # Simple function-based views
 @login_required
 def home_view(request):

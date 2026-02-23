@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}IP Pools - Inveterate{% endblock %}
+
+{% block content %}
+<div x-data="ipManager()" x-init="init()">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">IP Pools</h1>
+        <p class="mt-2 text-gray-600">View IP pool allocation and statistics</p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="flex justify-center py-12">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="stat-card">
+            <p class="stat-label">IPv4 Addresses</p>
+            <p class="stat-value" x-text="stats.ipv4?.value || 0"></p>
+        </div>
+        <div class="stat-card">
+            <p class="stat-label">IPv6 Addresses</p>
+            <p class="stat-value" x-text="stats.ipv6?.value || 0"></p>
+        </div>
+        <div class="stat-card">
+            <p class="stat-label">Internal IPs</p>
+            <p class="stat-value" x-text="stats.private?.value || 0"></p>
+        </div>
+    </div>
+
+    <!-- Pool Cards -->
+    <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <template x-for="pool in pools" :key="pool.id">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-start mb-3">
+                    <h3 class="text-lg font-semibold text-gray-900" x-text="pool.name"></h3>
+                    <div class="flex gap-2">
+                        <span :class="pool.type === 'ipv4' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
+                              class="inline-flex px-2 py-1 rounded text-xs font-semibold" x-text="pool.type.toUpperCase()"></span>
+                        <span x-show="pool.internal" class="inline-flex px-2 py-1 rounded text-xs font-semibold bg-yellow-100 text-yellow-800">Internal</span>
+                    </div>
+                </div>
+                <dl class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <dt class="text-gray-500">Network</dt>
+                        <dd class="text-gray-900 font-mono" x-text="`${pool.network}/${pool.mask}`"></dd>
+                    </div>
+                    <div class="flex justify-between">
+                        <dt class="text-gray-500">Gateway</dt>
+                        <dd class="text-gray-900 font-mono" x-text="pool.gateway"></dd>
+                    </div>
+                    <div class="flex justify-between">
+                        <dt class="text-gray-500">Interface</dt>
+                        <dd class="text-gray-900" x-text="pool.interface"></dd>
+                    </div>
+                    <template x-if="pool.vlan_tag">
+                        <div class="flex justify-between">
+                            <dt class="text-gray-500">VLAN</dt>
+                            <dd class="text-gray-900" x-text="pool.vlan_tag"></dd>
+                        </div>
+                    </template>
+                    <div class="flex justify-between">
+                        <dt class="text-gray-500">DNS</dt>
+                        <dd class="text-gray-900 font-mono" x-text="pool.dns"></dd>
+                    </div>
+                </dl>
+            </div>
+        </template>
+    </div>
+
+    <div x-show="!loading && pools.length === 0" class="text-center py-12 text-gray-500">
+        No IP pools configured. Use Django admin to create IP pools.
+    </div>
+</div>
+
+<script>
+function ipManager() {
+    return {
+        pools: [],
+        stats: {},
+        loading: true,
+
+        async init() {
+            try {
+                const [poolsRes, statsRes] = await Promise.all([
+                    api.getIPPools({no_page: true}),
+                    api.getIPPoolStats()
+                ]);
+                this.pools = poolsRes.results || poolsRes;
+                this.stats = statsRes;
+            } catch (e) {
+                console.error('Failed to load IP data:', e);
+            } finally {
+                this.loading = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}
