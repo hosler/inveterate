@@ -444,10 +444,9 @@ def provision_service(service_id, password):
 
 
 def get_vm(service_id):
+    from .proxmox import get_proxmox_connection
     service = Service.objects.get(pk=service_id)
-    proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
-                         token_value=service.node.cluster.key,
-                         verify_ssl=False, port=8006)
+    proxmox = get_proxmox_connection(service.node.cluster)
     node = proxmox.nodes(service.node)
     machine = None
     if service.service_plan.type == "kvm":
@@ -458,21 +457,18 @@ def get_vm(service_id):
 
 
 def get_service_node(service_id):
+    from .proxmox import get_proxmox_connection
     service = Service.objects.get(pk=service_id)
-    proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
-                         token_value=service.node.cluster.key,
-                         verify_ssl=False, port=8006)
+    proxmox = get_proxmox_connection(service.node.cluster)
     node = proxmox.nodes(service.node)
     return node
 
 
 def get_cluster(cluster_id):
+    from .proxmox import get_proxmox_connection
     cluster = Cluster.objects.get(pk=cluster_id)
-    proxmox = ProxmoxAPI(cluster.host, user=cluster.user, token_name='inveterate',
-                         token_value=cluster.key,
-                         verify_ssl=False, port=8006)
-    cluster_obj = proxmox.cluster
-    return cluster_obj
+    proxmox = get_proxmox_connection(cluster)
+    return proxmox.cluster
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
@@ -759,12 +755,21 @@ def meter_bandwidth():
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def cleanup_console_users():
     """
-    Clean up orphaned Proxmox console users for deleted services.
-    Console users are created with pattern: inveterate{owner_id}@pve
+    Clean up orphaned Proxmox console users.
+
+    Current format: ``inv-s{service_id}@pve`` (per-service).
+    Also cleans up legacy ``inveterate{owner_id}@pve`` users left over from
+    the previous per-owner naming scheme.
     """
+    from .proxmox import get_proxmox_connection, is_console_user, is_legacy_console_user
+
     logger.info("Starting console user cleanup")
 
-    # Get all active service owner IDs
+    active_service_ids = set(
+        Service.objects.exclude(status='destroyed')
+        .values_list('id', flat=True)
+    )
+    # Legacy fallback: owners who still have active services
     active_owner_ids = set(
         Service.objects.exclude(status='destroyed')
         .values_list('owner_id', flat=True)
@@ -774,39 +779,30 @@ def cleanup_console_users():
     cleaned_up = 0
     errors = 0
 
-    # Process each cluster
     for cluster in Cluster.objects.all():
         try:
-            proxmox = ProxmoxAPI(
-                cluster.host,
-                user=cluster.user,
-                token_name='inveterate',
-                token_value=cluster.key,
-                verify_ssl=False,
-                port=8006,
-                timeout=30
-            )
-
-            # Get all users
+            proxmox = get_proxmox_connection(cluster)
             users = proxmox.access.users.get()
 
             for user in users:
                 userid = user.get('userid', '')
 
-                # Check if this is an inveterate console user
-                if userid.startswith('inveterate') and userid.endswith('@pve'):
-                    # Extract owner_id from userid (format: inveterate{owner_id}@pve)
-                    try:
-                        owner_id_str = userid.replace('inveterate', '').replace('@pve', '')
-                        owner_id = int(owner_id_str)
+                # Per-service users (current format)
+                service_id = is_console_user(userid)
+                if service_id is not None:
+                    if service_id not in active_service_ids:
+                        proxmox.access.users(userid).delete()
+                        logger.info(f"Deleted orphaned console user: {userid}")
+                        cleaned_up += 1
+                    continue
 
-                        # Delete if owner has no active services
-                        if owner_id not in active_owner_ids:
-                            proxmox.access.users(userid).delete()
-                            logger.info(f"Deleted orphaned console user: {userid}")
-                            cleaned_up += 1
-                    except (ValueError, IndexError):
-                        logger.warning(f"Could not parse owner_id from console user: {userid}")
+                # Legacy per-owner users (transitional cleanup)
+                owner_id = is_legacy_console_user(userid)
+                if owner_id is not None:
+                    if owner_id not in active_owner_ids:
+                        proxmox.access.users(userid).delete()
+                        logger.info(f"Deleted legacy console user: {userid}")
+                        cleaned_up += 1
 
         except ConnectionError as e:
             logger.error(f"Cannot connect to cluster {cluster.name}: {str(e)}")

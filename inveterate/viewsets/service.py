@@ -1,13 +1,11 @@
-import random
-import string
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
-from proxmoxer import ProxmoxAPI
-from proxmoxer.core import ResourceException
+
+from ..proxmox import get_proxmox_connection, ensure_console_user, ProxmoxConsoleError
 
 
 class ServiceActionThrottle(ScopedRateThrottle):
@@ -148,7 +146,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         """
         Get console access credentials for a service's VM.
 
-        Creates a temporary Proxmox user (format: inveterate{owner_id}@pve) with
+        Creates a per-service Proxmox user (format: inv-s{service_id}@pve) with
         PVEVMUser role scoped to this specific VM. Orphaned console users are
         periodically cleaned up by the cleanup_console_users task.
         """
@@ -156,31 +154,20 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         if not service.machine_id:
             return Response({'detail': 'No machine provisioned for this service'}, status=400)
 
-        proxmox_user = f'inveterate{service.owner_id}'
-        password = ''.join(
-            random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation) for _ in
-            range(10))
-        proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
-                             token_value=service.node.cluster.key,
-                             verify_ssl=False, port=8006)
-
-        # Create or reset console user
         try:
-            proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
-        except ResourceException as e:
-            if "already exists" in str(e):
-                proxmox.access.users(f"{proxmox_user}@pve").delete()
-                proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
-        proxmox.access.acl.put(path=f"/vms/{service.machine_id}", roles=["PVEVMUser"],
-                               users=[f"{proxmox_user}@pve"])
+            proxmox = get_proxmox_connection(service.node.cluster)
+            userid, password = ensure_console_user(proxmox, service, service.machine_id)
+        except ProxmoxConsoleError as e:
+            return Response({'detail': f'Console unavailable: {e}'}, status=502)
+
         vm_type = "lxc" if service.service_plan.type == "lxc" else "qemu"
-        return Response(
-            {"username": f"{proxmox_user}@pve",
-             "password": password,
-             "node": service.node.name,
-             "machine": service.machine_id,
-             "type": vm_type}
-        )
+        return Response({
+            "username": userid,
+            "password": password,
+            "node": service.node.name,
+            "machine": service.machine_id,
+            "type": vm_type,
+        })
 
     @action(methods=['post'], detail=False, permission_classes=[IsAdminUser])
     def bulk_import(self, request):

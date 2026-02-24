@@ -729,7 +729,7 @@ class TestServiceViewSet(TestCase):
         svc = Service.objects.get(machine_id=999)
         self.assertIn('Imported', svc.service_plan.name)
 
-    @patch('inveterate.viewsets.service.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_console_returns_credentials(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -742,6 +742,8 @@ class TestServiceViewSet(TestCase):
         self.assertIn('username', resp.data)
         self.assertIn('password', resp.data)
         self.assertIn('node', resp.data)
+        # Verify per-service naming format
+        self.assertEqual(resp.data['username'], f'inv-s{svc.id}@pve')
 
     @patch('inveterate.viewsets.service.start_vm')
     def test_start_action_returns_task_id(self, mock_start):
@@ -1112,7 +1114,7 @@ class TestProvisionServiceApps(TestCase):
 
 class TestCancelServiceSnippetCleanup(TestCase):
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_cancel_service_cleans_up_snippet(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -1137,7 +1139,7 @@ class TestCancelServiceSnippetCleanup(TestCase):
         svc.refresh_from_db()
         self.assertEqual(svc.status, 'destroyed')
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_cancel_service_ignores_snippet_error(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -1221,7 +1223,7 @@ class TestServiceSerializerApps(TestCase):
 
 class TestCancelServiceIPRelease(TestCase):
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_cancel_service_releases_ips(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -1588,7 +1590,7 @@ class TestPortBlockAllocation(TestCase):
 
 class TestPortBlockDeallocation(TestCase):
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_cancel_service_cascades_to_port_block(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -2074,7 +2076,7 @@ class TestNPMSyncTasks(TestCase):
         self.assertEqual(dr.npm_proxy_host_id, 99)
 
     @patch('inveterate.npm.NPMClient')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_cancel_service_cleans_npm_resources(self, mock_prox_cls, mock_client_cls):
         mock_proxmox = MagicMock()
         mock_prox_cls.return_value = mock_proxmox
@@ -2101,3 +2103,249 @@ class TestNPMSyncTasks(TestCase):
         self.assertEqual(svc.status, 'destroyed')
         mock_client.delete_stream.assert_called_with(42)
         mock_client.delete_proxy_host.assert_called_with(99)
+
+
+# ===================================================================
+# TestProxmoxHelpers
+# ===================================================================
+
+class TestProxmoxHelpers(TestCase):
+    """Unit tests for inveterate.proxmox utility functions."""
+
+    def test_console_username_format(self):
+        from .proxmox import console_username
+        svc = MagicMock(id=42)
+        self.assertEqual(console_username(svc), 'inv-s42@pve')
+
+    def test_console_username_large_id(self):
+        from .proxmox import console_username
+        svc = MagicMock(id=1000123)
+        self.assertEqual(console_username(svc), 'inv-s1000123@pve')
+
+    def test_generate_console_password_length_and_safety(self):
+        from .proxmox import generate_console_password
+        pw = generate_console_password()
+        self.assertEqual(len(pw), 24)
+        # URL-safe means only alphanumeric, hyphen, underscore
+        import re
+        self.assertRegex(pw, r'^[A-Za-z0-9_-]+$')
+
+    def test_ensure_console_user_creates_new(self):
+        from .proxmox import ensure_console_user
+        proxmox = MagicMock()
+        svc = MagicMock(id=7)
+        userid, password = ensure_console_user(proxmox, svc, 1000007)
+
+        self.assertEqual(userid, 'inv-s7@pve')
+        self.assertTrue(len(password) > 0)
+        proxmox.access.users.post.assert_called_once()
+        proxmox.access.acl.put.assert_called_once_with(
+            path='/vms/1000007', roles=['PVEVMUser'], users=['inv-s7@pve'],
+        )
+
+    def test_ensure_console_user_updates_existing(self):
+        from .proxmox import ensure_console_user
+        from proxmoxer.core import ResourceException
+
+        proxmox = MagicMock()
+        proxmox.access.users.post.side_effect = ResourceException(
+            status_code=500, status_message='',
+            content='user already exists', errors=None,
+        )
+        svc = MagicMock(id=7)
+        userid, password = ensure_console_user(proxmox, svc, 1000007)
+
+        self.assertEqual(userid, 'inv-s7@pve')
+        proxmox.access.users('inv-s7@pve').put.assert_called_once()
+        proxmox.access.acl.put.assert_called_once()
+
+    def test_ensure_console_user_reraises_other_error(self):
+        from .proxmox import ensure_console_user, ProxmoxConsoleError
+        from proxmoxer.core import ResourceException
+
+        proxmox = MagicMock()
+        proxmox.access.users.post.side_effect = ResourceException(
+            status_code=500, status_message='',
+            content='something else went wrong', errors=None,
+        )
+        svc = MagicMock(id=7)
+        with self.assertRaises(ProxmoxConsoleError):
+            ensure_console_user(proxmox, svc, 1000007)
+
+    def test_ensure_console_user_handles_connection_error(self):
+        from .proxmox import ensure_console_user, ProxmoxConsoleError
+
+        proxmox = MagicMock()
+        proxmox.access.users.post.side_effect = ConnectionError('refused')
+        svc = MagicMock(id=7)
+        with self.assertRaises(ProxmoxConsoleError):
+            ensure_console_user(proxmox, svc, 1000007)
+
+    @patch('inveterate.proxmox.requests.post')
+    def test_get_console_ticket_success(self, mock_post):
+        from .proxmox import get_console_ticket
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {'data': {
+                'ticket': 'PVE:ticket123',
+                'CSRFPreventionToken': 'csrf-tok',
+            }},
+        )
+        result = get_console_ticket('10.0.0.1', 'inv-s7@pve', 'pass')
+        self.assertEqual(result['ticket'], 'PVE:ticket123')
+        self.assertEqual(result['CSRFPreventionToken'], 'csrf-tok')
+
+    @patch('inveterate.proxmox.requests.post')
+    def test_get_console_ticket_auth_failure(self, mock_post):
+        from .proxmox import get_console_ticket, ProxmoxConsoleError
+        mock_post.return_value = MagicMock(status_code=401)
+        with self.assertRaises(ProxmoxConsoleError):
+            get_console_ticket('10.0.0.1', 'inv-s7@pve', 'badpass')
+
+    def test_is_console_user_valid(self):
+        from .proxmox import is_console_user
+        self.assertEqual(is_console_user('inv-s42@pve'), 42)
+
+    def test_is_console_user_invalid(self):
+        from .proxmox import is_console_user
+        self.assertIsNone(is_console_user('root@pam'))
+        self.assertIsNone(is_console_user('inv-sABC@pve'))
+        self.assertIsNone(is_console_user(''))
+
+    def test_is_console_user_legacy_returns_none(self):
+        from .proxmox import is_console_user
+        self.assertIsNone(is_console_user('inveterate5@pve'))
+
+    def test_is_legacy_console_user(self):
+        from .proxmox import is_legacy_console_user
+        self.assertEqual(is_legacy_console_user('inveterate5@pve'), 5)
+        self.assertIsNone(is_legacy_console_user('inv-s5@pve'))
+        self.assertIsNone(is_legacy_console_user('root@pam'))
+
+    def test_get_proxmox_connection(self):
+        from .proxmox import get_proxmox_connection
+        cluster = MagicMock(host='10.0.0.1', user='root@pam', key='tok')
+        with patch('inveterate.proxmox.ProxmoxAPI') as mock_cls:
+            get_proxmox_connection(cluster, timeout=60)
+            mock_cls.assert_called_once_with(
+                '10.0.0.1', user='root@pam', token_name='inveterate',
+                token_value='tok', verify_ssl=False, port=8006, timeout=60,
+            )
+
+
+# ===================================================================
+# TestConsoleErrorHandling
+# ===================================================================
+
+class TestConsoleErrorHandling(TestCase):
+
+    def setUp(self):
+        self.admin = _admin()
+        self.client = APIClient()
+        self.cluster = _cluster()
+        self.node = _node(cluster=self.cluster)
+        _disk(self.node)
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_console_proxmox_failure_returns_502(self, mock_cls):
+        from proxmoxer.core import ResourceException
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_proxmox.access.users.post.side_effect = ResourceException(
+            status_code=500, status_message='',
+            content='internal error', errors=None,
+        )
+        sp = _service_plan(type='lxc')
+        svc = _service(self.admin, self.node, sp, machine_id=1000001)
+
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(f'/api/v1/services/{svc.id}/console/')
+        self.assertEqual(resp.status_code, 502)
+        self.assertIn('detail', resp.data)
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_console_connection_error_returns_502(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_proxmox.access.users.post.side_effect = ConnectionError('refused')
+        sp = _service_plan(type='lxc')
+        svc = _service(self.admin, self.node, sp, machine_id=1000001)
+
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(f'/api/v1/services/{svc.id}/console/')
+        self.assertEqual(resp.status_code, 502)
+
+    def test_console_no_machine_returns_400(self):
+        sp = _service_plan(type='lxc')
+        svc = _service(self.admin, self.node, sp)  # no machine_id
+
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(f'/api/v1/services/{svc.id}/console/')
+        self.assertEqual(resp.status_code, 400)
+
+
+# ===================================================================
+# TestCleanupConsoleUsers
+# ===================================================================
+
+class TestCleanupConsoleUsers(TestCase):
+
+    def setUp(self):
+        self.admin = _admin()
+        self.user = _user()
+        self.cluster = _cluster()
+        self.node = _node(cluster=self.cluster)
+        _disk(self.node)
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_orphaned_per_service_users_deleted(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+
+        # Active service
+        sp = _service_plan(type='lxc')
+        svc = _service(self.admin, self.node, sp, machine_id=1000001)
+
+        # Proxmox returns users for active service, orphaned service, and root
+        mock_proxmox.access.users.get.return_value = [
+            {'userid': f'inv-s{svc.id}@pve'},
+            {'userid': 'inv-s999@pve'},
+            {'userid': 'root@pam'},
+        ]
+
+        from .tasks import cleanup_console_users
+        cleanup_console_users()
+
+        # Collect which userids were passed to .access.users(userid) for deletion
+        deleted_userids = [
+            call.args[0] for call in mock_proxmox.access.users.call_args_list
+            if call.args
+        ]
+        self.assertIn('inv-s999@pve', deleted_userids)
+        self.assertNotIn(f'inv-s{svc.id}@pve', deleted_userids)
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_legacy_users_cleaned_up(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+
+        # Active service owned by self.admin
+        sp = _service_plan(type='lxc')
+        _service(self.admin, self.node, sp, machine_id=1000001)
+
+        # Legacy user for an owner with no active services (owner_id=9999)
+        # and legacy user for admin (should be kept)
+        mock_proxmox.access.users.get.return_value = [
+            {'userid': f'inveterate{self.admin.id}@pve'},
+            {'userid': 'inveterate9999@pve'},
+        ]
+
+        from .tasks import cleanup_console_users
+        cleanup_console_users()
+
+        deleted_userids = [
+            call.args[0] for call in mock_proxmox.access.users.call_args_list
+            if call.args
+        ]
+        self.assertIn('inveterate9999@pve', deleted_userids)
+        self.assertNotIn(f'inveterate{self.admin.id}@pve', deleted_userids)

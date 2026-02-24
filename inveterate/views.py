@@ -9,8 +9,6 @@ from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
-import requests
-import json
 
 from .models import Service
 
@@ -152,6 +150,11 @@ def console_auth_view(request, service_id):
     Authenticate with Proxmox and return ticket for console access.
     This endpoint is called by the frontend to get Proxmox credentials.
     """
+    from .proxmox import (
+        get_proxmox_connection, ensure_console_user,
+        get_console_ticket, ProxmoxConsoleError,
+    )
+
     service = get_object_or_404(Service, id=service_id)
 
     # Verify user owns this service or is admin
@@ -161,73 +164,24 @@ def console_auth_view(request, service_id):
     if not service.machine_id:
         return JsonResponse({'error': 'No machine provisioned'}, status=400)
 
-    # Get console credentials from the API viewset logic
-    from .viewsets.service import ServiceViewSet
-    import random
-    import string
-    from proxmoxer import ProxmoxAPI
-    from proxmoxer.core import ResourceException
-
     try:
-        proxmox_user = f'inveterate{service.owner_id}'
-        password = ''.join(
-            random.SystemRandom().choice(string.ascii_letters + string.digits + string.punctuation)
-            for _ in range(10)
-        )
+        proxmox = get_proxmox_connection(service.node.cluster)
+        userid, password = ensure_console_user(proxmox, service, service.machine_id)
+        ticket_data = get_console_ticket(service.node.cluster.host, userid, password)
+    except ProxmoxConsoleError as e:
+        return JsonResponse({'error': f'Console unavailable: {e}'}, status=502)
 
-        proxmox = ProxmoxAPI(
-            service.node.cluster.host,
-            user=service.node.cluster.user,
-            token_name='inveterate',
-            token_value=service.node.cluster.key,
-            verify_ssl=False,
-            port=8006
-        )
-
-        # Create or reset console user
-        try:
-            proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
-        except ResourceException as e:
-            if "already exists" in str(e):
-                proxmox.access.users(f"{proxmox_user}@pve").delete()
-                proxmox.access.users.post(userid=f"{proxmox_user}@pve", password=password)
-
-        # Set ACL permissions
-        proxmox.access.acl.put(
-            path=f"/vms/{service.machine_id}",
-            roles=["PVEVMUser"],
-            users=[f"{proxmox_user}@pve"]
-        )
-
-        # Authenticate to get ticket
-        auth_response = requests.post(
-            f"https://{service.node.cluster.host}:8006/api2/json/access/ticket",
-            data={
-                'username': f"{proxmox_user}@pve",
-                'password': password
-            },
-            verify=False
-        )
-
-        if auth_response.status_code == 200:
-            auth_data = auth_response.json()['data']
-            vm_type = "lxc" if service.service_plan.type == "lxc" else "qemu"
-
-            return JsonResponse({
-                'success': True,
-                'ticket': auth_data['ticket'],
-                'CSRFPreventionToken': auth_data['CSRFPreventionToken'],
-                'username': f"{proxmox_user}@pve",
-                'node': service.node.name,
-                'vmid': service.machine_id,
-                'vmtype': vm_type,
-                'host': service.node.cluster.host
-            })
-        else:
-            return JsonResponse({'error': 'Authentication failed'}, status=401)
-
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+    vm_type = "lxc" if service.service_plan.type == "lxc" else "qemu"
+    return JsonResponse({
+        'success': True,
+        'ticket': ticket_data['ticket'],
+        'CSRFPreventionToken': ticket_data['CSRFPreventionToken'],
+        'username': userid,
+        'node': service.node.name,
+        'vmid': service.machine_id,
+        'vmtype': vm_type,
+        'host': service.node.cluster.host,
+    })
 
 
 @login_required
