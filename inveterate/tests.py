@@ -2349,3 +2349,142 @@ class TestCleanupConsoleUsers(TestCase):
         ]
         self.assertIn('inveterate9999@pve', deleted_userids)
         self.assertNotIn(f'inveterate{self.admin.id}@pve', deleted_userids)
+
+
+# ===================================================================
+# TestConsoleTermproxyView
+# ===================================================================
+
+class TestConsoleTermproxyView(TestCase):
+
+    def setUp(self):
+        self.admin = _admin()
+        self.user = _user()
+        self.cluster = _cluster()
+        self.node = _node(cluster=self.cluster)
+        _disk(self.node)
+        self.sp = _service_plan(type='lxc')
+        self.svc = _service(self.admin, self.node, self.sp, machine_id=1000001)
+        self.client.login(username='admin', password='pass')
+
+    def test_termproxy_requires_post(self):
+        resp = self.client.get(f'/services/{self.svc.id}/console/termproxy/')
+        self.assertEqual(resp.status_code, 405)
+
+    def test_termproxy_requires_auth_params(self):
+        resp = self.client.post(f'/services/{self.svc.id}/console/termproxy/')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('ticket', resp.json()['error'].lower())
+
+    @patch('inveterate.views.http_requests')
+    def test_termproxy_proxies_to_proxmox(self, mock_requests):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            'data': {
+                'port': '5900',
+                'ticket': 'PVEVNC:abc123',
+                'user': f'inv-s{self.svc.id}@pve',
+            }
+        }
+        mock_requests.post.return_value = mock_resp
+        mock_requests.exceptions = __import__('requests').exceptions
+
+        resp = self.client.post(
+            f'/services/{self.svc.id}/console/termproxy/',
+            {'ticket': 'PVE:tok', 'csrf': 'csrf-tok'},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['port'], '5900')
+        self.assertEqual(data['vmtype'], 'lxc')
+        self.assertEqual(data['node'], self.node.name)
+
+    @patch('inveterate.views.http_requests')
+    def test_termproxy_handles_proxmox_timeout(self, mock_requests):
+        mock_requests.post.side_effect = __import__('requests').exceptions.Timeout
+        mock_requests.exceptions = __import__('requests').exceptions
+
+        resp = self.client.post(
+            f'/services/{self.svc.id}/console/termproxy/',
+            {'ticket': 'PVE:tok', 'csrf': 'csrf-tok'},
+        )
+        self.assertEqual(resp.status_code, 504)
+
+
+# ===================================================================
+# TestConsoleProxyConsumer
+# ===================================================================
+
+from channels.testing import WebsocketCommunicator  # noqa: E402
+from channels.db import database_sync_to_async  # noqa: E402
+
+
+class TestConsoleProxyConsumer(TestCase):
+
+    def _get_communicator(self, service_id, user=None):
+        from inveterate.consumers import ConsoleProxyConsumer
+        communicator = WebsocketCommunicator(
+            ConsoleProxyConsumer.as_asgi(),
+            f'/ws/console/{service_id}/',
+        )
+        communicator.scope['url_route'] = {
+            'kwargs': {'service_id': str(service_id)},
+        }
+        if user:
+            communicator.scope['user'] = user
+        return communicator
+
+    async def test_unauthenticated_rejected(self):
+        from django.contrib.auth.models import AnonymousUser
+        communicator = self._get_communicator(99999, user=AnonymousUser())
+        connected, code = await communicator.connect()
+        self.assertFalse(connected)
+        self.assertEqual(code, 4001)
+
+    async def test_wrong_owner_rejected(self):
+        admin = await database_sync_to_async(_admin)()
+        user = await database_sync_to_async(_user)()
+        cluster = await database_sync_to_async(_cluster)()
+        node = await database_sync_to_async(_node)(cluster=cluster)
+        await database_sync_to_async(_disk)(node)
+        sp = await database_sync_to_async(_service_plan)(type='lxc')
+        svc = await database_sync_to_async(_service)(admin, node, sp, machine_id=1000001)
+
+        communicator = self._get_communicator(svc.id, user=user)
+        connected, code = await communicator.connect()
+        self.assertFalse(connected)
+        self.assertEqual(code, 4004)
+
+    async def test_connect_accepts_valid_user(self):
+        admin = await database_sync_to_async(_admin)()
+        cluster = await database_sync_to_async(_cluster)()
+        node = await database_sync_to_async(_node)(cluster=cluster)
+        await database_sync_to_async(_disk)(node)
+        sp = await database_sync_to_async(_service_plan)(type='lxc')
+        svc = await database_sync_to_async(_service)(admin, node, sp, machine_id=1000001)
+
+        communicator = self._get_communicator(svc.id, user=admin)
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        await communicator.disconnect()
+
+    async def test_auth_message_required_first(self):
+        admin = await database_sync_to_async(_admin)()
+        cluster = await database_sync_to_async(_cluster)()
+        node = await database_sync_to_async(_node)(cluster=cluster)
+        await database_sync_to_async(_disk)(node)
+        sp = await database_sync_to_async(_service_plan)(type='lxc')
+        svc = await database_sync_to_async(_service)(admin, node, sp, machine_id=1000001)
+
+        communicator = self._get_communicator(svc.id, user=admin)
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        # Send non-auth message
+        await communicator.send_to(text_data='hello')
+        response = await communicator.receive_from()
+        data = __import__('json').loads(response)
+        self.assertEqual(data['type'], 'error')
+        await communicator.disconnect()

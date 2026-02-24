@@ -7,8 +7,9 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import views as auth_views
 from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+import requests as http_requests
 
 from .models import Service
 
@@ -186,33 +187,82 @@ def console_auth_view(request, service_id):
 
 @login_required
 @csrf_exempt
-def console_proxy_view(request, service_id):
+def console_termproxy_view(request, service_id):
     """
-    Proxy requests to Proxmox console API.
-    This handles the WebSocket upgrade for xterm.js connection.
+    Proxy a termproxy request to Proxmox and return connection details.
+
+    POST only.  Accepts Proxmox ``ticket`` and ``csrf`` either in the
+    request body (JSON or form-encoded) or via ``X-PVE-Ticket`` /
+    ``X-PVE-CSRF`` headers.
     """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
     service = get_object_or_404(Service, id=service_id)
 
-    # Verify user owns this service or is admin
     if not request.user.is_staff and service.owner != request.user:
         return JsonResponse({'error': 'Permission denied'}, status=403)
 
-    # Get Proxmox details from request
-    ticket = request.GET.get('ticket')
-    csrf_token = request.GET.get('csrf')
+    if not service.machine_id:
+        return JsonResponse({'error': 'No machine provisioned'}, status=400)
+
+    # Accept credentials from body or headers
+    ticket = (
+        request.POST.get('ticket')
+        or request.headers.get('X-PVE-Ticket')
+    )
+    csrf_token = (
+        request.POST.get('csrf')
+        or request.headers.get('X-PVE-CSRF')
+    )
 
     if not ticket or not csrf_token:
-        return JsonResponse({'error': 'Missing authentication'}, status=400)
+        return JsonResponse(
+            {'error': 'Missing ticket or csrf parameters'}, status=400,
+        )
 
     vm_type = "lxc" if service.service_plan.type == "lxc" else "qemu"
-    proxmox_host = service.node.cluster.host
+    host = service.node.cluster.host
+    node = service.node.name
+    vmid = service.machine_id
 
-    # Construct Proxmox console websocket URL
-    ws_url = f"wss://{proxmox_host}:8006/api2/json/nodes/{service.node.name}/{vm_type}/{service.machine_id}/vncwebsocket"
+    url = (
+        f"https://{host}:8006/api2/json/nodes/{node}/{vm_type}/{vmid}/termproxy"
+    )
 
+    try:
+        resp = http_requests.post(
+            url,
+            headers={
+                'Cookie': f'PVEAuthCookie={ticket}',
+                'CSRFPreventionToken': csrf_token,
+            },
+            verify=False,
+            timeout=15,
+        )
+    except http_requests.exceptions.Timeout:
+        return JsonResponse(
+            {'error': 'Proxmox request timed out'}, status=504,
+        )
+    except http_requests.exceptions.ConnectionError:
+        return JsonResponse(
+            {'error': 'Could not connect to Proxmox'}, status=502,
+        )
+
+    if resp.status_code != 200:
+        return JsonResponse(
+            {'error': f'Proxmox returned {resp.status_code}'},
+            status=resp.status_code,
+        )
+
+    data = resp.json().get('data', {})
     return JsonResponse({
-        'websocket_url': ws_url,
-        'node': service.node.name,
-        'vmid': service.machine_id,
-        'vmtype': vm_type
+        'success': True,
+        'port': data.get('port'),
+        'ticket': data.get('ticket'),
+        'user': data.get('user'),
+        'node': node,
+        'vmid': vmid,
+        'vmtype': vm_type,
+        'host': host,
     })

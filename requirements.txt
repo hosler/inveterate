@@ -30,6 +30,12 @@ psycopg[binary]>=3.2
 gunicorn>=23.0
 gevent>=24.11
 
+# WebSocket Support (console proxy)
+channels>=4.0
+channels-redis>=4.1
+daphne>=4.0
+websockets>=12.0
+
 # Optional Development Tools
 # django-extensions>=3.2.0
 # ipython>=8.0.0
