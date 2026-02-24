@@ -1211,3 +1211,153 @@ class TestServiceSerializerApps(TestCase):
         self.assertTrue(ser.is_valid(), ser.errors)
         svc = ser.save()
         self.assertEqual(svc.service_plan.apps.count(), 0)
+
+
+# ===================================================================
+# TestCancelServiceIPRelease
+# ===================================================================
+
+class TestCancelServiceIPRelease(TestCase):
+
+    @patch('inveterate.tasks.ProxmoxAPI')
+    def test_cancel_service_releases_ips(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool = _ip_pool(node)
+        ip1 = IP.objects.create(pool=pool, value='10.0.0.10')
+        ip2 = IP.objects.create(pool=pool, value='10.0.0.11')
+
+        tpl = _template(type='kvm', file='100')
+        sp = _service_plan(template=tpl, storage=disk, type='kvm')
+        svc = _service(user, node, sp, machine_id=1000001)
+
+        # Assign IPs to the service
+        sn1 = ServiceNetwork.objects.create(service=svc)
+        ip1.owner = sn1
+        ip1.save()
+        sn2 = ServiceNetwork.objects.create(service=svc)
+        ip2.owner = sn2
+        ip2.save()
+
+        from .tasks import cancel_service
+        cancel_service(svc.id)
+
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'destroyed')
+
+        # ServiceNetwork records should be deleted
+        self.assertEqual(ServiceNetwork.objects.filter(service=svc).count(), 0)
+
+        # IPs should have owner set to NULL (released back to pool)
+        ip1.refresh_from_db()
+        ip2.refresh_from_db()
+        self.assertIsNone(ip1.owner)
+        self.assertIsNone(ip2.owner)
+
+
+# ===================================================================
+# TestCleanupOrphanedIPs
+# ===================================================================
+
+class TestCleanupOrphanedIPs(TestCase):
+
+    def test_cleans_orphaned_ips_from_destroyed_services(self):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool = _ip_pool(node)
+        ip1 = IP.objects.create(pool=pool, value='10.0.0.10')
+        ip2 = IP.objects.create(pool=pool, value='10.0.0.11')
+
+        sp = _service_plan(storage=disk)
+        svc = _service(user, node, sp, status='destroyed')
+
+        # Simulate orphaned ServiceNetwork records on a destroyed service
+        sn1 = ServiceNetwork.objects.create(service=svc)
+        ip1.owner = sn1
+        ip1.save()
+        sn2 = ServiceNetwork.objects.create(service=svc)
+        ip2.owner = sn2
+        ip2.save()
+
+        from .tasks import cleanup_orphaned_ips
+        cleanup_orphaned_ips()
+
+        # ServiceNetwork records should be deleted
+        self.assertEqual(ServiceNetwork.objects.filter(service=svc).count(), 0)
+
+        # IPs should be released
+        ip1.refresh_from_db()
+        ip2.refresh_from_db()
+        self.assertIsNone(ip1.owner)
+        self.assertIsNone(ip2.owner)
+
+    def test_does_not_touch_active_service_ips(self):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool = _ip_pool(node)
+        ip1 = IP.objects.create(pool=pool, value='10.0.0.10')
+
+        sp = _service_plan(storage=disk)
+        svc = _service(user, node, sp, status='active')
+
+        sn1 = ServiceNetwork.objects.create(service=svc)
+        ip1.owner = sn1
+        ip1.save()
+
+        from .tasks import cleanup_orphaned_ips
+        cleanup_orphaned_ips()
+
+        # Active service networks should be untouched
+        self.assertEqual(ServiceNetwork.objects.filter(service=svc).count(), 1)
+        ip1.refresh_from_db()
+        self.assertIsNotNone(ip1.owner)
+
+
+# ===================================================================
+# TestSetupPeriodicTasks
+# ===================================================================
+
+class TestSetupPeriodicTasks(TestCase):
+
+    def test_creates_periodic_tasks(self):
+        from django.core.management import call_command
+        from django_celery_beat.models import PeriodicTask
+
+        call_command('setup_periodic_tasks')
+
+        expected_tasks = [
+            'Calculate Inventory',
+            'Meter Bandwidth',
+            'Cleanup Console Users',
+            'Cleanup Orphaned IPs',
+            'Sync LXC Templates',
+            'Sync KVM Templates',
+        ]
+        for name in expected_tasks:
+            self.assertTrue(
+                PeriodicTask.objects.filter(name=name).exists(),
+                f"PeriodicTask '{name}' was not created",
+            )
+
+    def test_idempotent(self):
+        from django.core.management import call_command
+        from django_celery_beat.models import PeriodicTask
+
+        call_command('setup_periodic_tasks')
+        first_count = PeriodicTask.objects.count()
+
+        call_command('setup_periodic_tasks')
+        second_count = PeriodicTask.objects.count()
+
+        self.assertEqual(first_count, second_count)

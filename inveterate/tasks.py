@@ -557,8 +557,30 @@ def cancel_service(service_id):
         except Exception:
             pass
 
+    # Release IPs back to the pool by deleting ServiceNetwork records.
+    # IP.owner is a OneToOneField with on_delete=SET_NULL, so deleting
+    # the ServiceNetwork automatically sets IP.owner = NULL.
+    service.service_network.all().delete()
+
     service.status = "destroyed"
     service.save()
+
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def cleanup_orphaned_ips():
+    """
+    Safety-net task to release IPs orphaned by past bugs or edge cases.
+    Finds ServiceNetwork records belonging to destroyed services and deletes
+    them, which auto-nulls IP.owner via the SET_NULL cascade.
+    """
+    logger.info("Starting orphaned IP cleanup")
+    orphaned = ServiceNetwork.objects.filter(service__status='destroyed')
+    count = orphaned.count()
+    if count:
+        orphaned.delete()
+        logger.info(f"Cleaned up {count} orphaned ServiceNetwork records")
+    else:
+        logger.info("No orphaned IPs found")
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
