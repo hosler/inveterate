@@ -15,6 +15,8 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
     throttle_scope = 'admin'
     queryset = models.Cluster.objects.order_by('pk')
+    search_fields = ['name', 'host']
+    ordering_fields = ['id', 'name', 'created']
     default_serializer_class = serializers.ClusterSerializer
     admin_serializer_action_classes = {
         'list': serializers.ClusterSerializer,
@@ -121,19 +123,19 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     def nodes(self, request, pk=None):
         from ..tasks import get_cluster_resources
         stats = get_cluster_resources(pk=pk, query_type="node")
-        return Response(stats, status=202)
+        return Response(stats)
 
     @action(methods=['get'], detail=True)
     def vms(self, request, pk=None):
         from ..tasks import get_cluster_resources
         stats = get_cluster_resources(pk=pk, query_type="vm")
-        return Response(stats, status=202)
+        return Response(stats)
 
     @action(methods=['get'], detail=True)
     def disks(self, request, pk=None):
         from ..tasks import get_cluster_resources
         stats = get_cluster_resources(pk=pk, query_type="storage")
-        return Response(stats, status=202)
+        return Response(stats)
 
     @action(methods=['get'], detail=False)
     def stats(self, request, pk=None):
@@ -154,4 +156,4 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
                 'value': models.Service.objects.all().exclude(status='destroyed').count()
             }
         }
-        return Response(stats, status=202)
+        return Response(stats)

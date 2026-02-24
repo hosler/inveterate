@@ -40,6 +40,8 @@ class PortBlockViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 class PortForwardViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
     throttle_scope = 'authenticated'
+    filterset_fields = ['port_block', 'protocol', 'enabled']
+    ordering_fields = ['id', 'external_port', 'created']
 
     default_serializer_class = serializers.PortForwardSerializer
     admin_serializer_action_classes = {
@@ -72,6 +74,9 @@ class PortForwardViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 class DomainRouteViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
     throttle_scope = 'authenticated'
+    filterset_fields = ['service', 'ssl', 'enabled']
+    search_fields = ['domain']
+    ordering_fields = ['id', 'domain', 'created']
 
     default_serializer_class = serializers.DomainRouteSerializer
     admin_serializer_action_classes = {

@@ -15,6 +15,8 @@ class CustomerViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
     throttle_scope = 'admin'
     queryset = UserModel.objects.all().order_by('pk')
+    search_fields = ['username', 'email']
+    ordering_fields = ['id', 'username', 'date_joined']
 
     def get_serializer_class(self):
         # Create a dynamic serializer for UserModel
@@ -47,4 +49,4 @@ class DashboardViewSet(viewsets.ViewSet):
             'services': service_count,
             'nodes': node_count
         }
-        return Response(data, status=202)
+        return Response(data)

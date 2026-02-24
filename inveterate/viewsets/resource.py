@@ -15,6 +15,9 @@ class IPPoolViewSet(DynamicPageModelViewSet):
     throttle_scope = 'admin'
     queryset = models.IPPool.objects.order_by('pk')
     serializer_class = serializers.IPPoolSerializer
+    filterset_fields = ['type', 'internal']
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'created']
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -43,6 +46,9 @@ class IPViewSet(DynamicPageModelViewSet):
     throttle_scope = 'admin'
     queryset = models.IP.objects.order_by('pk')
     serializer_class = serializers.IPSerializer
+    filterset_fields = ['pool', 'owner']
+    search_fields = ['value']
+    ordering_fields = ['id', 'value', 'created']
 
     @action(methods=['get'], detail=False)
     def stats(self, request, pk=None):
@@ -63,7 +69,7 @@ class IPViewSet(DynamicPageModelViewSet):
                 'value': models.IP.objects.filter(pool__internal=False).filter(pool__type='ipv6').count()
             }
         }
-        return Response(stats, status=202)
+        return Response(stats)
 
 
 class PlanViewSet(DynamicPageModelViewSet):
@@ -71,6 +77,8 @@ class PlanViewSet(DynamicPageModelViewSet):
     throttle_scope = 'public'
     queryset = models.Plan.objects.order_by('pk')
     serializer_class = serializers.PlanSerializer
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'size', 'ram', 'cores', 'created']
 
     @action(methods=['get'], detail=False)
     def stats(self, request, pk=None):
@@ -81,7 +89,7 @@ class PlanViewSet(DynamicPageModelViewSet):
                 'value': models.Plan.objects.all().count()
             }
         }
-        return Response(stats, status=202)
+        return Response(stats)
 
 
 class AppProfileViewSet(DynamicPageModelViewSet):
@@ -89,6 +97,8 @@ class AppProfileViewSet(DynamicPageModelViewSet):
     throttle_scope = 'public'
     queryset = models.AppProfile.objects.order_by('pk')
     serializer_class = serializers.AppProfileSerializer
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'created']
 
 
 class TemplateViewSet(DynamicPageModelViewSet):
@@ -96,6 +106,9 @@ class TemplateViewSet(DynamicPageModelViewSet):
     throttle_scope = 'authenticated'
     queryset = models.Template.objects.order_by('pk')
     serializer_class = serializers.TemplateSerializer
+    filterset_fields = ['type', 'status']
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'type', 'created']
 
     @action(methods=['get'], detail=False)
     def stats(self, request, pk=None):
@@ -106,7 +119,7 @@ class TemplateViewSet(DynamicPageModelViewSet):
                 'value': models.Template.objects.all().count()
             }
         }
-        return Response(stats, status=202)
+        return Response(stats)
 
     @action(methods=['post'], detail=True)
     def reimport(self, request, pk=None):

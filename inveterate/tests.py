@@ -166,7 +166,7 @@ class TestServiceSerializer(TestCase):
     def test_create_snapshots_plan_fields(self, mock_prov):
         mock_prov.delay.return_value = MagicMock(id='task-1')
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -188,7 +188,7 @@ class TestServiceSerializer(TestCase):
     def test_create_plan_not_saved_on_service(self, mock_prov):
         mock_prov.delay.return_value = MagicMock(id='task-1')
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -206,7 +206,7 @@ class TestServiceSerializer(TestCase):
     def test_create_sets_storage_to_primary_disk(self, mock_prov):
         mock_prov.delay.return_value = MagicMock(id='task-1')
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -223,7 +223,7 @@ class TestServiceSerializer(TestCase):
     def test_create_auto_selects_node(self, mock_prov):
         mock_prov.delay.return_value = MagicMock(id='task-1')
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -241,7 +241,7 @@ class TestServiceSerializer(TestCase):
     def test_plan_name_read_field(self, mock_prov):
         mock_prov.delay.return_value = MagicMock(id='task-1')
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -258,7 +258,7 @@ class TestServiceSerializer(TestCase):
 
     def test_hostname_validation_valid(self):
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -271,7 +271,7 @@ class TestServiceSerializer(TestCase):
 
     def test_hostname_validation_invalid(self):
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -712,7 +712,7 @@ class TestServiceViewSet(TestCase):
 
     def test_bulk_import_creates_service_with_plan_name(self):
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.post('/api/services/bulk_import/', {
+        resp = self.client.post('/api/v1/services/bulk_import/', {
             'default_owner_id': self.admin.id,
             'vms': [{
                 'node_id': self.node.id,
@@ -737,7 +737,7 @@ class TestServiceViewSet(TestCase):
         svc = _service(self.admin, self.node, sp, machine_id=1000001)
 
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.get(f'/api/services/{svc.id}/console/')
+        resp = self.client.get(f'/api/v1/services/{svc.id}/console/')
         self.assertEqual(resp.status_code, 200)
         self.assertIn('username', resp.data)
         self.assertIn('password', resp.data)
@@ -750,7 +750,7 @@ class TestServiceViewSet(TestCase):
         svc = _service(self.admin, self.node, sp, machine_id=1000001)
 
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.post(f'/api/services/{svc.id}/start/')
+        resp = self.client.post(f'/api/v1/services/{svc.id}/start/')
         self.assertEqual(resp.status_code, 202)
         self.assertEqual(resp.data['task_id'], 'abc-123')
 
@@ -761,7 +761,7 @@ class TestServiceViewSet(TestCase):
         svc = _service(self.admin, self.node, sp, machine_id=1000001)
 
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.post(f'/api/services/{svc.id}/stop/')
+        resp = self.client.post(f'/api/v1/services/{svc.id}/stop/')
         self.assertEqual(resp.status_code, 202)
         self.assertEqual(resp.data['task_id'], 'def-456')
 
@@ -772,7 +772,7 @@ class TestServiceViewSet(TestCase):
         _service(self.user, self.node, sp2, hostname='user.example.com')
 
         self.client.force_authenticate(user=self.user)
-        resp = self.client.get('/api/services/')
+        resp = self.client.get('/api/v1/services/')
         self.assertEqual(resp.status_code, 200)
         hostnames = [s['hostname'] for s in resp.data['results']]
         self.assertIn('user.example.com', hostnames)
@@ -793,7 +793,7 @@ class TestNodeDiskViewSet(TestCase):
 
         client = APIClient()
         client.force_authenticate(user=admin)
-        resp = client.post('/api/nodedisks/bulk_import/', {
+        resp = client.post('/api/v1/nodedisks/bulk_import/', {
             'disks': [{
                 'storage_name': 'ceph-pool',
                 'storage_type': 'rbd',
@@ -922,7 +922,7 @@ class TestTemplateViewSetReimport(TestCase):
             source_url='https://cloud-images.ubuntu.com/noble/noble.img',
             file='9000', status='ready', node=self.node,
         )
-        resp = self.client.post(f'/api/templates/{tpl.id}/reimport/')
+        resp = self.client.post(f'/api/v1/templates/{tpl.id}/reimport/')
         self.assertEqual(resp.status_code, 202)
         self.assertEqual(resp.data['task_id'], 'task-reimport')
         tpl.refresh_from_db()
@@ -935,7 +935,7 @@ class TestTemplateViewSetReimport(TestCase):
             name='Debian 12', type='lxc',
             file='debian-12-standard_12.2-1_amd64.tar.zst',
         )
-        resp = self.client.post(f'/api/templates/{tpl.id}/reimport/')
+        resp = self.client.post(f'/api/v1/templates/{tpl.id}/reimport/')
         self.assertEqual(resp.status_code, 400)
 
     @patch('inveterate.viewsets.resource.import_kvm_template')
@@ -943,7 +943,7 @@ class TestTemplateViewSetReimport(TestCase):
         tpl = Template.objects.create(
             name='Manual KVM', type='kvm', file='100',
         )
-        resp = self.client.post(f'/api/templates/{tpl.id}/reimport/')
+        resp = self.client.post(f'/api/v1/templates/{tpl.id}/reimport/')
         self.assertEqual(resp.status_code, 400)
 
 
@@ -1183,7 +1183,7 @@ class TestServiceSerializerApps(TestCase):
         app2 = _app_profile(name='k3s', cloud_init='runcmd:\n  - echo k3s')
 
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -1201,7 +1201,7 @@ class TestServiceSerializerApps(TestCase):
     def test_create_without_apps_leaves_empty(self, mock_prov):
         mock_prov.delay.return_value = MagicMock(id='task-1')
         from .serializers import ServiceSerializer
-        request = self.factory.post('/api/services/')
+        request = self.factory.post('/api/v1/services/')
         request.user = self.user
         data = {
             'owner': self.user.id,
@@ -1376,7 +1376,7 @@ class TestTokenAuthentication(TestCase):
         self.user = User.objects.create_user('tokenuser', 'token@test.com', 'tokenpass')
 
     def test_obtain_token(self):
-        resp = self.client.post('/api/auth/token/', {
+        resp = self.client.post('/api/v1/auth/token/', {
             'username': 'tokenuser',
             'password': 'tokenpass',
         })
@@ -1385,7 +1385,7 @@ class TestTokenAuthentication(TestCase):
         self.assertTrue(Token.objects.filter(user=self.user).exists())
 
     def test_obtain_token_bad_credentials(self):
-        resp = self.client.post('/api/auth/token/', {
+        resp = self.client.post('/api/v1/auth/token/', {
             'username': 'tokenuser',
             'password': 'wrong',
         })
@@ -1399,14 +1399,14 @@ class TestTokenAuthentication(TestCase):
         _service(self.user, node, sp, hostname='tok.example.com')
 
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
-        resp = self.client.get('/api/services/')
+        resp = self.client.get('/api/v1/services/')
         self.assertEqual(resp.status_code, 200)
         hostnames = [s['hostname'] for s in resp.data['results']]
         self.assertIn('tok.example.com', hostnames)
 
     def test_invalid_token_rejected(self):
         self.client.credentials(HTTP_AUTHORIZATION='Token invalidtokenvalue')
-        resp = self.client.get('/api/services/')
+        resp = self.client.get('/api/v1/services/')
         self.assertEqual(resp.status_code, 401)
 
 
@@ -1426,9 +1426,9 @@ class TestThrottling(TestCase):
         original = SimpleRateThrottle.THROTTLE_RATES.copy()
         SimpleRateThrottle.THROTTLE_RATES['public'] = '1/hour'
         try:
-            resp1 = self.client.get('/api/plans/')
+            resp1 = self.client.get('/api/v1/plans/')
             self.assertEqual(resp1.status_code, 200)
-            resp2 = self.client.get('/api/plans/')
+            resp2 = self.client.get('/api/v1/plans/')
             self.assertEqual(resp2.status_code, 429)
         finally:
             SimpleRateThrottle.THROTTLE_RATES.update(original)
@@ -1735,7 +1735,7 @@ class TestPortForwardViewSet(TestCase):
     def test_user_creates_forward_on_own_block(self, mock_sync):
         mock_sync.delay.return_value = MagicMock(id='task-1')
         self.client.force_authenticate(user=self.user)
-        resp = self.client.post('/api/portforwards/', {
+        resp = self.client.post('/api/v1/portforwards/', {
             'port_block': self.user_pb.id,
             'external_port': 10100,
             'internal_port': 22,
@@ -1752,7 +1752,7 @@ class TestPortForwardViewSet(TestCase):
         )
 
         self.client.force_authenticate(user=self.user)
-        resp = self.client.get('/api/portforwards/')
+        resp = self.client.get('/api/v1/portforwards/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.data['results']), 1)
         self.assertEqual(resp.data['results'][0]['external_port'], 10100)
@@ -1766,7 +1766,7 @@ class TestPortForwardViewSet(TestCase):
         )
 
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.get('/api/portforwards/')
+        resp = self.client.get('/api/v1/portforwards/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.data['results']), 2)
 
@@ -1774,7 +1774,7 @@ class TestPortForwardViewSet(TestCase):
     def test_non_owner_rejected(self, mock_sync):
         """User cannot create forward on admin's port block."""
         self.client.force_authenticate(user=self.user)
-        resp = self.client.post('/api/portforwards/', {
+        resp = self.client.post('/api/v1/portforwards/', {
             'port_block': self.admin_pb.id,
             'external_port': 10050,
             'internal_port': 22,
@@ -1877,7 +1877,7 @@ class TestDomainRouteViewSet(TestCase):
     def test_user_creates_domain_route(self, mock_sync):
         mock_sync.delay.return_value = MagicMock(id='task-1')
         self.client.force_authenticate(user=self.user)
-        resp = self.client.post('/api/domainroutes/', {
+        resp = self.client.post('/api/v1/domainroutes/', {
             'service': self.user_svc.id,
             'domain': 'myapp.example.com',
             'forward_port': 80,
@@ -1889,7 +1889,7 @@ class TestDomainRouteViewSet(TestCase):
         DomainRoute.objects.create(service=self.user_svc, domain='user-app.example.com')
 
         self.client.force_authenticate(user=self.user)
-        resp = self.client.get('/api/domainroutes/')
+        resp = self.client.get('/api/v1/domainroutes/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.data['results']), 1)
         self.assertEqual(resp.data['results'][0]['domain'], 'user-app.example.com')
@@ -1899,7 +1899,7 @@ class TestDomainRouteViewSet(TestCase):
         DomainRoute.objects.create(service=self.user_svc, domain='user-app.example.com')
 
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.get('/api/domainroutes/')
+        resp = self.client.get('/api/v1/domainroutes/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.data['results']), 2)
 
@@ -1907,7 +1907,7 @@ class TestDomainRouteViewSet(TestCase):
     def test_non_owner_rejected(self, mock_sync):
         """User cannot create domain route on admin's service."""
         self.client.force_authenticate(user=self.user)
-        resp = self.client.post('/api/domainroutes/', {
+        resp = self.client.post('/api/v1/domainroutes/', {
             'service': self.admin_svc.id,
             'domain': 'hijack.example.com',
             'forward_port': 80,

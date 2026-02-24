@@ -29,7 +29,4 @@ LOGGING['loggers']['django']['handlers'] = ['console']
 LOGGING['loggers']['celery']['handlers'] = ['console']
 
 # CORS for development (if using separate frontend)
-# Uncomment if needed:
-# INSTALLED_APPS += ['corsheaders']
-# MIDDLEWARE.insert(0, 'corsheaders.middleware.CorsMiddleware')
-# CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = True

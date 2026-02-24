@@ -38,6 +38,9 @@ UserModel = get_user_model()
 class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
     throttle_scope = 'authenticated'
+    filterset_fields = ['type']
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'created']
 
     default_serializer_class = serializers.ServicePlanSerializer
     admin_serializer_action_classes = {
@@ -65,6 +68,9 @@ class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
     throttle_scope = 'authenticated'
+    filterset_fields = ['status', 'node', 'owner']
+    search_fields = ['hostname']
+    ordering_fields = ['id', 'hostname', 'status', 'created']
 
     default_serializer_class = serializers.ServiceSerializer
     admin_serializer_action_classes = {
@@ -116,7 +122,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     def status(self, request, pk=None):
         service = self.get_object()
         stats = get_vm_status(service.pk)
-        return Response(stats, status=202)
+        return Response(stats)
 
     @action(methods=['post'], detail=True, permission_classes=[IsAdminUser],
             throttle_classes=[ServiceActionThrottle])
@@ -135,7 +141,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     def ips(self, request, pk=None):
         service = self.get_object()
         ips = get_vm_ips(service.pk)
-        return Response(ips, status=202)
+        return Response(ips)
 
     @action(methods=['get'], detail=True, throttle_classes=[ConsoleThrottle])
     def console(self, request, pk=None):
@@ -148,7 +154,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         """
         service = self.get_object()
         if not service.machine_id:
-            return Response({'error': 'No machine provisioned for this service'}, status=500)
+            return Response({'detail': 'No machine provisioned for this service'}, status=400)
 
         proxmox_user = f'inveterate{service.owner_id}'
         password = ''.join(

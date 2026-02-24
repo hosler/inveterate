@@ -16,6 +16,9 @@ class NodeViewSet(DynamicPageModelViewSet):
     throttle_scope = 'admin'
     queryset = models.Node.objects.order_by('pk')
     serializer_class = serializers.NodeSerializer
+    filterset_fields = ['cluster']
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'created']
 
     @action(methods=['get'], detail=False, description="the stats")
     def stats(self, request, pk=None):
@@ -36,7 +39,7 @@ class NodeViewSet(DynamicPageModelViewSet):
                 'value': models.Service.objects.all().exclude(status='destroyed').count()
             }
         }
-        return Response(stats, status=202)
+        return Response(stats)
 
     @action(methods=['get'], detail=True)
     def status(self, request, pk=None):
@@ -316,6 +319,9 @@ class NodeDiskViewSet(DynamicPageModelViewSet):
     throttle_scope = 'admin'
     queryset = models.NodeDisk.objects.order_by('pk')
     serializer_class = serializers.NodeDiskSerializer
+    filterset_fields = ['node', 'primary', 'shared']
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'size']
 
     @action(methods=['get'], detail=False)
     def discover_all(self, request):

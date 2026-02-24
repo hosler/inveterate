@@ -32,6 +32,9 @@ INSTALLED_APPS = [
     # Third party apps
     'rest_framework',
     'rest_framework.authtoken',
+    'corsheaders',
+    'drf_spectacular',
+    'django_filters',
     'django_celery_beat',
 
     # Inveterate app
@@ -39,6 +42,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -133,7 +137,29 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    'EXCEPTION_HANDLER': 'inveterate.exception_handler.api_exception_handler',
 }
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Inveterate API',
+    'DESCRIPTION': 'VPS hosting provider API for managing Proxmox VMs and containers.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+}
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = os.environ.get('CORS_ALLOW_CREDENTIALS', 'off').lower() in ('on', 'true', '1')
 
 # Celery Configuration
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:6379/0")

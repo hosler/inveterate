@@ -8,6 +8,9 @@ celery-singleton>=0.3.1
 
 # API Framework
 djangorestframework>=3.15
+drf-spectacular>=0.27
+django-cors-headers>=4.4
+django-filter>=24.3
 
 # Proxmox Integration
 proxmoxer>=2.1
