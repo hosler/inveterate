@@ -10,6 +10,12 @@ from .resource import (
     InventoryViewSet
 )
 from .dashboard import DashboardViewSet, CustomerViewSet
+from .portforward import (
+    PortGatewayViewSet,
+    PortBlockViewSet,
+    PortForwardViewSet,
+    DomainRouteViewSet,
+)
 
 __all__ = [
     'AppProfileViewSet',
@@ -25,4 +31,8 @@ __all__ = [
     'InventoryViewSet',
     'DashboardViewSet',
     'CustomerViewSet',
+    'PortGatewayViewSet',
+    'PortBlockViewSet',
+    'PortForwardViewSet',
+    'DomainRouteViewSet',
 ]

@@ -13,6 +13,7 @@ from rest_framework.test import APIClient, APIRequestFactory
 from .models import (
     AppProfile, Cluster, Node, NodeDisk, Plan, ServicePlan, Service,
     Template, IPPool, IP, ServiceNetwork, Inventory,
+    PortGateway, PortBlock, PortForward, DomainRoute,
 )
 
 User = get_user_model()
@@ -1431,3 +1432,672 @@ class TestThrottling(TestCase):
             self.assertEqual(resp2.status_code, 429)
         finally:
             SimpleRateThrottle.THROTTLE_RATES.update(original)
+
+
+# ---------------------------------------------------------------------------
+# Port Forwarding / Domain Routing helpers
+# ---------------------------------------------------------------------------
+
+def _port_gateway(pools=None, **kw):
+    defaults = dict(
+        name='gw1', host='http://gateway:81',
+        admin_email='admin@example.com', admin_password='secret',
+        port_range_start=10000, port_range_end=10999, block_size=100,
+    )
+    defaults.update(kw)
+    gw = PortGateway.objects.create(**defaults)
+    if pools:
+        gw.pools.set(pools)
+    return gw
+
+
+def _internal_pool(node, **kw):
+    defaults = dict(
+        name='internal', type='ipv4', network='192.168.0.0', mask=24,
+        gateway='192.168.0.1', dns='8.8.8.8', internal=True,
+    )
+    defaults.update(kw)
+    pool = IPPool.objects.create(**defaults)
+    pool.nodes.add(node)
+    return pool
+
+
+# ===================================================================
+# TestPortBlockAllocation
+# ===================================================================
+
+class TestPortBlockAllocation(TestCase):
+
+    def test_assign_ips_creates_port_block_for_internal_ip(self):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        gw = _port_gateway(pools=[pool_int])
+        for i in range(5):
+            IP.objects.create(pool=pool_int, value=f'192.168.0.{10+i}')
+
+        sp = _service_plan(storage=disk, ipv4_ips=0, ipv6_ips=0, internal_ips=1)
+        svc = _service(user, node, sp)
+
+        from .tasks import assign_ips
+        assign_ips(svc.id)
+
+        sn = ServiceNetwork.objects.filter(service=svc).first()
+        self.assertIsNotNone(sn)
+        self.assertTrue(hasattr(sn, 'port_block'))
+        pb = sn.port_block
+        self.assertEqual(pb.gateway, gw)
+        self.assertEqual(pb.port_start, 10000)
+        self.assertEqual(pb.port_end, 10099)
+
+    def test_skips_external_ips(self):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_ext = _ip_pool(node)
+        IP.objects.create(pool=pool_ext, value='10.0.0.10')
+
+        sp = _service_plan(storage=disk, ipv4_ips=1, ipv6_ips=0, internal_ips=0)
+        svc = _service(user, node, sp)
+
+        from .tasks import assign_ips
+        assign_ips(svc.id)
+
+        sn = ServiceNetwork.objects.filter(service=svc).first()
+        self.assertIsNotNone(sn)
+        self.assertFalse(hasattr(sn, 'port_block'))
+
+    def test_idempotent_port_block(self):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        gw = _port_gateway(pools=[pool_int])
+        IP.objects.create(pool=pool_int, value='192.168.0.10')
+
+        sp = _service_plan(storage=disk, ipv4_ips=0, ipv6_ips=0, internal_ips=1)
+        svc = _service(user, node, sp)
+
+        from .tasks import assign_ips
+        assign_ips(svc.id)
+        first_count = PortBlock.objects.filter(gateway=gw).count()
+        assign_ips(svc.id)
+        second_count = PortBlock.objects.filter(gateway=gw).count()
+        self.assertEqual(first_count, second_count)
+
+    def test_allocates_sequential_blocks(self):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        gw = _port_gateway(pools=[pool_int])
+        for i in range(3):
+            IP.objects.create(pool=pool_int, value=f'192.168.0.{10+i}')
+
+        # Service 1
+        sp1 = _service_plan(storage=disk, ipv4_ips=0, ipv6_ips=0, internal_ips=1)
+        svc1 = _service(user, node, sp1, hostname='s1.example.com')
+        from .tasks import assign_ips
+        assign_ips(svc1.id)
+
+        # Service 2
+        sp2 = _service_plan(storage=disk, ipv4_ips=0, ipv6_ips=0, internal_ips=1)
+        svc2 = _service(user, node, sp2, hostname='s2.example.com')
+        assign_ips(svc2.id)
+
+        blocks = list(PortBlock.objects.filter(gateway=gw).order_by('port_start'))
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual(blocks[0].port_start, 10000)
+        self.assertEqual(blocks[1].port_start, 10100)
+
+    def test_handles_full_gateway(self):
+        """When the gateway has no available port slots, no block is created."""
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        # Gateway with space for only 1 block (10000-10099)
+        gw = _port_gateway(pools=[pool_int], port_range_start=10000, port_range_end=10099, block_size=100)
+        for i in range(2):
+            IP.objects.create(pool=pool_int, value=f'192.168.0.{10+i}')
+
+        # Service 1 takes the only block
+        sp1 = _service_plan(storage=disk, ipv4_ips=0, ipv6_ips=0, internal_ips=1)
+        svc1 = _service(user, node, sp1, hostname='s1.example.com')
+        from .tasks import assign_ips
+        assign_ips(svc1.id)
+        self.assertEqual(PortBlock.objects.filter(gateway=gw).count(), 1)
+
+        # Service 2 can't get a block
+        sp2 = _service_plan(storage=disk, ipv4_ips=0, ipv6_ips=0, internal_ips=1)
+        svc2 = _service(user, node, sp2, hostname='s2.example.com')
+        assign_ips(svc2.id)
+        # Still only 1 block
+        self.assertEqual(PortBlock.objects.filter(gateway=gw).count(), 1)
+
+
+# ===================================================================
+# TestPortBlockDeallocation
+# ===================================================================
+
+class TestPortBlockDeallocation(TestCase):
+
+    @patch('inveterate.tasks.ProxmoxAPI')
+    def test_cancel_service_cascades_to_port_block(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        gw = _port_gateway(pools=[pool_int])
+        ip = IP.objects.create(pool=pool_int, value='192.168.0.10')
+
+        tpl = _template(type='kvm', file='100')
+        sp = _service_plan(template=tpl, storage=disk, type='kvm')
+        svc = _service(user, node, sp, machine_id=1000001)
+
+        sn = ServiceNetwork.objects.create(service=svc)
+        ip.owner = sn
+        ip.save()
+        pb = PortBlock.objects.create(gateway=gw, service_network=sn, port_start=10000, port_end=10099)
+
+        from .tasks import cancel_service
+        cancel_service(svc.id)
+
+        self.assertEqual(PortBlock.objects.filter(pk=pb.pk).count(), 0)
+
+
+# ===================================================================
+# TestPortForwardValidation
+# ===================================================================
+
+class TestPortForwardValidation(TestCase):
+
+    def setUp(self):
+        self.user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        self.gw = _port_gateway(pools=[pool_int])
+        ip = IP.objects.create(pool=pool_int, value='192.168.0.10')
+        sp = _service_plan(storage=disk)
+        self.svc = _service(self.user, node, sp)
+        self.sn = ServiceNetwork.objects.create(service=self.svc)
+        ip.owner = self.sn
+        ip.save()
+        self.pb = PortBlock.objects.create(
+            gateway=self.gw, service_network=self.sn, port_start=10000, port_end=10099,
+        )
+
+    @patch('inveterate.serializers.sync_port_forward')
+    def test_external_port_within_range(self, mock_sync):
+        mock_sync.delay.return_value = MagicMock(id='task-1')
+        from .serializers import PortForwardSerializer
+        data = {
+            'port_block': self.pb.id,
+            'external_port': 10050,
+            'internal_port': 22,
+            'protocol': 'tcp',
+        }
+        ser = PortForwardSerializer(data=data)
+        self.assertTrue(ser.is_valid(), ser.errors)
+
+    @patch('inveterate.serializers.sync_port_forward')
+    def test_external_port_out_of_range(self, mock_sync):
+        from .serializers import PortForwardSerializer
+        data = {
+            'port_block': self.pb.id,
+            'external_port': 9999,
+            'internal_port': 22,
+            'protocol': 'tcp',
+        }
+        ser = PortForwardSerializer(data=data)
+        self.assertFalse(ser.is_valid())
+        self.assertIn('external_port', ser.errors)
+
+    @patch('inveterate.serializers.sync_port_forward')
+    def test_internal_port_out_of_range(self, mock_sync):
+        from .serializers import PortForwardSerializer
+        data = {
+            'port_block': self.pb.id,
+            'external_port': 10001,
+            'internal_port': 0,
+            'protocol': 'tcp',
+        }
+        ser = PortForwardSerializer(data=data)
+        self.assertFalse(ser.is_valid())
+        self.assertIn('internal_port', ser.errors)
+
+    @patch('inveterate.serializers.sync_port_forward')
+    def test_unique_constraint(self, mock_sync):
+        mock_sync.delay.return_value = MagicMock(id='task-1')
+        PortForward.objects.create(
+            port_block=self.pb, external_port=10001, internal_port=22, protocol='tcp',
+        )
+        with self.assertRaises(IntegrityError):
+            PortForward.objects.create(
+                port_block=self.pb, external_port=10001, internal_port=80, protocol='tcp',
+            )
+
+
+# ===================================================================
+# TestPortForwardViewSet
+# ===================================================================
+
+class TestPortForwardViewSet(TestCase):
+
+    def setUp(self):
+        self.admin = _admin()
+        self.user = _user()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        self.gw = _port_gateway(pools=[pool_int])
+
+        # Admin's service + port block
+        ip1 = IP.objects.create(pool=pool_int, value='192.168.0.10')
+        sp1 = _service_plan(storage=disk)
+        self.admin_svc = _service(self.admin, node, sp1, hostname='admin.example.com')
+        sn1 = ServiceNetwork.objects.create(service=self.admin_svc)
+        ip1.owner = sn1
+        ip1.save()
+        self.admin_pb = PortBlock.objects.create(
+            gateway=self.gw, service_network=sn1, port_start=10000, port_end=10099,
+        )
+
+        # User's service + port block
+        ip2 = IP.objects.create(pool=pool_int, value='192.168.0.11')
+        sp2 = _service_plan(storage=disk)
+        self.user_svc = _service(self.user, node, sp2, hostname='user.example.com')
+        sn2 = ServiceNetwork.objects.create(service=self.user_svc)
+        ip2.owner = sn2
+        ip2.save()
+        self.user_pb = PortBlock.objects.create(
+            gateway=self.gw, service_network=sn2, port_start=10100, port_end=10199,
+        )
+
+        self.client = APIClient()
+
+    @patch('inveterate.serializers.sync_port_forward')
+    def test_user_creates_forward_on_own_block(self, mock_sync):
+        mock_sync.delay.return_value = MagicMock(id='task-1')
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.post('/api/portforwards/', {
+            'port_block': self.user_pb.id,
+            'external_port': 10100,
+            'internal_port': 22,
+            'protocol': 'tcp',
+        })
+        self.assertEqual(resp.status_code, 201)
+
+    def test_user_only_sees_own_forwards(self):
+        PortForward.objects.create(
+            port_block=self.admin_pb, external_port=10001, internal_port=22, protocol='tcp',
+        )
+        PortForward.objects.create(
+            port_block=self.user_pb, external_port=10100, internal_port=22, protocol='tcp',
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get('/api/portforwards/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['results']), 1)
+        self.assertEqual(resp.data['results'][0]['external_port'], 10100)
+
+    def test_admin_sees_all_forwards(self):
+        PortForward.objects.create(
+            port_block=self.admin_pb, external_port=10001, internal_port=22, protocol='tcp',
+        )
+        PortForward.objects.create(
+            port_block=self.user_pb, external_port=10100, internal_port=22, protocol='tcp',
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get('/api/portforwards/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['results']), 2)
+
+    @patch('inveterate.serializers.sync_port_forward')
+    def test_non_owner_rejected(self, mock_sync):
+        """User cannot create forward on admin's port block."""
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.post('/api/portforwards/', {
+            'port_block': self.admin_pb.id,
+            'external_port': 10050,
+            'internal_port': 22,
+            'protocol': 'tcp',
+        })
+        self.assertEqual(resp.status_code, 400)
+
+
+# ===================================================================
+# TestDomainRouteValidation
+# ===================================================================
+
+class TestDomainRouteValidation(TestCase):
+
+    def setUp(self):
+        self.user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        self.gw = _port_gateway(pools=[pool_int])
+        ip = IP.objects.create(pool=pool_int, value='192.168.0.10')
+        sp = _service_plan(storage=disk)
+        self.svc = _service(self.user, node, sp)
+        self.sn = ServiceNetwork.objects.create(service=self.svc)
+        ip.owner = self.sn
+        ip.save()
+        PortBlock.objects.create(
+            gateway=self.gw, service_network=self.sn, port_start=10000, port_end=10099,
+        )
+
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_domain_uniqueness(self, mock_sync):
+        mock_sync.delay.return_value = MagicMock(id='task-1')
+        DomainRoute.objects.create(service=self.svc, domain='app.example.com')
+        with self.assertRaises(IntegrityError):
+            DomainRoute.objects.create(service=self.svc, domain='app.example.com')
+
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_service_must_have_internal_ip_and_gateway(self, mock_sync):
+        """A service without internal IP + gateway should fail validation."""
+        cluster = _cluster(name='c2', host='10.0.0.2')
+        node = _node(cluster=cluster, name='pve2')
+        disk = _disk(node)
+        pool_ext = _ip_pool(node)
+        ip = IP.objects.create(pool=pool_ext, value='10.0.0.20')
+        sp = _service_plan(storage=disk, ipv4_ips=1, internal_ips=0)
+        svc2 = _service(self.user, node, sp, hostname='ext.example.com')
+        sn = ServiceNetwork.objects.create(service=svc2)
+        ip.owner = sn
+        ip.save()
+
+        from .serializers import DomainRouteSerializer
+        data = {
+            'service': svc2.id,
+            'domain': 'test.example.com',
+            'forward_port': 80,
+        }
+        ser = DomainRouteSerializer(data=data)
+        self.assertFalse(ser.is_valid())
+        self.assertIn('service', ser.errors)
+
+
+# ===================================================================
+# TestDomainRouteViewSet
+# ===================================================================
+
+class TestDomainRouteViewSet(TestCase):
+
+    def setUp(self):
+        self.admin = _admin()
+        self.user = _user()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        self.gw = _port_gateway(pools=[pool_int])
+
+        # Admin's service
+        ip1 = IP.objects.create(pool=pool_int, value='192.168.0.10')
+        sp1 = _service_plan(storage=disk)
+        self.admin_svc = _service(self.admin, node, sp1, hostname='admin.example.com')
+        sn1 = ServiceNetwork.objects.create(service=self.admin_svc)
+        ip1.owner = sn1
+        ip1.save()
+        PortBlock.objects.create(gateway=self.gw, service_network=sn1, port_start=10000, port_end=10099)
+
+        # User's service
+        ip2 = IP.objects.create(pool=pool_int, value='192.168.0.11')
+        sp2 = _service_plan(storage=disk)
+        self.user_svc = _service(self.user, node, sp2, hostname='user.example.com')
+        sn2 = ServiceNetwork.objects.create(service=self.user_svc)
+        ip2.owner = sn2
+        ip2.save()
+        PortBlock.objects.create(gateway=self.gw, service_network=sn2, port_start=10100, port_end=10199)
+
+        self.client = APIClient()
+
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_user_creates_domain_route(self, mock_sync):
+        mock_sync.delay.return_value = MagicMock(id='task-1')
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.post('/api/domainroutes/', {
+            'service': self.user_svc.id,
+            'domain': 'myapp.example.com',
+            'forward_port': 80,
+        })
+        self.assertEqual(resp.status_code, 201)
+
+    def test_user_only_sees_own_routes(self):
+        DomainRoute.objects.create(service=self.admin_svc, domain='admin-app.example.com')
+        DomainRoute.objects.create(service=self.user_svc, domain='user-app.example.com')
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get('/api/domainroutes/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['results']), 1)
+        self.assertEqual(resp.data['results'][0]['domain'], 'user-app.example.com')
+
+    def test_admin_sees_all_routes(self):
+        DomainRoute.objects.create(service=self.admin_svc, domain='admin-app.example.com')
+        DomainRoute.objects.create(service=self.user_svc, domain='user-app.example.com')
+
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get('/api/domainroutes/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['results']), 2)
+
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_non_owner_rejected(self, mock_sync):
+        """User cannot create domain route on admin's service."""
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.post('/api/domainroutes/', {
+            'service': self.admin_svc.id,
+            'domain': 'hijack.example.com',
+            'forward_port': 80,
+        })
+        self.assertEqual(resp.status_code, 400)
+
+
+# ===================================================================
+# TestNPMClient
+# ===================================================================
+
+class TestNPMClient(TestCase):
+
+    @patch('inveterate.npm.requests')
+    def test_create_stream(self, mock_requests):
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.json.return_value = {'token': 'jwt-token'}
+        mock_auth_resp.raise_for_status = MagicMock()
+
+        mock_create_resp = MagicMock()
+        mock_create_resp.status_code = 201
+        mock_create_resp.json.return_value = {'id': 42}
+        mock_create_resp.raise_for_status = MagicMock()
+
+        mock_requests.post.side_effect = [mock_auth_resp, mock_create_resp]
+
+        from .npm import NPMClient
+        client = NPMClient('http://gw:81', 'admin@test.com', 'pass')
+        result = client.create_stream(20000, '192.168.0.10', 22)
+        self.assertEqual(result['id'], 42)
+
+    @patch('inveterate.npm.requests')
+    def test_delete_stream(self, mock_requests):
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.json.return_value = {'token': 'jwt-token'}
+        mock_auth_resp.raise_for_status = MagicMock()
+        mock_requests.post.return_value = mock_auth_resp
+
+        mock_del_resp = MagicMock()
+        mock_del_resp.status_code = 200
+        mock_del_resp.raise_for_status = MagicMock()
+        mock_requests.delete.return_value = mock_del_resp
+
+        from .npm import NPMClient
+        client = NPMClient('http://gw:81', 'admin@test.com', 'pass')
+        client.delete_stream(42)
+        mock_requests.delete.assert_called_once()
+
+    @patch('inveterate.npm.requests')
+    def test_create_proxy_host(self, mock_requests):
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.json.return_value = {'token': 'jwt-token'}
+        mock_auth_resp.raise_for_status = MagicMock()
+
+        mock_create_resp = MagicMock()
+        mock_create_resp.status_code = 201
+        mock_create_resp.json.return_value = {'id': 99}
+        mock_create_resp.raise_for_status = MagicMock()
+
+        mock_requests.post.side_effect = [mock_auth_resp, mock_create_resp]
+
+        from .npm import NPMClient
+        client = NPMClient('http://gw:81', 'admin@test.com', 'pass')
+        result = client.create_proxy_host('app.example.com', '192.168.0.10', 80)
+        self.assertEqual(result['id'], 99)
+
+    @patch('inveterate.npm.requests')
+    def test_delete_proxy_host(self, mock_requests):
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.json.return_value = {'token': 'jwt-token'}
+        mock_auth_resp.raise_for_status = MagicMock()
+        mock_requests.post.return_value = mock_auth_resp
+
+        mock_del_resp = MagicMock()
+        mock_del_resp.status_code = 200
+        mock_del_resp.raise_for_status = MagicMock()
+        mock_requests.delete.return_value = mock_del_resp
+
+        from .npm import NPMClient
+        client = NPMClient('http://gw:81', 'admin@test.com', 'pass')
+        client.delete_proxy_host(99)
+        mock_requests.delete.assert_called_once()
+
+    @patch('inveterate.npm.requests')
+    def test_auth_token_refresh_on_401(self, mock_requests):
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.json.return_value = {'token': 'jwt-token'}
+        mock_auth_resp.raise_for_status = MagicMock()
+
+        mock_401_resp = MagicMock()
+        mock_401_resp.status_code = 401
+
+        mock_ok_resp = MagicMock()
+        mock_ok_resp.status_code = 200
+        mock_ok_resp.json.return_value = {'id': 1}
+        mock_ok_resp.raise_for_status = MagicMock()
+
+        # First post = auth, second post = 401, third post = re-auth, fourth post = success
+        mock_requests.post.side_effect = [mock_auth_resp, mock_401_resp, mock_auth_resp, mock_ok_resp]
+
+        from .npm import NPMClient
+        client = NPMClient('http://gw:81', 'admin@test.com', 'pass')
+        result = client.create_stream(20000, '192.168.0.10', 22)
+        self.assertEqual(result['id'], 1)
+        # Auth should have been called twice (initial + refresh)
+        self.assertEqual(mock_requests.post.call_count, 4)
+
+
+# ===================================================================
+# TestNPMSyncTasks
+# ===================================================================
+
+class TestNPMSyncTasks(TestCase):
+
+    def _setup_internal_service(self):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        gw = _port_gateway(pools=[pool_int])
+        ip = IP.objects.create(pool=pool_int, value='192.168.0.10')
+        tpl = _template(type='kvm', file='100')
+        sp = _service_plan(template=tpl, storage=disk, type='kvm')
+        svc = _service(user, node, sp, machine_id=1000001)
+        sn = ServiceNetwork.objects.create(service=svc)
+        ip.owner = sn
+        ip.save()
+        pb = PortBlock.objects.create(gateway=gw, service_network=sn, port_start=10000, port_end=10099)
+        return svc, sn, pb, gw
+
+    @patch('inveterate.npm.NPMClient')
+    def test_sync_port_forward_creates_stream(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.create_stream.return_value = {'id': 42}
+
+        svc, sn, pb, gw = self._setup_internal_service()
+        pf = PortForward.objects.create(
+            port_block=pb, external_port=10001, internal_port=22, protocol='tcp',
+        )
+
+        from .tasks import sync_port_forward
+        sync_port_forward(pf.id)
+
+        pf.refresh_from_db()
+        self.assertEqual(pf.npm_stream_id, 42)
+
+    @patch('inveterate.npm.NPMClient')
+    def test_sync_domain_route_creates_proxy_host(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.create_proxy_host.return_value = {'id': 99}
+
+        svc, sn, pb, gw = self._setup_internal_service()
+        dr = DomainRoute.objects.create(
+            service=svc, domain='app.example.com', forward_port=80,
+        )
+
+        from .tasks import sync_domain_route
+        sync_domain_route(dr.id)
+
+        dr.refresh_from_db()
+        self.assertEqual(dr.npm_proxy_host_id, 99)
+
+    @patch('inveterate.npm.NPMClient')
+    @patch('inveterate.tasks.ProxmoxAPI')
+    def test_cancel_service_cleans_npm_resources(self, mock_prox_cls, mock_client_cls):
+        mock_proxmox = MagicMock()
+        mock_prox_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        svc, sn, pb, gw = self._setup_internal_service()
+        pf = PortForward.objects.create(
+            port_block=pb, external_port=10001, internal_port=22,
+            protocol='tcp', npm_stream_id=42,
+        )
+        dr = DomainRoute.objects.create(
+            service=svc, domain='app.example.com', forward_port=80,
+            npm_proxy_host_id=99,
+        )
+
+        from .tasks import cancel_service
+        cancel_service(svc.id)
+
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'destroyed')
+        mock_client.delete_stream.assert_called_with(42)
+        mock_client.delete_proxy_host.assert_called_with(99)

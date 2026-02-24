@@ -264,3 +264,89 @@ class Inventory(models.Model):
         ordering = ['-created']
 
 
+class PortGateway(models.Model):
+    name = models.CharField(max_length=255)
+    host = models.CharField(max_length=255)
+    admin_email = models.EmailField()
+    admin_password = models.CharField(max_length=255)
+    port_range_start = models.IntegerField(default=10000)
+    port_range_end = models.IntegerField(default=60000)
+    block_size = models.IntegerField(default=100)
+    pools = models.ManyToManyField('IPPool', blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
+
+    def __str__(self):
+        return self.name
+
+
+class PortBlock(models.Model):
+    gateway = models.ForeignKey(PortGateway, on_delete=models.CASCADE, related_name='port_blocks')
+    service_network = models.OneToOneField(ServiceNetwork, on_delete=models.CASCADE, related_name='port_block')
+    port_start = models.IntegerField()
+    port_end = models.IntegerField()
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(fields=['gateway', 'port_start'], name='unique_gateway_port_start')
+        ]
+
+    def __str__(self):
+        return f"{self.gateway.name}:{self.port_start}-{self.port_end}"
+
+
+PROTOCOL_CHOICES = (
+    ('tcp', 'TCP'),
+    ('udp', 'UDP'),
+    ('both', 'TCP+UDP'),
+)
+
+
+class PortForward(models.Model):
+    port_block = models.ForeignKey(PortBlock, on_delete=models.CASCADE, related_name='forwards')
+    external_port = models.IntegerField()
+    internal_port = models.IntegerField()
+    protocol = models.CharField(max_length=4, choices=PROTOCOL_CHOICES, default='tcp')
+    label = models.CharField(max_length=255, blank=True, default='')
+    enabled = models.BooleanField(default=True)
+    npm_stream_id = models.IntegerField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['port_block', 'external_port', 'protocol'],
+                name='unique_portblock_extport_proto'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.external_port}->{self.internal_port}/{self.protocol}"
+
+
+class DomainRoute(models.Model):
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='domain_routes')
+    domain = models.CharField(max_length=255, unique=True)
+    forward_port = models.IntegerField(default=80)
+    ssl = models.BooleanField(default=True)
+    force_ssl = models.BooleanField(default=True)
+    enabled = models.BooleanField(default=True)
+    npm_proxy_host_id = models.IntegerField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
+
+    def __str__(self):
+        return self.domain
+
+

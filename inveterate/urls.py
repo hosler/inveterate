@@ -17,5 +17,9 @@ router.register(r'dashboard', viewsets.DashboardViewSet, basename="dashboard")
 router.register(r'services', viewsets.ServiceViewSet, basename="service")
 router.register(r'nodedisks', viewsets.NodeDiskViewSet)
 router.register(r'customers', viewsets.CustomerViewSet)
+router.register(r'portgateways', viewsets.PortGatewayViewSet)
+router.register(r'portblocks', viewsets.PortBlockViewSet, basename='portblock')
+router.register(r'portforwards', viewsets.PortForwardViewSet, basename='portforward')
+router.register(r'domainroutes', viewsets.DomainRouteViewSet, basename='domainroute')
 
 urlpatterns = router.urls

@@ -155,3 +155,57 @@ class ServicePlanAdmin(admin.ModelAdmin):
     list_filter = ('type',)
     readonly_fields = ('created', 'updated')
 
+
+class PortForwardInline(admin.TabularInline):
+    model = models.PortForward
+    extra = 0
+    fields = ('external_port', 'internal_port', 'protocol', 'label', 'enabled', 'npm_stream_id')
+    readonly_fields = ('npm_stream_id',)
+
+
+@admin.register(models.PortGateway)
+class PortGatewayAdmin(admin.ModelAdmin):
+    list_display = ('name', 'host', 'port_range_start', 'port_range_end', 'block_size', 'allocated_count')
+    search_fields = ('name', 'host')
+    filter_horizontal = ('pools',)
+    readonly_fields = ('created', 'updated')
+
+    def allocated_count(self, obj):
+        return obj.port_blocks.count()
+    allocated_count.short_description = 'Allocated Blocks'
+
+
+@admin.register(models.PortBlock)
+class PortBlockAdmin(admin.ModelAdmin):
+    list_display = ('port_range', 'gateway', 'service_link', 'forward_count')
+    list_filter = ('gateway',)
+    readonly_fields = ('created', 'updated')
+    inlines = [PortForwardInline]
+
+    def port_range(self, obj):
+        return f"{obj.port_start}-{obj.port_end}"
+    port_range.short_description = 'Port Range'
+
+    def service_link(self, obj):
+        return obj.service_network.service
+    service_link.short_description = 'Service'
+
+    def forward_count(self, obj):
+        return obj.forwards.count()
+    forward_count.short_description = 'Forwards'
+
+
+@admin.register(models.PortForward)
+class PortForwardAdmin(admin.ModelAdmin):
+    list_display = ('external_port', 'internal_port', 'protocol', 'enabled', 'npm_stream_id', 'port_block')
+    list_filter = ('protocol', 'enabled')
+    readonly_fields = ('npm_stream_id', 'created', 'updated')
+
+
+@admin.register(models.DomainRoute)
+class DomainRouteAdmin(admin.ModelAdmin):
+    list_display = ('domain', 'service', 'forward_port', 'ssl', 'enabled', 'npm_proxy_host_id')
+    list_filter = ('ssl', 'enabled')
+    search_fields = ('domain',)
+    readonly_fields = ('npm_proxy_host_id', 'created', 'updated')
+

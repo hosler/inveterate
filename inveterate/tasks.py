@@ -14,7 +14,10 @@ from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
 
-from .models import Node, Plan, Inventory, Service, Cluster, IP, ServiceNetwork, IPPool, NodeDisk, Template
+from .models import (
+    Node, Plan, Inventory, Service, Cluster, IP, ServiceNetwork, IPPool,
+    NodeDisk, Template, PortGateway, PortBlock, PortForward, DomainRoute,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +123,38 @@ def assign_ips(service_id):
                     ip.owner = service_network
                     ip.save()
                     break
+
+    # Allocate port blocks for internal IPs that don't have one yet
+    internal_networks = ServiceNetwork.objects.filter(
+        service=service, ip__pool__internal=True
+    ).select_related('ip__pool').exclude(port_block__isnull=False)
+
+    for sn in internal_networks:
+        gateways = PortGateway.objects.filter(pools=sn.ip.pool)
+        for gw in gateways:
+            with transaction.atomic():
+                # Lock gateway's port blocks to find next available slot
+                existing_starts = set(
+                    PortBlock.objects.select_for_update()
+                    .filter(gateway=gw)
+                    .values_list('port_start', flat=True)
+                )
+                port = gw.port_range_start
+                allocated = False
+                while port + gw.block_size - 1 <= gw.port_range_end:
+                    if port not in existing_starts:
+                        PortBlock.objects.create(
+                            gateway=gw,
+                            service_network=sn,
+                            port_start=port,
+                            port_end=port + gw.block_size - 1,
+                        )
+                        logger.info(f"Allocated port block {port}-{port + gw.block_size - 1} on {gw.name} for service {service_id}")
+                        allocated = True
+                        break
+                    port += gw.block_size
+                if not allocated:
+                    logger.warning(f"No available port block on gateway {gw.name} for service {service_id}")
 
 
 def _compose_cloud_init(apps):
@@ -493,16 +528,31 @@ def get_vm_status(service_id):
 
 
 def get_vm_ips(service_id):
-    networks = ServiceNetwork.objects.filter(service_id=service_id)
+    networks = ServiceNetwork.objects.filter(service_id=service_id).select_related('ip__pool')
     ips = []
     for network in networks:
         ip = {
-            "value": network.ip.value
+            "value": network.ip.value,
+            "primary": network.net_id == 0,
         }
-        if network.net_id == 0:
-            ip["primary"] = True
-        else:
-            ip["primary"] = False
+        if network.ip.pool.internal and hasattr(network, 'port_block'):
+            pb = network.port_block
+            ip["port_block"] = {
+                "gateway_host": pb.gateway.host,
+                "gateway_name": pb.gateway.name,
+                "port_start": pb.port_start,
+                "port_end": pb.port_end,
+                "forwards": [
+                    {
+                        "external_port": pf.external_port,
+                        "internal_port": pf.internal_port,
+                        "protocol": pf.protocol,
+                        "label": pf.label,
+                        "enabled": pf.enabled,
+                    }
+                    for pf in pb.forwards.all()
+                ],
+            }
         ips.append(ip)
     return ips
 
@@ -556,6 +606,38 @@ def cancel_service(service_id):
             node.storage('local').content.delete(f'snippets/ci-{service.machine_id}.yml')
         except Exception:
             pass
+
+    # Clean up NPM resources (port forwards and domain routes)
+    for sn in service.service_network.all():
+        if hasattr(sn, 'port_block'):
+            for pf in sn.port_block.forwards.filter(npm_stream_id__isnull=False):
+                try:
+                    from .npm import NPMClient
+                    client = NPMClient(
+                        sn.port_block.gateway.host,
+                        sn.port_block.gateway.admin_email,
+                        sn.port_block.gateway.admin_password,
+                    )
+                    client.delete_stream(pf.npm_stream_id)
+                    logger.info(f"Deleted NPM stream {pf.npm_stream_id} for service {service_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete NPM stream {pf.npm_stream_id}: {e}")
+
+    for dr in service.domain_routes.filter(npm_proxy_host_id__isnull=False):
+        # Find the gateway via any internal service network
+        internal_sn = service.service_network.filter(ip__pool__internal=True).first()
+        if internal_sn and hasattr(internal_sn, 'port_block'):
+            try:
+                from .npm import NPMClient
+                client = NPMClient(
+                    internal_sn.port_block.gateway.host,
+                    internal_sn.port_block.gateway.admin_email,
+                    internal_sn.port_block.gateway.admin_password,
+                )
+                client.delete_proxy_host(dr.npm_proxy_host_id)
+                logger.info(f"Deleted NPM proxy host {dr.npm_proxy_host_id} for service {service_id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete NPM proxy host {dr.npm_proxy_host_id}: {e}")
 
     # Release IPs back to the pool by deleting ServiceNetwork records.
     # IP.owner is a OneToOneField with on_delete=SET_NULL, so deleting
@@ -1019,3 +1101,126 @@ def sync_kvm_templates():
         f"KVM template sync completed: {checked} checked, "
         f"{reimported} re-imported, {errors} errors"
     )
+
+
+# ===================================================================
+# NPM Sync Tasks
+# ===================================================================
+
+def _get_npm_client(gateway):
+    from .npm import NPMClient
+    return NPMClient(gateway.host, gateway.admin_email, gateway.admin_password)
+
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def sync_port_forward(port_forward_id):
+    """Create or update the NPM stream for a PortForward record."""
+    logger.info(f"Syncing port forward {port_forward_id} to NPM")
+    pf = PortForward.objects.select_related(
+        'port_block__gateway', 'port_block__service_network__ip'
+    ).get(pk=port_forward_id)
+
+    client = _get_npm_client(pf.port_block.gateway)
+    forwarding_host = pf.port_block.service_network.ip.value
+    tcp = pf.protocol in ('tcp', 'both')
+    udp = pf.protocol in ('udp', 'both')
+
+    try:
+        if pf.npm_stream_id:
+            client.update_stream(
+                pf.npm_stream_id,
+                incoming_port=pf.external_port,
+                forwarding_host=forwarding_host,
+                forwarding_port=pf.internal_port,
+                tcp_forwarding=tcp,
+                udp_forwarding=udp,
+            )
+            logger.info(f"Updated NPM stream {pf.npm_stream_id} for port forward {pf.id}")
+        else:
+            result = client.create_stream(
+                incoming_port=pf.external_port,
+                forwarding_host=forwarding_host,
+                forwarding_port=pf.internal_port,
+                tcp=tcp,
+                udp=udp,
+            )
+            pf.npm_stream_id = result['id']
+            pf.save(update_fields=['npm_stream_id'])
+            logger.info(f"Created NPM stream {pf.npm_stream_id} for port forward {pf.id}")
+    except Exception as e:
+        logger.error(f"Failed to sync port forward {pf.id} to NPM: {e}")
+        raise
+
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def sync_domain_route(domain_route_id):
+    """Create or update the NPM proxy host for a DomainRoute record."""
+    logger.info(f"Syncing domain route {domain_route_id} to NPM")
+    dr = DomainRoute.objects.select_related('service').get(pk=domain_route_id)
+
+    # Find the internal IP and gateway for this service
+    internal_sn = ServiceNetwork.objects.filter(
+        service=dr.service, ip__pool__internal=True
+    ).select_related('ip', 'port_block__gateway').first()
+
+    if not internal_sn or not hasattr(internal_sn, 'port_block'):
+        logger.error(f"No internal IP with port block for domain route {dr.id}")
+        return
+
+    client = _get_npm_client(internal_sn.port_block.gateway)
+    forward_host = internal_sn.ip.value
+
+    try:
+        if dr.npm_proxy_host_id:
+            client.update_proxy_host(
+                dr.npm_proxy_host_id,
+                domain_names=[dr.domain],
+                forward_host=forward_host,
+                forward_port=dr.forward_port,
+                ssl_forced=dr.force_ssl,
+            )
+            logger.info(f"Updated NPM proxy host {dr.npm_proxy_host_id} for domain route {dr.id}")
+        else:
+            result = client.create_proxy_host(
+                domain=dr.domain,
+                forward_host=forward_host,
+                forward_port=dr.forward_port,
+                ssl=dr.ssl,
+                force_ssl=dr.force_ssl,
+            )
+            dr.npm_proxy_host_id = result['id']
+            dr.save(update_fields=['npm_proxy_host_id'])
+            logger.info(f"Created NPM proxy host {dr.npm_proxy_host_id} for domain route {dr.id}")
+    except Exception as e:
+        logger.error(f"Failed to sync domain route {dr.id} to NPM: {e}")
+        raise
+
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def delete_npm_stream(gateway_id, npm_stream_id):
+    """Fire-and-forget cleanup of an NPM stream."""
+    logger.info(f"Deleting NPM stream {npm_stream_id} on gateway {gateway_id}")
+    try:
+        gw = PortGateway.objects.get(pk=gateway_id)
+        client = _get_npm_client(gw)
+        client.delete_stream(npm_stream_id)
+        logger.info(f"Deleted NPM stream {npm_stream_id}")
+    except PortGateway.DoesNotExist:
+        logger.warning(f"Gateway {gateway_id} not found, cannot delete stream {npm_stream_id}")
+    except Exception as e:
+        logger.warning(f"Failed to delete NPM stream {npm_stream_id}: {e}")
+
+
+@shared_task(base=Singleton, lock_expiry=60 * 15)
+def delete_npm_proxy_host(gateway_id, npm_proxy_host_id):
+    """Fire-and-forget cleanup of an NPM proxy host."""
+    logger.info(f"Deleting NPM proxy host {npm_proxy_host_id} on gateway {gateway_id}")
+    try:
+        gw = PortGateway.objects.get(pk=gateway_id)
+        client = _get_npm_client(gw)
+        client.delete_proxy_host(npm_proxy_host_id)
+        logger.info(f"Deleted NPM proxy host {npm_proxy_host_id}")
+    except PortGateway.DoesNotExist:
+        logger.warning(f"Gateway {gateway_id} not found, cannot delete proxy host {npm_proxy_host_id}")
+    except Exception as e:
+        logger.warning(f"Failed to delete NPM proxy host {npm_proxy_host_id}: {e}")

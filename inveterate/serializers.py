@@ -7,7 +7,7 @@ from rest_framework import serializers
 from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
 from . import models
-from .tasks import provision_service
+from .tasks import provision_service, sync_port_forward, sync_domain_route, delete_npm_stream, delete_npm_proxy_host
 
 
 from django.contrib.auth import get_user_model
@@ -240,3 +240,140 @@ class TemplateSerializer(serializers.ModelSerializer):
             from .tasks import import_kvm_template
             import_kvm_template.delay(template.id)
         return template
+
+
+# ===================================================================
+# Port Forwarding / Domain Routing Serializers
+# ===================================================================
+
+class PortGatewaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.PortGateway
+        fields = '__all__'
+
+    def to_internal_value(self, data):
+        data = data.copy()
+        if 'pools' in data and isinstance(data['pools'], str):
+            data['pools'] = [int(n) for n in data['pools'].split(',') if n]
+        return super().to_internal_value(data)
+
+
+class PortForwardNestedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.PortForward
+        fields = ('id', 'external_port', 'internal_port', 'protocol', 'label', 'enabled', 'npm_stream_id')
+        read_only_fields = ('npm_stream_id',)
+
+
+class PortBlockSerializer(serializers.ModelSerializer):
+    forwards = PortForwardNestedSerializer(many=True, read_only=True)
+    gateway_host = serializers.ReadOnlyField(source='gateway.host')
+    gateway_name = serializers.ReadOnlyField(source='gateway.name')
+    internal_ip = serializers.ReadOnlyField(source='service_network.ip.value')
+    service_id = serializers.ReadOnlyField(source='service_network.service_id')
+
+    class Meta:
+        model = models.PortBlock
+        fields = (
+            'id', 'gateway', 'gateway_host', 'gateway_name',
+            'service_network', 'internal_ip', 'service_id',
+            'port_start', 'port_end', 'forwards', 'created', 'updated',
+        )
+
+
+class PortBlockSerializerClient(PortBlockSerializer):
+    class Meta(PortBlockSerializer.Meta):
+        read_only_fields = (
+            'id', 'gateway', 'gateway_host', 'gateway_name',
+            'service_network', 'internal_ip', 'service_id',
+            'port_start', 'port_end', 'forwards', 'created', 'updated',
+        )
+
+
+class PortForwardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.PortForward
+        fields = '__all__'
+        read_only_fields = ('npm_stream_id',)
+
+    def validate_internal_port(self, value):
+        if not 1 <= value <= 65535:
+            raise serializers.ValidationError("internal_port must be between 1 and 65535.")
+        return value
+
+    def validate(self, attrs):
+        port_block = attrs.get('port_block') or (self.instance.port_block if self.instance else None)
+        external_port = attrs.get('external_port', getattr(self.instance, 'external_port', None))
+        if port_block and external_port is not None:
+            if not (port_block.port_start <= external_port <= port_block.port_end):
+                raise serializers.ValidationError({
+                    'external_port': f"Must be within port block range {port_block.port_start}-{port_block.port_end}."
+                })
+        return attrs
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        sync_port_forward.delay(instance.id)
+        return instance
+
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        sync_port_forward.delay(instance.id)
+        return instance
+
+
+class PortForwardSerializerClient(PortForwardSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and not request.user.is_staff:
+            self.fields['port_block'].queryset = models.PortBlock.objects.filter(
+                service_network__service__owner=request.user
+            )
+
+
+class DomainRouteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.DomainRoute
+        fields = '__all__'
+        read_only_fields = ('npm_proxy_host_id',)
+
+    def validate_forward_port(self, value):
+        if not 1 <= value <= 65535:
+            raise serializers.ValidationError("forward_port must be between 1 and 65535.")
+        return value
+
+    def validate(self, attrs):
+        service = attrs.get('service') or (self.instance.service if self.instance else None)
+        if service:
+            # Service must have at least one internal IP with a gateway
+            has_internal_gw = models.ServiceNetwork.objects.filter(
+                service=service, ip__pool__internal=True
+            ).filter(
+                ip__pool__in=models.PortGateway.objects.values_list('pools', flat=True)
+            ).exists()
+            if not has_internal_gw:
+                raise serializers.ValidationError({
+                    'service': "Service must have an internal IP with a configured port gateway."
+                })
+        return attrs
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        sync_domain_route.delay(instance.id)
+        return instance
+
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        sync_domain_route.delay(instance.id)
+        return instance
+
+
+class DomainRouteSerializerClient(DomainRouteSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and not request.user.is_staff:
+            self.fields['service'].queryset = models.Service.objects.filter(
+                owner=request.user
+            ).exclude(status='destroyed')
