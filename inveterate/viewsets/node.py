@@ -13,6 +13,7 @@ from .. import serializers
 
 class NodeViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
+    throttle_scope = 'admin'
     queryset = models.Node.objects.order_by('pk')
     serializer_class = serializers.NodeSerializer
 
@@ -312,6 +313,7 @@ class NodeViewSet(DynamicPageModelViewSet):
 
 class NodeDiskViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
+    throttle_scope = 'admin'
     queryset = models.NodeDisk.objects.order_by('pk')
     serializer_class = serializers.NodeDiskSerializer
 

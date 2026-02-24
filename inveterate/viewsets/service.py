@@ -5,8 +5,17 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
+
+
+class ServiceActionThrottle(ScopedRateThrottle):
+    scope = 'service_action'
+
+
+class ConsoleThrottle(ScopedRateThrottle):
+    scope = 'console'
 
 from .base import DynamicPageModelViewSet, MultiSerializerViewSetMixin
 from .. import models
@@ -28,6 +37,7 @@ UserModel = get_user_model()
 
 class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
+    throttle_scope = 'authenticated'
 
     default_serializer_class = serializers.ServicePlanSerializer
     admin_serializer_action_classes = {
@@ -54,6 +64,7 @@ class ServicePlanViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 
 class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | IsAuthenticated]
+    throttle_scope = 'authenticated'
 
     default_serializer_class = serializers.ServiceSerializer
     admin_serializer_action_classes = {
@@ -71,49 +82,50 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'metadata': serializers.ServiceSerializerClient,
     }
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def start(self, request, pk=None):
         service = self.get_object()
         task = start_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def shutdown(self, request, pk=None):
         service = self.get_object()
         task = shutdown_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def reset(self, request, pk=None):
         service = self.get_object()
         task = reset_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def stop(self, request, pk=None):
         service = self.get_object()
         task = stop_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def reboot(self, request, pk=None):
         service = self.get_object()
         task = reboot_vm.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def status(self, request, pk=None):
         service = self.get_object()
         stats = get_vm_status(service.pk)
         return Response(stats, status=202)
 
-    @action(methods=['post'], detail=True, permission_classes=[IsAdminUser])
+    @action(methods=['post'], detail=True, permission_classes=[IsAdminUser],
+            throttle_classes=[ServiceActionThrottle])
     def cancel(self, request, pk=None):
         service = self.get_object()
         task = cancel_service.delay(service.pk)
         return Response({"task_id": task.id}, status=202)
 
-    @action(methods=['post'], detail=True)
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def provision(self, request, pk=None):
         service = self.get_object()
         task = provision_service.delay(service_id=service.pk, password=None)
@@ -125,7 +137,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         ips = get_vm_ips(service.pk)
         return Response(ips, status=202)
 
-    @action(methods=['get'], detail=True)
+    @action(methods=['get'], detail=True, throttle_classes=[ConsoleThrottle])
     def console(self, request, pk=None):
         """
         Get console access credentials for a service's VM.

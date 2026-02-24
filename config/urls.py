@@ -5,7 +5,17 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.throttling import ScopedRateThrottle
 from inveterate import views
+
+
+class TokenAuthThrottle(ScopedRateThrottle):
+    scope = 'token_auth'
+
+
+class ThrottledObtainAuthToken(ObtainAuthToken):
+    throttle_classes = [TokenAuthThrottle]
 
 urlpatterns = [
     # Admin
@@ -31,6 +41,9 @@ urlpatterns = [
     path('dashboard/templates/', views.TemplateListView.as_view(), name='admin-templates'),
     path('dashboard/apps/', views.AppProfileListView.as_view(), name='admin-apps'),
     path('dashboard/ips/', views.IPPoolListView.as_view(), name='admin-ips'),
+
+    # API Token Auth
+    path('api/auth/token/', ThrottledObtainAuthToken.as_view(), name='api-token-auth'),
 
     # REST API
     path('api/', include('inveterate.urls')),

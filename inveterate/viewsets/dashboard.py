@@ -13,6 +13,7 @@ UserModel = get_user_model()
 
 class CustomerViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
+    throttle_scope = 'admin'
     queryset = UserModel.objects.all().order_by('pk')
 
     def get_serializer_class(self):
@@ -28,6 +29,7 @@ class CustomerViewSet(DynamicPageModelViewSet):
 
 class DashboardViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
+    throttle_scope = 'admin'
 
     @action(methods=['get'], detail=False)
     def summary(self, request):

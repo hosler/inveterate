@@ -7,6 +7,7 @@ from django.db import IntegrityError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from requests.exceptions import ConnectionError
+from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient, APIRequestFactory
 
 from .models import (
@@ -1361,3 +1362,72 @@ class TestSetupPeriodicTasks(TestCase):
         second_count = PeriodicTask.objects.count()
 
         self.assertEqual(first_count, second_count)
+
+
+# ===================================================================
+# TestTokenAuthentication
+# ===================================================================
+
+class TestTokenAuthentication(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user('tokenuser', 'token@test.com', 'tokenpass')
+
+    def test_obtain_token(self):
+        resp = self.client.post('/api/auth/token/', {
+            'username': 'tokenuser',
+            'password': 'tokenpass',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('token', resp.data)
+        self.assertTrue(Token.objects.filter(user=self.user).exists())
+
+    def test_obtain_token_bad_credentials(self):
+        resp = self.client.post('/api/auth/token/', {
+            'username': 'tokenuser',
+            'password': 'wrong',
+        })
+        self.assertEqual(resp.status_code, 400)
+
+    def test_token_auth_on_endpoint(self):
+        token = Token.objects.create(user=self.user)
+        node = _node()
+        disk = _disk(node)
+        sp = _service_plan(storage=disk)
+        _service(self.user, node, sp, hostname='tok.example.com')
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+        resp = self.client.get('/api/services/')
+        self.assertEqual(resp.status_code, 200)
+        hostnames = [s['hostname'] for s in resp.data['results']]
+        self.assertIn('tok.example.com', hostnames)
+
+    def test_invalid_token_rejected(self):
+        self.client.credentials(HTTP_AUTHORIZATION='Token invalidtokenvalue')
+        resp = self.client.get('/api/services/')
+        self.assertEqual(resp.status_code, 401)
+
+
+# ===================================================================
+# TestThrottling
+# ===================================================================
+
+class TestThrottling(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = _admin()
+
+    def test_throttle_enforced(self):
+        from rest_framework.throttling import SimpleRateThrottle
+        _plan(name='throttle-plan')
+        original = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES['public'] = '1/hour'
+        try:
+            resp1 = self.client.get('/api/plans/')
+            self.assertEqual(resp1.status_code, 200)
+            resp2 = self.client.get('/api/plans/')
+            self.assertEqual(resp2.status_code, 429)
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES.update(original)

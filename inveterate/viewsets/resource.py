@@ -12,6 +12,7 @@ from ..tasks import calculate_inventory, import_kvm_template
 
 class IPPoolViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
+    throttle_scope = 'admin'
     queryset = models.IPPool.objects.order_by('pk')
     serializer_class = serializers.IPPoolSerializer
 
@@ -27,6 +28,7 @@ class IPPoolViewSet(DynamicPageModelViewSet):
 
 class InventoryViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | ReadOnlyAnonymous]
+    throttle_scope = 'public'
     queryset = models.Inventory.objects.order_by('pk')
     serializer_class = serializers.InventorySerializer
 
@@ -38,6 +40,7 @@ class InventoryViewSet(DynamicPageModelViewSet):
 
 class IPViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
+    throttle_scope = 'admin'
     queryset = models.IP.objects.order_by('pk')
     serializer_class = serializers.IPSerializer
 
@@ -65,6 +68,7 @@ class IPViewSet(DynamicPageModelViewSet):
 
 class PlanViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | ReadOnlyAnonymous]
+    throttle_scope = 'public'
     queryset = models.Plan.objects.order_by('pk')
     serializer_class = serializers.PlanSerializer
 
@@ -82,12 +86,14 @@ class PlanViewSet(DynamicPageModelViewSet):
 
 class AppProfileViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | ReadOnlyAnonymous]
+    throttle_scope = 'public'
     queryset = models.AppProfile.objects.order_by('pk')
     serializer_class = serializers.AppProfileSerializer
 
 
 class TemplateViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | ReadOnly]
+    throttle_scope = 'authenticated'
     queryset = models.Template.objects.order_by('pk')
     serializer_class = serializers.TemplateSerializer
 

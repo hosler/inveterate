@@ -13,6 +13,7 @@ from .. import serializers
 
 class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     permission_classes = [IsAdminUser]
+    throttle_scope = 'admin'
     queryset = models.Cluster.objects.order_by('pk')
     default_serializer_class = serializers.ClusterSerializer
     admin_serializer_action_classes = {
