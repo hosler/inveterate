@@ -30,3 +30,13 @@ LOGGING['loggers']['celery']['handlers'] = ['console']
 
 # CORS for development (if using separate frontend)
 CORS_ALLOW_ALL_ORIGINS = True
+
+# Relaxed throttle rates for development/testing
+REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {
+    'admin': '10000/hour',
+    'authenticated': '5000/hour',
+    'public': '5000/hour',
+    'service_action': '1000/hour',
+    'console': '500/hour',
+    'token_auth': '100/hour',
+}
