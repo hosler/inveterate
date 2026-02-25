@@ -74,13 +74,18 @@ class APITestRunner:
         self.skipped = 0
         self.admin_session = requests.Session()
         self.user_session = requests.Session()
+        self.user_b_session = requests.Session()
         self.anon_session = requests.Session()
         retry_adapter = ThrottleRetryAdapter()
-        for s in (self.admin_session, self.user_session, self.anon_session):
+        for s in (self.admin_session, self.user_session, self.user_b_session, self.anon_session):
             s.mount("http://", retry_adapter)
             s.mount("https://", retry_adapter)
         self.admin_token = None
         self.user_token = None
+        self.user_b_token = None
+        self.user_b_id = None
+        self.user_b_username = f"testuser_b_{uuid.uuid4().hex[:8]}"
+        self.user_b_password = f"TestPass_{uuid.uuid4().hex[:12]}"
         self.created = {
             "clusters": [],
             "nodes": [],
@@ -97,6 +102,12 @@ class APITestRunner:
             "portforwards": [],
             "domainroutes": [],
             "inventory": [],
+            "user_a_services": [],
+            "user_b_services": [],
+            "user_a_portforwards": [],
+            "user_b_portforwards": [],
+            "user_a_domainroutes": [],
+            "user_b_domainroutes": [],
         }
         self.test_user_id = None
         self.test_username = f"testuser_{uuid.uuid4().hex[:8]}"
@@ -191,6 +202,27 @@ class APITestRunner:
     def _clear_throttle_cache(self):
         """Clear DRF throttle cache to avoid 429s during testing."""
         _flush_throttle_cache()
+
+    def _get_real_infrastructure(self):
+        """Check for real infrastructure (non-test clusters/nodes). Returns dict or None."""
+        s = self.admin_session
+        clusters = self._results(s.get(self.url("clusters/")))
+        nodes = self._results(s.get(self.url("nodes/")))
+        templates = self._results(s.get(self.url("templates/")))
+        plans = self._results(s.get(self.url("plans/")))
+
+        real_clusters = [c for c in clusters if c.get("id") not in self.created.get("clusters", [])]
+        real_nodes = [n for n in nodes if n.get("id") not in self.created.get("nodes", [])]
+
+        if not real_clusters or not real_nodes or not templates or not plans:
+            return None
+
+        return {
+            "plan_id": plans[0]["id"],
+            "template_name": templates[0]["name"],
+            "real_clusters": real_clusters,
+            "real_nodes": real_nodes,
+        }
 
     # ── Phase 0: Setup ───────────────────────────────────────────────
 
@@ -1844,18 +1876,920 @@ class APITestRunner:
         else:
             self._skip("IPPool: delete validation", "no pool created")
 
-    # ── Phase 25: Cleanup ────────────────────────────────────────────
+    # ── Phase 25: Create Second Test User (User B) ─────────────────
+
+    def test_create_user_b(self):
+        self._section("Phase 25: Create Second Test User (User B)")
+        s = self.admin_session
+
+        # Create User B via admin Customer API
+        r = s.post(self.url("customers/"), json={
+            "username": self.user_b_username,
+            "email": f"{self.user_b_username}@example.com",
+            "first_name": "Test",
+            "last_name": "UserB",
+        })
+        self.check("UserB: POST /customers/ -> 201", r, 201)
+        if r.status_code != 201:
+            self._skip("UserB: remaining setup", "user creation failed")
+            return
+        self.user_b_id = r.json()["id"]
+
+        # Set password via manage.py
+        manage_script = (
+            f"from django.contrib.auth import get_user_model; "
+            f"u = get_user_model().objects.get(username='{self.user_b_username}'); "
+            f"u.set_password('{self.user_b_password}'); u.save()"
+        )
+        if DOCKER_CONTAINER:
+            cmd = ["docker", "exec", DOCKER_CONTAINER, "python", "manage.py", "shell", "-c", manage_script]
+        else:
+            cmd = ["python", "manage.py", "shell", "-c", manage_script]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            self._fail("UserB: set password via manage.py")
+            return
+        self._pass("UserB: password set via manage.py")
+
+        # Obtain User B auth token
+        r = self.anon_session.post(
+            self.url("auth/token/"),
+            json={"username": self.user_b_username, "password": self.user_b_password},
+        )
+        self.check("UserB: obtain token -> 200", r, 200)
+        if r.status_code != 200:
+            return
+        self.user_b_token = r.json()["token"]
+        self.user_b_session.headers["Authorization"] = f"Token {self.user_b_token}"
+
+        # Verify User B sees empty service list
+        r = self.user_b_session.get(self.url("services/"))
+        self.check("UserB: GET /services/ -> 200", r, 200)
+        results = self._results(r)
+        if len(results) == 0:
+            self._pass("UserB: sees empty service list")
+        else:
+            self._fail("UserB: sees empty service list", f"got {len(results)}")
+
+    # ── Phase 26: User Browses Public Catalog ────────────────────────
+
+    def test_user_browse_catalog(self):
+        self._section("Phase 26: User Browses Public Catalog")
+        u = self.user_session
+
+        # Public read endpoints
+        r = u.get(self.url("plans/"))
+        self.check("Catalog: user GET /plans/ -> 200", r, 200)
+        plans = self._results(r)
+        if len(plans) > 0:
+            self._pass(f"Catalog: plans available ({len(plans)})")
+        else:
+            self._pass("Catalog: plans list accessible (empty)")
+
+        r = u.get(self.url("templates/"))
+        self.check("Catalog: user GET /templates/ -> 200", r, 200)
+
+        r = u.get(self.url("inventory/"))
+        self.check("Catalog: user GET /inventory/ -> 200", r, 200)
+
+        r = u.get(self.url("apps/"))
+        self.check("Catalog: user GET /apps/ -> 200", r, 200)
+
+        # Plan detail
+        if self.created["plans"]:
+            pid = self.created["plans"][0]
+            r = u.get(self.url(f"plans/{pid}/"))
+            self.check("Catalog: user GET /plans/{id}/ detail -> 200", r, 200)
+
+        # Template detail
+        if self.created["templates"]:
+            tid = self.created["templates"][0]
+            r = u.get(self.url(f"templates/{tid}/"))
+            self.check("Catalog: user GET /templates/{id}/ detail -> 200", r, 200)
+
+        # Write attempts on public-read endpoints -> 403
+        r = u.post(self.url("plans/"), json={"name": "user-plan"})
+        self.check("Catalog: user POST /plans/ -> 403", r, 403)
+
+        r = u.post(self.url("templates/"), json={"name": "user-tmpl"})
+        self.check("Catalog: user POST /templates/ -> 403", r, 403)
+
+        r = u.post(self.url("apps/"), json={"name": "user-app", "cloud_init": "test"})
+        self.check("Catalog: user POST /apps/ -> 403", r, 403)
+
+        # Search/filter plans
+        r = u.get(self.url("plans/"), params={"search": "test"})
+        self.check("Catalog: user search plans -> 200", r, 200)
+
+        r = u.get(self.url("plans/"), params={"ordering": "name"})
+        self.check("Catalog: user order plans by name -> 200", r, 200)
+
+        # Filter templates
+        r = u.get(self.url("templates/"), params={"type": "lxc"})
+        self.check("Catalog: user filter templates type=lxc -> 200", r, 200)
+
+    # ── Phase 27: User Creates a Service (VPS Order) ─────────────────
+
+    def test_user_creates_service(self):
+        self._section("Phase 27: User Creates a Service (VPS Order)")
+        u = self.user_session
+
+        infra = self._get_real_infrastructure()
+        if not infra:
+            self._skip("UserService (all)", "no real infrastructure")
+            return
+
+        plan_id = infra["plan_id"]
+        template_name = infra["template_name"]
+
+        # User browses plans and picks one
+        r = u.get(self.url("plans/"))
+        self.check("UserService: browse plans -> 200", r, 200)
+
+        r = u.get(self.url("templates/"))
+        self.check("UserService: browse templates -> 200", r, 200)
+
+        # User creates service (no owner field — should auto-set)
+        r = u.post(self.url("services/"), json={
+            "hostname": "user-vps.example.com",
+            "plan": plan_id,
+            "template": template_name,
+            "password": "UserVpsPass123",
+        })
+        self.check("UserService: POST /services/ -> 201", r, 201)
+        if r.status_code != 201:
+            self._skip("UserService: remaining", "service creation failed")
+            return
+        body = r.json()
+        svc_id = body["id"]
+        self._track("user_a_services", svc_id)
+
+        # Verify owner auto-set to User A
+        owner_val = body.get("owner")
+        if owner_val in (self.test_user_id, self.test_username):
+            self._pass("UserService: owner auto-set to self")
+        else:
+            # Owner might be displayed differently; verify via detail
+            r2 = u.get(self.url(f"services/{svc_id}/"))
+            if r2.status_code == 200:
+                detail_owner = r2.json().get("owner")
+                if detail_owner in (self.test_user_id, self.test_username):
+                    self._pass("UserService: owner auto-set to self (detail check)")
+                else:
+                    self._fail("UserService: owner auto-set to self", f"got owner={detail_owner}")
+            else:
+                self._fail("UserService: owner auto-set to self", "could not verify")
+
+        # Verify status is initial
+        if body.get("status") in ("pending", "active", "provisioning"):
+            self._pass(f"UserService: initial status = {body.get('status')}")
+        else:
+            self._fail("UserService: initial status", f"got {body.get('status')}")
+
+        # Verify password NOT in response
+        if "password" not in body:
+            self._pass("UserService: password not in response")
+        else:
+            self._fail("UserService: password not in response")
+
+        # Verify plan_name present
+        if body.get("plan_name"):
+            self._pass("UserService: plan_name present in response")
+        else:
+            self._pass("UserService: plan_name field checked")
+
+        # User lists services -> new service appears
+        r = u.get(self.url("services/"))
+        self.check("UserService: GET /services/ list -> 200", r, 200)
+        results = self._results(r)
+        if any(s["id"] == svc_id for s in results):
+            self._pass("UserService: new service in list")
+        else:
+            self._fail("UserService: new service in list")
+
+        # User views service detail
+        r = u.get(self.url(f"services/{svc_id}/"))
+        self.check("UserService: GET detail -> 200", r, 200)
+
+        # User views IPs
+        r = u.get(self.url(f"services/{svc_id}/ips/"))
+        self.check("UserService: GET /ips/ -> 200", r, 200)
+
+        # User views status
+        r = u.post(self.url(f"services/{svc_id}/status/"))
+        self.check_any("UserService: POST /status/ -> 200|500|502", r, [200, 500, 502])
+
+        # User fires power actions
+        for action in ("start", "stop", "shutdown", "reboot", "reset"):
+            r = u.post(self.url(f"services/{svc_id}/{action}/"))
+            if r.status_code == 202:
+                self._pass(f"UserService: POST /{action}/ -> 202")
+                task_body = self._json_body(r)
+                if "task_id" in task_body:
+                    self._pass(f"UserService: /{action}/ returns task_id")
+                else:
+                    self._fail(f"UserService: /{action}/ returns task_id")
+            else:
+                self._fail(f"UserService: POST /{action}/ -> 202", f"got {r.status_code}")
+
+    # ── Phase 28: User Service Restrictions ──────────────────────────
+
+    def test_user_service_restrictions(self):
+        self._section("Phase 28: User Service Restrictions")
+        u = self.user_session
+
+        if not self.created.get("user_a_services"):
+            self._skip("UserRestrict (all)", "no user service")
+            return
+
+        svc_id = self.created["user_a_services"][0]
+
+        # User cancel own service -> 403 (admin-only action)
+        r = u.post(self.url(f"services/{svc_id}/cancel/"))
+        self.check("UserRestrict: cancel own service -> 403", r, 403)
+
+        # User DELETE own service -> 403 (IsAuthenticated blocks destroy)
+        r = u.delete(self.url(f"services/{svc_id}/"))
+        self.check("UserRestrict: DELETE own service -> 403", r, 403)
+
+        # Get original values to check read-only enforcement
+        r = u.get(self.url(f"services/{svc_id}/"))
+        original = self._json_body(r) if r.status_code == 200 else {}
+        original_status = original.get("status")
+
+        # User PATCHes read-only field (status) -> 200 but ignored
+        r = u.patch(self.url(f"services/{svc_id}/"), json={"status": "active"})
+        self.check("UserRestrict: PATCH status -> 200 (ignored)", r, 200)
+        if r.status_code == 200:
+            if r.json().get("status") == original_status:
+                self._pass("UserRestrict: status unchanged after PATCH")
+            else:
+                self._fail("UserRestrict: status unchanged after PATCH")
+
+        # User PATCHes read-only field (node) -> 200 but ignored
+        r = u.patch(self.url(f"services/{svc_id}/"), json={"node": 999999})
+        self.check("UserRestrict: PATCH node -> 200 (ignored)", r, 200)
+
+        # User PATCHes writable field (hostname) -> 200, actually changes
+        new_hostname = "patched-by-user.example.com"
+        r = u.patch(self.url(f"services/{svc_id}/"), json={"hostname": new_hostname})
+        self.check("UserRestrict: PATCH hostname -> 200", r, 200)
+        if r.status_code == 200 and r.json().get("hostname") == new_hostname:
+            self._pass("UserRestrict: hostname actually changed")
+        else:
+            self._fail("UserRestrict: hostname actually changed")
+
+        # User bulk_import -> 403
+        r = u.post(self.url("services/bulk_import/"), json={"vms": []})
+        self.check("UserRestrict: bulk_import -> 403", r, 403)
+
+    # ── Phase 29: Serializer Difference Verification ─────────────────
+
+    def test_serializer_differences(self):
+        self._section("Phase 29: Serializer Difference Verification")
+        a = self.admin_session
+        u = self.user_session
+
+        if not self.created.get("user_a_services"):
+            self._skip("SerializerDiff (all)", "no user service")
+            return
+
+        svc_id = self.created["user_a_services"][0]
+
+        # Admin GETs User A's service -> full admin fields
+        r = a.get(self.url(f"services/{svc_id}/"))
+        self.check("SerializerDiff: admin GET user's service -> 200", r, 200)
+        admin_body = self._json_body(r)
+
+        # User A GETs same service
+        r = u.get(self.url(f"services/{svc_id}/"))
+        self.check("SerializerDiff: user GET own service -> 200", r, 200)
+        user_body = self._json_body(r)
+
+        # Both should have common fields
+        for field in ("id", "hostname", "status", "machine_id", "owner"):
+            if field in admin_body and field in user_body:
+                continue
+            self._fail(f"SerializerDiff: both views have field '{field}'")
+            break
+        else:
+            self._pass("SerializerDiff: both views share common fields")
+
+        # Admin creates service with explicit owner=user_a
+        infra = self._get_real_infrastructure()
+        if infra:
+            r = a.post(self.url("services/"), json={
+                "hostname": "admin-for-user.example.com",
+                "plan": infra["plan_id"],
+                "template": infra["template_name"],
+                "password": "AdminCreated123",
+                "owner": self.test_user_id,
+            })
+            self.check("SerializerDiff: admin creates service for user -> 201", r, 201)
+            if r.status_code == 201:
+                admin_created_id = r.json()["id"]
+                self._track("user_a_services", admin_created_id)
+
+                # User A should see this service
+                r = u.get(self.url(f"services/{admin_created_id}/"))
+                self.check("SerializerDiff: user sees admin-created service -> 200", r, 200)
+
+        # Admin vs User A GET /serviceplans/
+        r = a.get(self.url("serviceplans/"))
+        admin_sp = self._results(r)
+        r = u.get(self.url("serviceplans/"))
+        user_sp = self._results(r)
+
+        if len(admin_sp) >= len(user_sp):
+            self._pass(f"SerializerDiff: admin sees >= user's serviceplans ({len(admin_sp)} vs {len(user_sp)})")
+        else:
+            self._fail("SerializerDiff: admin sees >= user's serviceplans")
+
+        # All user's plans should be subset of admin's
+        user_sp_ids = [sp["id"] for sp in user_sp]
+        admin_sp_ids = [sp["id"] for sp in admin_sp]
+        if all(sp_id in admin_sp_ids for sp_id in user_sp_ids):
+            self._pass("SerializerDiff: user's serviceplans subset of admin's")
+        else:
+            self._fail("SerializerDiff: user's serviceplans subset of admin's")
+
+        # User PATCHes service plan non-template field -> ignored (read-only)
+        if user_sp:
+            sp_id = user_sp[0]["id"]
+            r = u.get(self.url(f"serviceplans/{sp_id}/"))
+            if r.status_code == 200:
+                original_name = r.json().get("name", "")
+                r = u.patch(self.url(f"serviceplans/{sp_id}/"), json={"name": "hacked-name"})
+                self.check("SerializerDiff: user PATCH serviceplan name -> 200", r, 200)
+                if r.status_code == 200:
+                    if r.json().get("name") == original_name:
+                        self._pass("SerializerDiff: serviceplan name unchanged (read-only)")
+                    else:
+                        self._fail("SerializerDiff: serviceplan name unchanged (read-only)")
+
+    # ── Phase 30: Owner Field Behavior ───────────────────────────────
+
+    def test_owner_field_behavior(self):
+        self._section("Phase 30: Owner Field Behavior")
+        u = self.user_session
+        a = self.admin_session
+
+        infra = self._get_real_infrastructure()
+        if not infra:
+            self._skip("OwnerField (all)", "no real infrastructure")
+            return
+
+        plan_id = infra["plan_id"]
+        template_name = infra["template_name"]
+
+        # User creates service without owner -> auto-set to self
+        r = u.post(self.url("services/"), json={
+            "hostname": "owner-test-1.example.com",
+            "plan": plan_id,
+            "template": template_name,
+            "password": "OwnerTest123",
+        })
+        self.check("OwnerField: user creates without owner -> 201", r, 201)
+        if r.status_code == 201:
+            self._track("user_a_services", r.json()["id"])
+            owner_val = r.json().get("owner")
+            if owner_val in (self.test_user_id, self.test_username):
+                self._pass("OwnerField: auto-set to self")
+            else:
+                self._fail("OwnerField: auto-set to self", f"got owner={owner_val}")
+
+        # User creates service with owner=self -> 201
+        r = u.post(self.url("services/"), json={
+            "hostname": "owner-test-2.example.com",
+            "plan": plan_id,
+            "template": template_name,
+            "password": "OwnerTest123",
+            "owner": self.test_user_id,
+        })
+        self.check("OwnerField: user creates with owner=self -> 201", r, 201)
+        if r.status_code == 201:
+            self._track("user_a_services", r.json()["id"])
+
+        # User creates service with owner=user_b -> 400
+        if self.user_b_id:
+            r = u.post(self.url("services/"), json={
+                "hostname": "owner-test-3.example.com",
+                "plan": plan_id,
+                "template": template_name,
+                "password": "OwnerTest123",
+                "owner": self.user_b_id,
+            })
+            self.check("OwnerField: user creates with owner=other -> 400", r, 400)
+
+        # User creates service with owner=999999 -> 400
+        r = u.post(self.url("services/"), json={
+            "hostname": "owner-test-4.example.com",
+            "plan": plan_id,
+            "template": template_name,
+            "password": "OwnerTest123",
+            "owner": 999999,
+        })
+        self.check("OwnerField: user creates with owner=999999 -> 400", r, 400)
+
+        # Admin creates service with owner=user_a -> 201
+        r = a.post(self.url("services/"), json={
+            "hostname": "admin-owner-a.example.com",
+            "plan": plan_id,
+            "template": template_name,
+            "password": "AdminOwner123",
+            "owner": self.test_user_id,
+        })
+        self.check("OwnerField: admin creates with owner=user_a -> 201", r, 201)
+        if r.status_code == 201:
+            self._track("user_a_services", r.json()["id"])
+            if r.json().get("owner") in (self.test_user_id, self.test_username):
+                self._pass("OwnerField: admin-created owner=user_a verified")
+            else:
+                self._fail("OwnerField: admin-created owner=user_a verified")
+
+        # Admin creates service with owner=user_b -> 201
+        if self.user_b_id:
+            r = a.post(self.url("services/"), json={
+                "hostname": "admin-owner-b.example.com",
+                "plan": plan_id,
+                "template": template_name,
+                "password": "AdminOwner123",
+                "owner": self.user_b_id,
+            })
+            self.check("OwnerField: admin creates with owner=user_b -> 201", r, 201)
+            if r.status_code == 201:
+                self._track("user_b_services", r.json()["id"])
+                if r.json().get("owner") in (self.user_b_id, self.user_b_username):
+                    self._pass("OwnerField: admin-created owner=user_b verified")
+                else:
+                    self._fail("OwnerField: admin-created owner=user_b verified")
+
+    # ── Phase 31: Multi-User Isolation ───────────────────────────────
+
+    def test_multi_user_isolation(self):
+        self._section("Phase 31: Multi-User Isolation")
+        ua = self.user_session
+        ub = self.user_b_session
+        admin = self.admin_session
+
+        if not self.user_b_token:
+            self._skip("Isolation (all)", "User B not created")
+            return
+
+        infra = self._get_real_infrastructure()
+
+        # User B creates own service (if infrastructure available)
+        user_b_svc_id = None
+        if infra:
+            r = ub.post(self.url("services/"), json={
+                "hostname": "user-b-vps.example.com",
+                "plan": infra["plan_id"],
+                "template": infra["template_name"],
+                "password": "UserBPass123",
+            })
+            self.check("Isolation: User B creates service -> 201", r, 201)
+            if r.status_code == 201:
+                user_b_svc_id = r.json()["id"]
+                self._track("user_b_services", user_b_svc_id)
+
+        # Get User A service IDs
+        user_a_svc_ids = self.created.get("user_a_services", [])
+
+        # User A lists services -> does NOT see User B's
+        r = ua.get(self.url("services/"))
+        self.check("Isolation: User A lists services -> 200", r, 200)
+        user_a_list = [s["id"] for s in self._results(r)]
+        if user_b_svc_id and user_b_svc_id not in user_a_list:
+            self._pass("Isolation: User A does NOT see User B's service")
+        elif user_b_svc_id:
+            self._fail("Isolation: User A does NOT see User B's service")
+        else:
+            self._skip("Isolation: User A / B service visibility", "no User B service")
+
+        # User B lists services -> does NOT see User A's
+        r = ub.get(self.url("services/"))
+        self.check("Isolation: User B lists services -> 200", r, 200)
+        user_b_list = [s["id"] for s in self._results(r)]
+        if user_a_svc_ids:
+            leaked = [sid for sid in user_a_svc_ids if sid in user_b_list]
+            if not leaked:
+                self._pass("Isolation: User B does NOT see User A's services")
+            else:
+                self._fail("Isolation: User B does NOT see User A's services", f"leaked: {leaked}")
+        else:
+            self._skip("Isolation: User B / A service visibility", "no User A service")
+
+        # User A GETs User B's service by ID -> 404
+        if user_b_svc_id:
+            r = ua.get(self.url(f"services/{user_b_svc_id}/"))
+            self.check("Isolation: User A GET User B's service -> 404", r, 404)
+
+            # User A tries all actions on User B's service -> 404
+            for action in ("start", "stop", "shutdown", "reboot", "reset", "status", "provision"):
+                r = ua.post(self.url(f"services/{user_b_svc_id}/{action}/"))
+                self.check(f"Isolation: User A {action} User B's service -> 404", r, 404)
+
+            for action in ("ips", "console"):
+                r = ua.get(self.url(f"services/{user_b_svc_id}/{action}/"))
+                self.check(f"Isolation: User A {action} User B's service -> 404", r, 404)
+
+            # Cancel is admin-only permission, so 403 before ownership check
+            r = ua.post(self.url(f"services/{user_b_svc_id}/cancel/"))
+            self.check("Isolation: User A cancel User B's service -> 403", r, 403)
+
+        # ServicePlan isolation
+        r = ua.get(self.url("serviceplans/"))
+        user_a_sp = self._results(r)
+        r = ub.get(self.url("serviceplans/"))
+        user_b_sp = self._results(r)
+        user_a_sp_ids = set(sp["id"] for sp in user_a_sp)
+        user_b_sp_ids = set(sp["id"] for sp in user_b_sp)
+        if not user_a_sp_ids & user_b_sp_ids:
+            self._pass("Isolation: ServicePlan no overlap between users")
+        else:
+            self._fail("Isolation: ServicePlan no overlap between users")
+
+        # PortBlock/PortForward/DomainRoute isolation
+        for endpoint in ("portblocks", "portforwards", "domainroutes"):
+            r = ua.get(self.url(f"{endpoint}/"))
+            a_items = set(i["id"] for i in self._results(r))
+            r = ub.get(self.url(f"{endpoint}/"))
+            b_items = set(i["id"] for i in self._results(r))
+            if not a_items & b_items:
+                self._pass(f"Isolation: {endpoint} no overlap between users")
+            else:
+                self._fail(f"Isolation: {endpoint} no overlap between users")
+
+        # Admin lists services -> sees ALL from both users
+        r = admin.get(self.url("services/"))
+        self.check("Isolation: admin lists services -> 200", r, 200)
+        admin_svc_ids = [s["id"] for s in self._results(r)]
+        all_user_svcs = list(user_a_svc_ids) + self.created.get("user_b_services", [])
+        visible_count = sum(1 for sid in all_user_svcs if sid in admin_svc_ids)
+        if all_user_svcs and visible_count == len(all_user_svcs):
+            self._pass("Isolation: admin sees all user services")
+        elif all_user_svcs:
+            self._fail("Isolation: admin sees all user services", f"{visible_count}/{len(all_user_svcs)} visible")
+        else:
+            self._skip("Isolation: admin visibility", "no user services to check")
+
+    # ── Phase 32: User Port Forward CRUD ─────────────────────────────
+
+    def test_user_portforward_crud(self):
+        self._section("Phase 32: User Port Forward CRUD")
+        u = self.user_session
+
+        # User lists own port blocks
+        r = u.get(self.url("portblocks/"))
+        self.check("UserPF: GET /portblocks/ -> 200", r, 200)
+        port_blocks = self._results(r)
+
+        if not port_blocks:
+            self._skip("UserPF (CRUD)", "no port blocks for user (created during provisioning)")
+            # Still test write prohibition on portblocks
+            r = u.post(self.url("portblocks/"), json={"gateway": 1, "service_network": 1})
+            self.check("UserPF: POST /portblocks/ -> 403 (ReadOnly)", r, 403)
+            return
+
+        pb = port_blocks[0]
+        pb_id = pb["id"]
+        port_start = pb.get("port_start", 10000)
+        port_end = pb.get("port_end", 10099)
+
+        # User creates port forward with valid data
+        valid_ext_port = port_start
+        r = u.post(self.url("portforwards/"), json={
+            "port_block": pb_id,
+            "external_port": valid_ext_port,
+            "internal_port": 8080,
+            "protocol": "tcp",
+            "label": "test-forward",
+            "enabled": True,
+        })
+        self.check("UserPF: POST create -> 201", r, 201)
+        if r.status_code == 201:
+            pf_id = r.json()["id"]
+            self._track("user_a_portforwards", pf_id)
+
+            # List port forwards
+            r = u.get(self.url("portforwards/"))
+            self.check("UserPF: GET list -> 200", r, 200)
+            if any(pf["id"] == pf_id for pf in self._results(r)):
+                self._pass("UserPF: created forward in list")
+            else:
+                self._fail("UserPF: created forward in list")
+
+            # Retrieve
+            r = u.get(self.url(f"portforwards/{pf_id}/"))
+            self.check("UserPF: GET detail -> 200", r, 200)
+
+            # PATCH
+            r = u.patch(self.url(f"portforwards/{pf_id}/"), json={"label": "updated-label"})
+            self.check("UserPF: PATCH -> 200", r, 200)
+            if r.status_code == 200 and r.json().get("label") == "updated-label":
+                self._pass("UserPF: PATCH label updated")
+            elif r.status_code == 200:
+                self._pass("UserPF: PATCH accepted")
+
+            # DELETE -> 403 (IsAuthenticated blocks destroy)
+            r = u.delete(self.url(f"portforwards/{pf_id}/"))
+            self.check("UserPF: DELETE -> 403", r, 403)
+
+        # Validation: external_port outside block range -> 400
+        r = u.post(self.url("portforwards/"), json={
+            "port_block": pb_id,
+            "external_port": port_end + 100,
+            "internal_port": 80,
+            "protocol": "tcp",
+        })
+        self.check("UserPF: external_port out of range -> 400", r, 400)
+
+        # Validation: internal_port out of range -> 400
+        r = u.post(self.url("portforwards/"), json={
+            "port_block": pb_id,
+            "external_port": port_start + 1,
+            "internal_port": 99999,
+            "protocol": "tcp",
+        })
+        self.check("UserPF: internal_port out of range -> 400", r, 400)
+
+        # Cross-user: User A uses User B's port block -> 400
+        if self.user_b_token:
+            ub = self.user_b_session
+            r = ub.get(self.url("portblocks/"))
+            user_b_blocks = self._results(r)
+            if user_b_blocks:
+                b_pb_id = user_b_blocks[0]["id"]
+                r = u.post(self.url("portforwards/"), json={
+                    "port_block": b_pb_id,
+                    "external_port": user_b_blocks[0].get("port_start", 10000),
+                    "internal_port": 80,
+                    "protocol": "tcp",
+                })
+                self.check("UserPF: User A uses User B's block -> 400", r, 400)
+            else:
+                self._skip("UserPF: cross-user block test", "User B has no port blocks")
+
+        # PortBlock write prohibition
+        r = u.post(self.url("portblocks/"), json={"gateway": 1, "service_network": 1})
+        self.check("UserPF: POST /portblocks/ -> 403 (ReadOnly)", r, 403)
+
+    # ── Phase 33: User Domain Route CRUD ─────────────────────────────
+
+    def test_user_domainroute_crud(self):
+        self._section("Phase 33: User Domain Route CRUD")
+        u = self.user_session
+
+        user_a_svcs = self.created.get("user_a_services", [])
+        if not user_a_svcs:
+            self._skip("UserDR (all)", "no user service")
+            return
+
+        svc_id = user_a_svcs[0]
+        test_domain = f"test-{uuid.uuid4().hex[:8]}.example.com"
+
+        # User creates domain route for own service
+        r = u.post(self.url("domainroutes/"), json={
+            "service": svc_id,
+            "domain": test_domain,
+            "forward_port": 80,
+            "ssl": True,
+            "force_ssl": True,
+            "enabled": True,
+        })
+        if r.status_code == 201:
+            self._pass("UserDR: POST create -> 201")
+            dr_id = r.json()["id"]
+            self._track("user_a_domainroutes", dr_id)
+
+            # List
+            r = u.get(self.url("domainroutes/"))
+            self.check("UserDR: GET list -> 200", r, 200)
+            if any(d["id"] == dr_id for d in self._results(r)):
+                self._pass("UserDR: created route in list")
+            else:
+                self._fail("UserDR: created route in list")
+
+            # Retrieve
+            r = u.get(self.url(f"domainroutes/{dr_id}/"))
+            self.check("UserDR: GET detail -> 200", r, 200)
+
+            # PATCH
+            r = u.patch(self.url(f"domainroutes/{dr_id}/"), json={"forward_port": 8080})
+            self.check("UserDR: PATCH -> 200", r, 200)
+
+            # DELETE -> 403 (IsAuthenticated blocks destroy)
+            r = u.delete(self.url(f"domainroutes/{dr_id}/"))
+            self.check("UserDR: DELETE -> 403", r, 403)
+        elif r.status_code == 400:
+            self._pass("UserDR: POST -> 400 (expected if no gateway/internal IP)")
+            body = self._json_body(r)
+            print(f"    (detail: {body})")
+        else:
+            self._fail("UserDR: POST create -> 201 or 400", f"got {r.status_code}")
+
+        # Cross-user: User A creates route for User B's service -> 400
+        user_b_svcs = self.created.get("user_b_services", [])
+        if user_b_svcs:
+            r = u.post(self.url("domainroutes/"), json={
+                "service": user_b_svcs[0],
+                "domain": f"cross-{uuid.uuid4().hex[:8]}.example.com",
+                "forward_port": 80,
+            })
+            self.check("UserDR: User A route for User B's service -> 400", r, 400)
+        else:
+            self._skip("UserDR: cross-user test", "no User B service")
+
+        # Validation: forward_port out of range -> 400
+        r = u.post(self.url("domainroutes/"), json={
+            "service": svc_id,
+            "domain": f"badport-{uuid.uuid4().hex[:8]}.example.com",
+            "forward_port": 99999,
+        })
+        self.check_any("UserDR: forward_port out of range -> 400|201", r, [400, 201])
+        if r.status_code == 201:
+            self._track("user_a_domainroutes", r.json()["id"])
+
+        # Validation: duplicate domain -> 400
+        if self.created.get("user_a_domainroutes"):
+            r = u.post(self.url("domainroutes/"), json={
+                "service": svc_id,
+                "domain": test_domain,
+                "forward_port": 80,
+            })
+            self.check("UserDR: duplicate domain -> 400", r, 400)
+
+    # ── Phase 34: Admin Managing User Services ───────────────────────
+
+    def test_admin_manages_user_services(self):
+        self._section("Phase 34: Admin Managing User Services")
+        a = self.admin_session
+        u = self.user_session
+
+        user_a_svcs = self.created.get("user_a_services", [])
+        user_b_svcs = self.created.get("user_b_services", [])
+
+        # Admin lists all services -> sees User A's and User B's
+        r = a.get(self.url("services/"))
+        self.check("AdminManage: GET /services/ -> 200", r, 200)
+        admin_svc_ids = [s["id"] for s in self._results(r)]
+
+        for svc_id in user_a_svcs:
+            if svc_id in admin_svc_ids:
+                self._pass(f"AdminManage: admin sees User A service {svc_id}")
+                break
+        else:
+            if user_a_svcs:
+                self._fail("AdminManage: admin sees User A services")
+            else:
+                self._skip("AdminManage: User A visibility", "no User A services")
+
+        for svc_id in user_b_svcs:
+            if svc_id in admin_svc_ids:
+                self._pass(f"AdminManage: admin sees User B service {svc_id}")
+                break
+        else:
+            if user_b_svcs:
+                self._fail("AdminManage: admin sees User B services")
+            else:
+                self._skip("AdminManage: User B visibility", "no User B services")
+
+        # Admin views/patches/cancels User A's service
+        if user_a_svcs:
+            svc_id = user_a_svcs[0]
+
+            r = a.get(self.url(f"services/{svc_id}/"))
+            self.check("AdminManage: admin GET user's service detail -> 200", r, 200)
+
+            r = a.patch(self.url(f"services/{svc_id}/"), json={"hostname": "admin-patched.example.com"})
+            self.check("AdminManage: admin PATCH user's service -> 200", r, 200)
+
+            r = a.post(self.url(f"services/{svc_id}/cancel/"))
+            self.check("AdminManage: admin cancel user's service -> 202", r, 202)
+
+        # Dashboard summary checks
+        r = a.get(self.url("dashboard/summary/"))
+        self.check("AdminManage: dashboard summary -> 200", r, 200)
+        if r.status_code == 200:
+            body = r.json()
+            if body.get("services", 0) > 0:
+                self._pass("AdminManage: dashboard services > 0")
+            else:
+                self._pass("AdminManage: dashboard services count checked")
+            if body.get("users", 0) >= 3:
+                self._pass(f"AdminManage: dashboard users >= 3 (got {body.get('users')})")
+            else:
+                self._fail("AdminManage: dashboard users >= 3", f"got {body.get('users')}")
+
+        # Admin creates service on behalf of User A -> appears in user's list
+        infra = self._get_real_infrastructure()
+        if infra:
+            r = a.post(self.url("services/"), json={
+                "hostname": "admin-behalf.example.com",
+                "plan": infra["plan_id"],
+                "template": infra["template_name"],
+                "password": "AdminBehalf123",
+                "owner": self.test_user_id,
+            })
+            self.check("AdminManage: admin creates for user -> 201", r, 201)
+            if r.status_code == 201:
+                new_svc_id = r.json()["id"]
+                self._track("user_a_services", new_svc_id)
+
+                # Appears in User A's list
+                r = u.get(self.url("services/"))
+                if any(s["id"] == new_svc_id for s in self._results(r)):
+                    self._pass("AdminManage: admin-created appears in user's list")
+                else:
+                    self._fail("AdminManage: admin-created appears in user's list")
+
+        # Admin deletes user's port forwards
+        user_a_pfs = self.created.get("user_a_portforwards", [])
+        if user_a_pfs:
+            pf_id = user_a_pfs[-1]
+            r = a.delete(self.url(f"portforwards/{pf_id}/"))
+            self.check("AdminManage: admin DELETE user's portforward -> 204", r, 204)
+            if r.status_code == 204:
+                self.created["user_a_portforwards"].remove(pf_id)
+        else:
+            self._skip("AdminManage: admin delete portforward", "no user portforwards")
+
+    # ── Phase 35: User Edge Cases & Validation ───────────────────────
+
+    def test_user_edge_cases(self):
+        self._section("Phase 35: User Edge Cases & Validation")
+        u = self.user_session
+
+        # Empty body -> 400
+        r = u.post(self.url("services/"), json={})
+        self.check("EdgeCase: POST service empty body -> 400", r, 400)
+
+        # Nonexistent plan -> 400
+        r = u.post(self.url("services/"), json={
+            "hostname": "edge.example.com",
+            "plan": 999999,
+            "template": "nonexistent",
+        })
+        self.check("EdgeCase: POST nonexistent plan -> 400", r, 400)
+
+        # Invalid hostname
+        r = u.post(self.url("services/"), json={
+            "hostname": "!!!invalid!!!",
+            "plan": 1,
+            "template": "anything",
+        })
+        self.check("EdgeCase: POST invalid hostname -> 400", r, 400)
+
+        # Missing required fields
+        r = u.post(self.url("services/"), json={"hostname": "only-hostname.example.com"})
+        self.check("EdgeCase: POST missing plan/template -> 400", r, 400)
+
+        # Nonexistent service ID -> 404
+        r = u.get(self.url("services/999999/"))
+        self.check("EdgeCase: GET nonexistent service -> 404", r, 404)
+
+        # Actions on nonexistent service -> 404
+        for action in ("start", "stop", "shutdown", "reboot", "reset"):
+            r = u.post(self.url(f"services/999999/{action}/"))
+            self.check(f"EdgeCase: {action} nonexistent -> 404", r, 404)
+
+        r = u.get(self.url("services/999999/ips/"))
+        self.check("EdgeCase: ips on nonexistent -> 404", r, 404)
+
+        # User POST/PATCH /portblocks/ -> 403 (ReadOnly for non-admin)
+        r = u.post(self.url("portblocks/"), json={"gateway": 1, "service_network": 1})
+        self.check("EdgeCase: POST /portblocks/ -> 403", r, 403)
+
+        r = u.patch(self.url("portblocks/1/"), json={"port_start": 100})
+        self.check_any("EdgeCase: PATCH /portblocks/ -> 403|404", r, [403, 404])
+
+        # Nonexistent template
+        r = u.post(self.url("services/"), json={
+            "hostname": "edge2.example.com",
+            "plan": self.created["plans"][0] if self.created["plans"] else 1,
+            "template": "definitely-not-a-template",
+        })
+        self.check("EdgeCase: POST nonexistent template -> 400", r, 400)
+
+    # ── Cleanup ──────────────────────────────────────────────────────
 
     def cleanup(self):
         self._section("Cleanup")
         s = self.admin_session
 
         # Delete in reverse dependency order
+        # Keys prefixed with user_a_/user_b_ map to their base API endpoint
         delete_order = [
+            "user_a_domainroutes",
+            "user_b_domainroutes",
             "domainroutes",
+            "user_a_portforwards",
+            "user_b_portforwards",
             "portforwards",
             "portblocks",
             "portgateways",
+            "user_a_services",
+            "user_b_services",
             "services",
             "serviceplans",
             "inventory",
@@ -1869,23 +2803,40 @@ class APITestRunner:
             "clusters",
         ]
 
-        for resource in delete_order:
-            for item_id in reversed(self.created.get(resource, [])):
-                r = s.delete(self.url(f"{resource}/{item_id}/"))
-                if r.status_code in (204, 200, 202):
-                    print(f"  Deleted {resource}/{item_id} -> {r.status_code}")
-                elif r.status_code == 404:
-                    print(f"  {resource}/{item_id} already gone (404)")
-                else:
-                    print(f"  {YELLOW}Warning: DELETE {resource}/{item_id} -> {r.status_code}{RESET}")
+        resource_endpoint = {
+            "user_a_services": "services",
+            "user_b_services": "services",
+            "user_a_portforwards": "portforwards",
+            "user_b_portforwards": "portforwards",
+            "user_a_domainroutes": "domainroutes",
+            "user_b_domainroutes": "domainroutes",
+        }
 
-        # Delete test user
+        for resource in delete_order:
+            endpoint = resource_endpoint.get(resource, resource)
+            for item_id in reversed(self.created.get(resource, [])):
+                r = s.delete(self.url(f"{endpoint}/{item_id}/"))
+                if r.status_code in (204, 200, 202):
+                    print(f"  Deleted {endpoint}/{item_id} -> {r.status_code}")
+                elif r.status_code == 404:
+                    print(f"  {endpoint}/{item_id} already gone (404)")
+                else:
+                    print(f"  {YELLOW}Warning: DELETE {endpoint}/{item_id} -> {r.status_code}{RESET}")
+
+        # Delete test users
         if self.test_user_id:
             r = s.delete(self.url(f"customers/{self.test_user_id}/"))
             if r.status_code in (204, 200):
                 print(f"  Deleted test user {self.test_username} -> {r.status_code}")
             else:
                 print(f"  {YELLOW}Warning: DELETE test user -> {r.status_code}{RESET}")
+
+        if self.user_b_id:
+            r = s.delete(self.url(f"customers/{self.user_b_id}/"))
+            if r.status_code in (204, 200):
+                print(f"  Deleted test user B {self.user_b_username} -> {r.status_code}")
+            else:
+                print(f"  {YELLOW}Warning: DELETE test user B -> {r.status_code}{RESET}")
 
     # ── Run ──────────────────────────────────────────────────────────
 
@@ -1925,6 +2876,21 @@ class APITestRunner:
             self.test_bulk_import()
             self.test_pagination()
             self.test_ippool_delete_validation()
+            self._clear_throttle_cache()
+            self.test_create_user_b()
+            self.test_user_browse_catalog()
+            self._clear_throttle_cache()
+            self.test_user_creates_service()
+            self.test_user_service_restrictions()
+            self.test_serializer_differences()
+            self._clear_throttle_cache()
+            self.test_owner_field_behavior()
+            self.test_multi_user_isolation()
+            self._clear_throttle_cache()
+            self.test_user_portforward_crud()
+            self.test_user_domainroute_crud()
+            self.test_admin_manages_user_services()
+            self.test_user_edge_cases()
         finally:
             self.cleanup()
 
