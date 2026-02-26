@@ -147,14 +147,16 @@ class ServiceSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field in ['service_plan', 'machine_id', 'status_msg']:
+            if field in ['service_plan', 'machine_id', 'status_msg',
+                         'bw_usage', 'bw_banked', 'bw_stale', 'bw_renewal_dtm']:
                 self.fields[field].read_only = True
 
     class Meta:
         model = models.Service
         fields = (
             'id', 'plan_name', 'owner', 'password', 'template', 'machine_id', 'hostname', 'plan',
-            'node', 'status', 'service_plan', 'status_msg', 'apps', '__str__'
+            'node', 'status', 'service_plan', 'status_msg', 'apps',
+            'bw_usage', 'bw_banked', 'bw_stale', 'bw_renewal_dtm', '__str__'
         )
 
     def update(self, instance, validated_data):

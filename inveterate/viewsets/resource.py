@@ -102,8 +102,8 @@ class AppProfileViewSet(DynamicPageModelViewSet):
 
 
 class TemplateViewSet(DynamicPageModelViewSet):
-    permission_classes = [IsAdminUser | ReadOnly]
-    throttle_scope = 'authenticated'
+    permission_classes = [IsAdminUser | ReadOnlyAnonymous]
+    throttle_scope = 'public'
     queryset = models.Template.objects.order_by('pk')
     serializer_class = serializers.TemplateSerializer
     filterset_fields = ['type', 'status']

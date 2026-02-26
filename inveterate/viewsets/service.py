@@ -122,8 +122,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         stats = get_vm_status(service.pk)
         return Response(stats)
 
-    @action(methods=['post'], detail=True, permission_classes=[IsAdminUser],
-            throttle_classes=[ServiceActionThrottle])
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def cancel(self, request, pk=None):
         service = self.get_object()
         task = cancel_service.delay(service.pk)
@@ -275,6 +274,14 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
             'imported_services': imported_services,
             'errors': errors
         }, status=status.HTTP_201_CREATED if imported_services else status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response(
+                {'detail': 'Use the cancel action to tear down a service.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().destroy(request, *args, **kwargs)
 
     def get_queryset(self):
         if self.request.user.is_staff:
