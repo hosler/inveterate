@@ -448,6 +448,7 @@ class NodeDiskViewSet(DynamicPageModelViewSet):
 
                 # Convert bytes to GB
                 size_gb = int(total_size / (1024**3)) if total_size else 0
+                full_name = f"{storage_name} ({storage_type})"
 
                 if shared and disk_data.get('shared_nodes'):
                     # Handle shared disk - assign to multiple nodes
@@ -456,14 +457,14 @@ class NodeDiskViewSet(DynamicPageModelViewSet):
                             node = models.Node.objects.get(pk=node_info['id'])
 
                             # Check if disk already exists for this node
-                            if models.NodeDisk.objects.filter(name=storage_name, node=node).exists():
+                            if models.NodeDisk.objects.filter(name=full_name, node=node).exists():
                                 continue  # Skip if already exists
 
                             disk = models.NodeDisk.objects.create(
                                 node=node,
-                                name=f"{storage_name} ({storage_type})",
+                                name=full_name,
                                 size=size_gb,
-                                primary=storage_type in ['local', 'local-lvm', 'dir'],
+                                primary=False,
                                 shared=True
                             )
 
@@ -488,15 +489,15 @@ class NodeDiskViewSet(DynamicPageModelViewSet):
                         node = models.Node.objects.get(pk=node_id)
 
                         # Check if disk already exists
-                        if models.NodeDisk.objects.filter(name=storage_name, node=node).exists():
-                            errors.append(f"Disk {storage_name} already exists on node {node.name}")
+                        if models.NodeDisk.objects.filter(name=full_name, node=node).exists():
+                            errors.append(f"Disk {full_name} already exists on node {node.name}")
                             continue
 
                         disk = models.NodeDisk.objects.create(
                             node=node,
-                            name=f"{storage_name} ({storage_type})",
+                            name=full_name,
                             size=size_gb,
-                            primary=storage_type in ['local', 'local-lvm', 'dir']
+                            primary=False,
                         )
 
                         imported_disks.append({
@@ -512,6 +513,17 @@ class NodeDiskViewSet(DynamicPageModelViewSet):
 
             except Exception as e:
                 errors.append(f"Error importing disk {disk_data.get('storage_name', 'unknown')}: {str(e)}")
+
+        # Auto-set primary for nodes with only one disk
+        affected_nodes = set()
+        for d in imported_disks:
+            node = models.Node.objects.filter(name=d['node']).first()
+            if node:
+                affected_nodes.add(node.id)
+        for node_id in affected_nodes:
+            disks = models.NodeDisk.objects.filter(node_id=node_id)
+            if disks.count() == 1 and not disks.first().primary:
+                disks.update(primary=True)
 
         return Response({
             'success': len(imported_disks) > 0,

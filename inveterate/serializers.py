@@ -57,7 +57,7 @@ class ClusterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Cluster
-        fields = ('id','__str__','name','host','user','key')
+        fields = ('id','__str__','name','host','user','key','bandwidth')
 
 
 class NodeSerializer(serializers.ModelSerializer):

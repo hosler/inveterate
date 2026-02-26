@@ -27,7 +27,8 @@ def calculate_inventory():
     logger.info("Starting inventory calculation")
     plans = Plan.objects.all()
     nodes = Node.objects.all()
-    inventory_fields = ['cores', 'ram', 'swap', 'bandwidth']
+    inventory_fields = ['cores', 'ram']
+
     for node in nodes:
         services = node.services.all().exclude(status='destroyed')
         for plan in plans:
@@ -47,8 +48,10 @@ def calculate_inventory():
                 elif quantity < lowest:
                     lowest = quantity
 
-            # Disk accounting: shared vs local storage
+            # Disk accounting: use primary disk, fall back to largest
             primary_disk = node.node_disk.filter(primary=True).first()
+            if not primary_disk:
+                primary_disk = node.node_disk.order_by('-size').first()
             if primary_disk and plan.size > 0:
                 if primary_disk.shared:
                     # Sum usage across all nodes sharing this storage name
@@ -66,10 +69,55 @@ def calculate_inventory():
                 if lowest is None or disk_slots < lowest:
                     lowest = disk_slots
 
+            # IP accounting: check available IPs in pools assigned to this node
+            node_pools = IPPool.objects.filter(nodes=node)
+            for ip_type, plan_field in [('internal', 'internal_ips'), ('ipv4', 'ipv4_ips'), ('ipv6', 'ipv6_ips')]:
+                needed = getattr(plan, plan_field)
+                if needed <= 0:
+                    continue
+                if ip_type == 'internal':
+                    pools = node_pools.filter(internal=True)
+                else:
+                    pools = node_pools.filter(internal=False, type=ip_type)
+                free_ips = IP.objects.filter(pool__in=pools, owner__isnull=True).count()
+                ip_slots = int(free_ips / needed)
+                if lowest is None or ip_slots < lowest:
+                    lowest = ip_slots
+
             inventory, created = Inventory.objects.get_or_create(plan=plan, node=node)
             inventory.quantity = lowest if lowest is not None else 0
             inventory.save()
             logger.debug(f"Node {node.name}, Plan {plan.name}: {inventory.quantity} slots available")
+
+    # Cluster-level bandwidth cap
+    for cluster in Cluster.objects.all():
+        if cluster.bandwidth <= 0:
+            continue
+        cluster_nodes = nodes.filter(cluster=cluster)
+        bw_used = Service.objects.filter(
+            node__cluster=cluster
+        ).exclude(status='destroyed').aggregate(
+            total=Sum('service_plan__bandwidth')
+        )['total'] or 0
+        bw_remaining = cluster.bandwidth - bw_used
+
+        for plan in plans:
+            if plan.bandwidth <= 0:
+                continue
+            bw_slots = max(0, int(bw_remaining / plan.bandwidth))
+            # Cap each node's inventory for this plan by the cluster bandwidth limit
+            for node in cluster_nodes:
+                try:
+                    inv = Inventory.objects.get(plan=plan, node=node)
+                    if inv.quantity > bw_slots:
+                        inv.quantity = bw_slots
+                        inv.save()
+                        logger.debug(
+                            f"Node {node.name}, Plan {plan.name}: capped to {bw_slots} by cluster bandwidth"
+                        )
+                except Inventory.DoesNotExist:
+                    pass
+
     logger.info("Inventory calculation completed")
 
 
