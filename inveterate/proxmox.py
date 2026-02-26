@@ -66,7 +66,9 @@ def ensure_console_user(proxmox, service, machine_id):
             proxmox.access.users.post(userid=userid, password=password)
         except ResourceException as e:
             if 'already exists' in str(e):
-                proxmox.access.users(userid).put(password=password)
+                # API tokens cannot change passwords, so delete and recreate
+                proxmox.access.users(userid).delete()
+                proxmox.access.users.post(userid=userid, password=password)
             else:
                 raise
 

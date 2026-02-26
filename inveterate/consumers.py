@@ -3,6 +3,14 @@ WebSocket consumers for Inveterate console proxy.
 
 ConsoleProxyConsumer bridges a browser xterm.js WebSocket to the Proxmox
 VNC/terminal WebSocket, avoiding CORS and self-signed certificate issues.
+
+Proxmox termproxy protocol (after auth):
+  Client → Server:
+    "0:<byte_length>:<data>"  – terminal input
+    "1:<cols>:<rows>:"        – resize
+  Server → Client:
+    raw terminal output bytes
+    "2"                       – keepalive ping (every ~30 s)
 """
 import asyncio
 import json
@@ -21,6 +29,9 @@ except ImportError as exc:
     ) from exc
 
 logger = logging.getLogger(__name__)
+
+# Timeout (seconds) waiting for Proxmox "OK" after sending auth.
+_AUTH_OK_TIMEOUT = 10
 
 
 class ConsoleProxyConsumer(AsyncWebsocketConsumer):
@@ -92,10 +103,25 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
             await self.handle_auth(data)
             return
 
-        # After auth, forward raw data to Proxmox
+        # After auth, translate client JSON to Proxmox termproxy protocol.
         if text_data is not None:
             try:
-                await self.proxmox_ws.send(text_data)
+                msg = json.loads(text_data)
+            except (json.JSONDecodeError, TypeError):
+                msg = None
+
+            try:
+                if msg and msg.get('type') == 'resize':
+                    cols = int(msg.get('cols', 80))
+                    rows = int(msg.get('rows', 24))
+                    await self.proxmox_ws.send(f"1:{cols}:{rows}:")
+                elif msg and msg.get('type') == 'input':
+                    payload = msg.get('data', '')
+                    byte_len = len(payload.encode('utf-8'))
+                    await self.proxmox_ws.send(f"0:{byte_len}:{payload}")
+                else:
+                    # Forward raw text as-is (fallback)
+                    await self.proxmox_ws.send(text_data)
             except websockets.exceptions.ConnectionClosed:
                 await self.close()
         elif bytes_data is not None:
@@ -146,11 +172,36 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
-        # Send initial auth string
+        # Send auth string: "username:ticket\n"
         auth_string = f"{data['username']}:{data['ticket']}\n"
         try:
             await self.proxmox_ws.send(auth_string)
         except websockets.exceptions.ConnectionClosed:
+            await self._send_error('Proxmox closed connection during auth')
+            await self.close()
+            return
+
+        # Wait for "OK" response from Proxmox before marking as ready.
+        try:
+            ok_msg = await asyncio.wait_for(
+                self.proxmox_ws.recv(), timeout=_AUTH_OK_TIMEOUT,
+            )
+            ok_text = ok_msg.decode('utf-8') if isinstance(ok_msg, bytes) else ok_msg
+            if ok_text != 'OK':
+                logger.warning(
+                    "Proxmox auth for service %s returned %r (expected 'OK')",
+                    self.service_id, ok_text,
+                )
+                await self._send_error('Proxmox authentication failed')
+                await self.close()
+                return
+        except asyncio.TimeoutError:
+            logger.warning("Proxmox auth timeout for service %s", self.service_id)
+            await self._send_error('Proxmox authentication timed out')
+            await self.close()
+            return
+        except websockets.exceptions.ConnectionClosed:
+            await self._send_error('Proxmox closed connection during auth')
             await self.close()
             return
 
@@ -161,13 +212,22 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
         self.proxy_task = asyncio.ensure_future(self.proxy_from_proxmox())
 
     async def proxy_from_proxmox(self):
-        """Forward messages from Proxmox WebSocket to the browser client."""
+        """Forward messages from Proxmox WebSocket to the browser client.
+
+        Proxmox sends terminal output as binary WebSocket frames.
+        We decode to text so the browser receives string data that
+        xterm.js can render directly.
+        """
         try:
             async for message in self.proxmox_ws:
                 if isinstance(message, bytes):
-                    await self.send(bytes_data=message)
+                    text = message.decode('utf-8', errors='replace')
                 else:
-                    await self.send(text_data=message)
+                    text = message
+                # '2' is a keepalive ping from Proxmox — don't forward
+                if text == '2':
+                    continue
+                await self.send(text_data=text)
         except websockets.exceptions.ConnectionClosed:
             pass
         except Exception as e:
@@ -178,8 +238,23 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
     async def disconnect(self, code):
         if self.proxy_task and not self.proxy_task.done():
             self.proxy_task.cancel()
+            try:
+                await self.proxy_task
+            except (asyncio.CancelledError, Exception):
+                pass
         if self.proxmox_ws:
-            await self.proxmox_ws.close()
+            try:
+                await self.proxmox_ws.close()
+            except Exception:
+                pass
+            self.proxmox_ws = None
+
+    async def _send_error(self, message):
+        """Send a JSON error message to the client."""
+        await self.send(text_data=json.dumps({
+            'type': 'error',
+            'message': message,
+        }))
 
     @database_sync_to_async
     def get_service(self, service_id):

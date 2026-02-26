@@ -125,20 +125,19 @@ class Owner(serializers.SlugRelatedField):
 
 
 class ServiceSerializer(serializers.ModelSerializer):
-    domain_pattern = re.compile(
-        r'^(?:[a-zA-Z0-9]'  # First character of the domain
-        r'(?:[a-zA-Z0-9-_]{0,61}[A-Za-z0-9])?\.)'  # Sub domain + hostname
-        r'+[A-Za-z0-9][A-Za-z0-9-_]{0,61}'  # First 61 characters of the gTLD
-        r'[A-Za-z]$'  # Last character of the gTLD
+    hostname_pattern = re.compile(
+        r'^[a-zA-Z0-9]'  # Must start with alphanumeric
+        r'(?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?'  # Middle: alphanumeric or hyphens
+        r'(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$'  # Optional dot-separated labels
     )
-    domain_validator = RegexValidator(domain_pattern)
+    hostname_validator = RegexValidator(hostname_pattern)
     owner = Owner(slug_field='id')
     plan_name = serializers.ReadOnlyField(source='service_plan.name')
     plan = serializers.PrimaryKeyRelatedField(queryset=models.Plan.objects.all(), write_only=True, required=False)
     template = serializers.SlugRelatedField(slug_field='name', queryset=models.Template.objects.all(), write_only=True)
     password = serializers.CharField(write_only=True, required=False)
     apps = serializers.PrimaryKeyRelatedField(queryset=models.AppProfile.objects.all(), many=True, required=False, write_only=True)
-    hostname = serializers.CharField(validators=[domain_validator])
+    hostname = serializers.CharField(validators=[hostname_validator])
     __str__ = SerializerMethodField('display_name')
 
     def display_name(self, obj):
@@ -183,7 +182,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         service_plan = sps.create(plan_values)
 
         if "owner" not in validated_data:
-            validated_data["owner"] = UserModel.objects.get(username=request.user)
+            validated_data["owner"] = request.user
         if "node" not in validated_data:
             inventory = models.Inventory.objects.filter(plan=plan).first()
             validated_data["node"] = inventory.node

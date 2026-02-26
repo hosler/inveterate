@@ -206,13 +206,23 @@ def console_termproxy_view(request, service_id):
     if not service.machine_id:
         return JsonResponse({'error': 'No machine provisioned'}, status=400)
 
-    # Accept credentials from body or headers
+    # Accept credentials from JSON body, form body, or headers
+    body = {}
+    if request.content_type and 'json' in request.content_type:
+        import json
+        try:
+            body = json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
     ticket = (
-        request.POST.get('ticket')
+        body.get('ticket')
+        or request.POST.get('ticket')
         or request.headers.get('X-PVE-Ticket')
     )
     csrf_token = (
-        request.POST.get('csrf')
+        body.get('csrf')
+        or request.POST.get('csrf')
         or request.headers.get('X-PVE-CSRF')
     )
 

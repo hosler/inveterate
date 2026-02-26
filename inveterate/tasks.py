@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from io import BytesIO
 
@@ -1012,16 +1013,37 @@ def import_kvm_template(template_id):
         )
         node = proxmox.nodes(target_node.name)
 
-        # Get primary storage
+        # Get primary storage for VM disk
         primary_disk = NodeDisk.objects.get(node=target_node, primary=True)
-        stor = primary_disk.name
+        vm_stor = primary_disk.name
 
-        # Extract filename from URL
+        # Find a dir-type storage for downloading (download-url requires
+        # dir/nfs/cifs/cephfs with 'import' content type, not rbd/zfs).
+        dl_stor = vm_stor
+        for s in node.storage.get():
+            if s['type'] in ('dir', 'nfs', 'cifs', 'cephfs') and 'import' in s.get('content', ''):
+                dl_stor = s['storage']
+                break
+
+        # Extract filename from URL; Proxmox download-url requires a
+        # recognised disk extension (.qcow2, .raw, .vmdk, .iso).  Cloud
+        # images often use ".img" which is typically QCOW2 — rename to
+        # .qcow2 so Proxmox accepts it.
         filename = template.source_url.rstrip('/').split('/')[-1]
+        if filename.endswith('.img'):
+            filename = filename[:-4] + '.qcow2'
+
+        # Remove any leftover import file from a previous attempt
+        volid = f'{dl_stor}:import/{filename}'
+        try:
+            node.storage(dl_stor).content.delete(volid)
+            logger.info(f"Removed stale import file {volid}")
+        except ResourceException:
+            pass
 
         # Download image to node storage
-        logger.info(f"Downloading {filename} to {target_node.name}:{stor}")
-        upid = node.storage(stor)('download-url').post(
+        logger.info(f"Downloading {filename} to {target_node.name}:{dl_stor}")
+        upid = node.storage(dl_stor)('download-url').post(
             content='import', filename=filename, url=template.source_url,
         )
         _wait_for_proxmox_task(node, upid)
@@ -1030,12 +1052,14 @@ def import_kvm_template(template_id):
         vmid = proxmox.cluster.nextid.get()
         logger.info(f"Creating template VM {vmid} on {target_node.name}")
 
-        # Create VM with imported disk
+        # Create VM with imported disk on primary storage.
+        # Sanitise name — Proxmox requires valid DNS hostname.
+        vm_name = re.sub(r'[^a-zA-Z0-9\-]', '-', template.name).strip('-')[:63]
         create_upid = node.qemu.post(
             vmid=vmid,
-            name=template.name,
-            scsi0=f'{stor}:0,import-from={stor}:import/{filename}',
-            ide2=f'{stor}:cloudinit',
+            name=vm_name,
+            scsi0=f'{vm_stor}:0,import-from={dl_stor}:import/{filename}',
+            ide2=f'{vm_stor}:cloudinit',
             serial0='socket',
             vga='serial0',
             boot='order=scsi0',
