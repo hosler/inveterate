@@ -35,4 +35,10 @@ class MultiSerializerViewSetMixin(object):
         try:
             return action_classes[self.action]
         except (KeyError, AttributeError):
+            # partial_update should use the same serializer as update
+            if self.action == 'partial_update':
+                try:
+                    return action_classes['update']
+                except (KeyError, AttributeError, TypeError):
+                    pass
             return self.default_serializer_class
