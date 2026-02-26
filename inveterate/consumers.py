@@ -10,9 +10,15 @@ import logging
 import ssl
 from urllib.parse import quote
 
-import websockets
-from channels.db import database_sync_to_async
-from channels.generic.websocket import AsyncWebsocketConsumer
+try:
+    import websockets
+    from channels.db import database_sync_to_async
+    from channels.generic.websocket import AsyncWebsocketConsumer
+except ImportError as exc:
+    raise ImportError(
+        "WebSocket support requires extra dependencies. "
+        "Install them with: pip install django-inveterate[websocket]"
+    ) from exc
 
 logger = logging.getLogger(__name__)
 

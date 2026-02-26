@@ -1,5 +1,8 @@
+from django.urls import path
 from rest_framework import routers
+
 from . import viewsets
+from .viewsets.task import TaskStatusView
 
 app_name = "inveterate"
 
@@ -22,4 +25,6 @@ router.register(r'portblocks', viewsets.PortBlockViewSet, basename='portblock')
 router.register(r'portforwards', viewsets.PortForwardViewSet, basename='portforward')
 router.register(r'domainroutes', viewsets.DomainRouteViewSet, basename='domainroute')
 
-urlpatterns = router.urls
+urlpatterns = [
+    path('tasks/<str:task_id>/', TaskStatusView.as_view(), name='api-task-status'),
+] + router.urls

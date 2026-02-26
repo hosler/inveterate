@@ -9,7 +9,6 @@ from django.views.generic import RedirectView
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.throttling import ScopedRateThrottle
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
-from inveterate import views
 
 
 class TokenAuthThrottle(ScopedRateThrottle):
@@ -23,26 +22,8 @@ urlpatterns = [
     # Admin
     path('admin/', admin.site.urls),
 
-    # Authentication
-    path('login/', views.LoginView.as_view(), name='login'),
-    path('logout/', views.LogoutView.as_view(), name='logout'),
-
-    # Web Interface
-    path('', views.home_view, name='home'),
-    path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
-    path('services/', views.ServiceListView.as_view(), name='services'),
-    path('services/order/', views.ServiceOrderView.as_view(), name='service-order'),
-    path('services/<int:service_id>/', views.ServiceDetailView.as_view(), name='service-detail'),
-    path('services/<int:service_id>/console/', views.ServiceConsoleView.as_view(), name='service-console'),
-    path('services/<int:service_id>/console/auth/', views.console_auth_view, name='console-auth'),
-    path('services/<int:service_id>/console/termproxy/', views.console_termproxy_view, name='console-termproxy'),
-    path('clusters/', views.ClusterListView.as_view(), name='clusters'),
-    path('nodes/', views.NodeListView.as_view(), name='nodes'),
-    path('dashboard/services/', views.AdminServiceListView.as_view(), name='admin-services'),
-    path('dashboard/plans/', views.PlanListView.as_view(), name='admin-plans'),
-    path('dashboard/templates/', views.TemplateListView.as_view(), name='admin-templates'),
-    path('dashboard/apps/', views.AppProfileListView.as_view(), name='admin-apps'),
-    path('dashboard/ips/', views.IPPoolListView.as_view(), name='admin-ips'),
+    # Web Interface (app-owned)
+    path('', include('inveterate.urls_web')),
 
     # API Token Auth
     path('api/v1/auth/token/', ThrottledObtainAuthToken.as_view(), name='api-token-auth'),
@@ -52,7 +33,7 @@ urlpatterns = [
     path('api/v1/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/v1/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 
-    # REST API
+    # REST API (app-owned)
     path('api/v1/', include('inveterate.urls')),
 
     # Backward-compat redirect
