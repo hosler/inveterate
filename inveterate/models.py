@@ -11,9 +11,20 @@ VM_TYPES = (
 
 
 class Template(models.Model):
+    TEMPLATE_STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('importing', 'Importing'),
+        ('ready', 'Ready'),
+        ('error', 'Error'),
+    )
+
     name = models.CharField(max_length=255)
     type = models.CharField(max_length=255, default="lxc", choices=VM_TYPES)
-    file = models.CharField(max_length=255)
+    file = models.CharField(max_length=255, blank=True, default='')
+    source_url = models.URLField(max_length=1024, blank=True, default='')
+    node = models.ForeignKey('Node', null=True, blank=True, on_delete=models.SET_NULL)
+    status = models.CharField(max_length=32, choices=TEMPLATE_STATUS_CHOICES, default='ready')
+    status_msg = models.CharField(max_length=512, blank=True, default='')
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -36,6 +47,7 @@ class IPPool(models.Model):
     gateway = models.GenericIPAddressField()
     internal = models.BooleanField(default=False)
     interface = models.CharField(max_length=255, default='vmbr0')
+    vlan_tag = models.IntegerField(null=True, blank=True)
     dns = models.GenericIPAddressField()
     nodes = models.ManyToManyField("Node")
     created = models.DateTimeField(auto_now_add=True)
@@ -49,6 +61,13 @@ class IPPool(models.Model):
 
 
 class PlanBase(models.Model):
+    """Resource specification fields.
+
+    On Plan/ServicePlan: per-service allocation.
+    On Node: total node capacity limits.
+    Shared field names enable the inventory calculation loop.
+    """
+
     class Meta:
         abstract = True
 
@@ -62,11 +81,13 @@ class PlanBase(models.Model):
     ipv6_ips = models.IntegerField(default=0)
     ipv4_ips = models.IntegerField(default=0)
     internal_ips = models.IntegerField(default=0)
-    #ip_pools = models.ManyToManyField(IPPool)
+
 
 
 class Plan(PlanBase):
     name = models.CharField(max_length=255)
+    monthly_price = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    annual_price = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -82,6 +103,7 @@ class Cluster(models.Model):
     host = models.CharField(max_length=255)
     user = models.CharField(max_length=255)
     key = models.CharField(max_length=255)
+    bandwidth = models.IntegerField(default=0, help_text="Monthly bandwidth budget in GB (0 = unlimited)")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -110,23 +132,33 @@ class NodeDisk(models.Model):
     name = models.CharField(max_length=255, null=False)
     size = models.IntegerField()
     primary = models.BooleanField(default=True)
+    shared = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['node', 'primary'],
+                condition=models.Q(primary=True),
+                name='unique_primary_per_node'
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.node.name})"
 
 
 
-class ServiceBandwidth(models.Model):
-    bandwidth = models.IntegerField(default=0)
-    bandwidth_banked = models.IntegerField(default=0)
-    bandwidth_stale = models.IntegerField(default=0)
-    system_tick = models.IntegerField(default=0)
-    renewal_dtm = models.DateTimeField(null=True)
+
+class AppProfile(models.Model):
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    cloud_init = models.TextField()
+    min_cores = models.PositiveIntegerField(default=0)
+    min_ram = models.PositiveIntegerField(default=0)    # MB
+    min_disk = models.PositiveIntegerField(default=0)   # GB
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -134,12 +166,15 @@ class ServiceBandwidth(models.Model):
         ordering = ['-created']
 
     def __str__(self):
-        return str(self.id)
+        return self.name
+
 
 class ServicePlan(PlanBase):
+    name = models.CharField(max_length=255, default='')
     type = models.CharField(max_length=255, choices=VM_TYPES)
     template = models.ForeignKey(Template, null=True, on_delete=models.SET_NULL)
     storage = models.ForeignKey(NodeDisk, null=True, on_delete=models.SET_NULL)
+    apps = models.ManyToManyField(AppProfile, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -161,15 +196,17 @@ class Service(models.Model):
     )
 
     owner = models.ForeignKey(UserModel, on_delete=models.CASCADE)
-    plan = models.ForeignKey(Plan, null=True, on_delete=models.SET_NULL)
     status = models.CharField(max_length=255, default='pending', choices=STATUS_CHOICES)
     status_msg = models.CharField(max_length=255, null=True, blank=True)
     hostname = models.CharField(max_length=255)
     machine_id = models.IntegerField(null=True, blank=True)
     node = models.ForeignKey(Node, null=True, on_delete=models.SET_NULL, related_name='services')
     service_plan = models.OneToOneField(ServicePlan, on_delete=models.SET_NULL, null=True, related_name='service')
-    bandwidth = models.OneToOneField(ServiceBandwidth, on_delete=models.SET_NULL,
-                                     null=True, blank=True, related_name='service')
+    bw_usage = models.BigIntegerField(default=0)
+    bw_banked = models.BigIntegerField(default=0)
+    bw_stale = models.BigIntegerField(default=0)
+    bw_system_tick = models.IntegerField(default=0)
+    bw_renewal_dtm = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -180,8 +217,6 @@ class Service(models.Model):
         super().delete(*args, **kwargs)
         if self.service_plan:
             self.service_plan.delete()
-        if self.bandwidth:
-            self.bandwidth.delete()
 
     def __str__(self):
         return f"{self.id} ({self.hostname})"
@@ -210,18 +245,6 @@ class ServiceNetwork(models.Model):
         return super().save(*args, **kwargs)
 
 
-class ServiceDisk(models.Model):
-    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='disks')
-    size = models.IntegerField()
-    file = models.CharField(null=True, max_length=255)
-    primary = models.BooleanField(default=True)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created']
-
-
 class IP(models.Model):
     value = models.GenericIPAddressField(unique=True)
     pool = models.ForeignKey(IPPool, on_delete=models.CASCADE)
@@ -247,26 +270,89 @@ class Inventory(models.Model):
         ordering = ['-created']
 
 
-class Stream(models.Model):
-    name = models.CharField(null=False, max_length=255)
-    port = models.IntegerField(null=False)
-    service = models.ForeignKey(Service, on_delete=models.SET_NULL, related_name='stream', null=True)
+class PortGateway(models.Model):
+    name = models.CharField(max_length=255)
+    host = models.CharField(max_length=255)
+    admin_email = models.EmailField()
+    admin_password = models.CharField(max_length=255)
+    port_range_start = models.IntegerField(default=10000)
+    port_range_end = models.IntegerField(default=60000)
+    block_size = models.IntegerField(default=100)
+    pools = models.ManyToManyField('IPPool', blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created']
 
+    def __str__(self):
+        return self.name
 
-class DashboardSummary(models.Model):
-    user_count = models.IntegerField()
-    plan_count = models.IntegerField()
-    ip_count = models.IntegerField()
-    template_count = models.IntegerField()
-    service_count = models.IntegerField()
-    node_count = models.IntegerField()
+
+class PortBlock(models.Model):
+    gateway = models.ForeignKey(PortGateway, on_delete=models.CASCADE, related_name='port_blocks')
+    service_network = models.OneToOneField(ServiceNetwork, on_delete=models.CASCADE, related_name='port_block')
+    port_start = models.IntegerField()
+    port_end = models.IntegerField()
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(fields=['gateway', 'port_start'], name='unique_gateway_port_start')
+        ]
+
+    def __str__(self):
+        return f"{self.gateway.name}:{self.port_start}-{self.port_end}"
+
+
+PROTOCOL_CHOICES = (
+    ('tcp', 'TCP'),
+    ('udp', 'UDP'),
+    ('both', 'TCP+UDP'),
+)
+
+
+class PortForward(models.Model):
+    port_block = models.ForeignKey(PortBlock, on_delete=models.CASCADE, related_name='forwards')
+    external_port = models.IntegerField()
+    internal_port = models.IntegerField()
+    protocol = models.CharField(max_length=4, choices=PROTOCOL_CHOICES, default='tcp')
+    label = models.CharField(max_length=255, blank=True, default='')
+    enabled = models.BooleanField(default=True)
+    npm_stream_id = models.IntegerField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['port_block', 'external_port', 'protocol'],
+                name='unique_portblock_extport_proto'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.external_port}->{self.internal_port}/{self.protocol}"
+
+
+class DomainRoute(models.Model):
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='domain_routes')
+    domain = models.CharField(max_length=255, unique=True)
+    forward_port = models.IntegerField(default=80)
+    ssl = models.BooleanField(default=True)
+    force_ssl = models.BooleanField(default=True)
+    enabled = models.BooleanField(default=True)
+    npm_proxy_host_id = models.IntegerField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created']
+
+    def __str__(self):
+        return self.domain
+
+

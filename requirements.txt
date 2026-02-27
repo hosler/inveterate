@@ -1,0 +1,7 @@
+# Editable install with all optional dependencies
+-e .[all]
+
+# Dev / deployment dependencies (not part of the app package)
+psycopg[binary]>=3.2
+gunicorn>=23.0
+gevent>=24.11

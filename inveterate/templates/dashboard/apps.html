@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}App Profiles - Inveterate{% endblock %}
+
+{% block content %}
+<div x-data="appsManager()" x-init="init()">
+    <div class="mb-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">App Profiles</h1>
+            <p class="mt-2 text-gray-600">Manage cloud-init application profiles for KVM services</p>
+        </div>
+        <button @click="openCreate()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            + New App Profile
+        </button>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="flex justify-center py-12">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- App Cards Grid -->
+    <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <template x-for="app in apps" :key="app.id">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-start mb-3">
+                    <h3 class="text-lg font-semibold text-gray-900" x-text="app.name"></h3>
+                    <div class="flex gap-2">
+                        <button @click="openEdit(app)" class="text-blue-600 hover:text-blue-800 text-sm font-medium">Edit</button>
+                        <button @click="confirmDelete(app)" class="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 mb-3" x-text="app.description || 'No description'"></p>
+                <div class="bg-gray-50 rounded p-3 max-h-32 overflow-auto">
+                    <pre class="text-xs text-gray-600 whitespace-pre-wrap font-mono" x-text="app.cloud_init"></pre>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <div x-show="!loading && apps.length === 0" class="text-center py-12 text-gray-500">
+        No app profiles yet. Create one to get started.
+    </div>
+
+    <!-- Create/Edit Modal -->
+    <div x-show="showModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" x-cloak>
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4" x-text="editing ? 'Edit App Profile' : 'New App Profile'"></h3>
+            <div x-show="error" class="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm" x-text="error"></div>
+            <div class="space-y-3">
+                <div>
+                    <label class="form-label">Name</label>
+                    <input x-model="form.name" type="text" class="form-input" placeholder="e.g. Docker">
+                </div>
+                <div>
+                    <label class="form-label">Description</label>
+                    <textarea x-model="form.description" class="form-input" rows="2" placeholder="What this app profile installs..."></textarea>
+                </div>
+                <div>
+                    <label class="form-label">Cloud-Init Config</label>
+                    <textarea x-model="form.cloud_init" class="form-input font-mono text-sm" rows="14" placeholder="#cloud-config&#10;packages:&#10;  - docker.io"></textarea>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <button @click="showModal = false" class="px-4 py-2 text-gray-700 hover:text-gray-900 text-sm font-medium">Cancel</button>
+                <button @click="save()" :disabled="saving" class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-md text-sm font-medium">
+                    <span x-text="saving ? 'Saving...' : 'Save'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation -->
+    <div x-show="showDeleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" x-cloak>
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Delete App Profile</h3>
+            <p class="text-gray-600 mb-4">Are you sure you want to delete <strong x-text="deleteTarget?.name"></strong>?</p>
+            <div class="flex justify-end gap-3">
+                <button @click="showDeleteModal = false" class="px-4 py-2 text-gray-700 hover:text-gray-900 text-sm font-medium">Cancel</button>
+                <button @click="doDelete()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function appsManager() {
+    return {
+        apps: [],
+        loading: true,
+        showModal: false,
+        showDeleteModal: false,
+        editing: null,
+        deleteTarget: null,
+        saving: false,
+        error: '',
+        form: {},
+
+        defaultForm() {
+            return { name: '', description: '', cloud_init: '' };
+        },
+
+        async init() {
+            await this.load();
+        },
+
+        async load() {
+            this.loading = true;
+            try {
+                const res = await api.getApps({no_page: true});
+                this.apps = res.results || res;
+            } catch (e) { console.error(e); }
+            finally { this.loading = false; }
+        },
+
+        openCreate() {
+            this.editing = null;
+            this.form = this.defaultForm();
+            this.error = '';
+            this.showModal = true;
+        },
+
+        openEdit(app) {
+            this.editing = app.id;
+            this.form = { name: app.name, description: app.description, cloud_init: app.cloud_init };
+            this.error = '';
+            this.showModal = true;
+        },
+
+        async save() {
+            this.saving = true;
+            this.error = '';
+            try {
+                if (this.editing) {
+                    await api.updateApp(this.editing, this.form);
+                } else {
+                    await api.createApp(this.form);
+                }
+                this.showModal = false;
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        confirmDelete(app) {
+            this.deleteTarget = app;
+            this.showDeleteModal = true;
+        },
+
+        async doDelete() {
+            try {
+                await api.deleteApp(this.deleteTarget.id);
+                this.showDeleteModal = false;
+                await this.load();
+            } catch (e) { alert(e.message); }
+        }
+    }
+}
+</script>
+{% endblock %}

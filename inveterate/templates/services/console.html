@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Console - Inveterate{% endblock %}
+
+{% block extra_head %}
+<!-- xterm.js for terminal -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+<style>
+    #terminal-container {
+        height: 600px;
+        background: #1e1e1e;
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    #terminal {
+        height: 100%;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="consoleManager({{ service_id }})" x-init="init()">
+    <!-- Back Button -->
+    <div class="mb-4">
+        <a href="/services/{{ service_id }}/" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+            &larr; Back to Service
+        </a>
+    </div>
+
+    <!-- Console Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">VM Console</h1>
+                <p class="text-gray-600 mt-1">Interactive terminal access to your virtual machine</p>
+            </div>
+            <div class="flex space-x-2">
+                <button @click="reconnect()"
+                        :disabled="connecting"
+                        class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-md text-sm font-medium">
+                    <span x-show="!connecting">Reconnect</span>
+                    <span x-show="connecting">Connecting...</span>
+                </button>
+                <button @click="openProxmoxDirectly()"
+                        class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                    Open in Proxmox
+                </button>
+            </div>
+        </div>
+
+        <!-- Connection Status -->
+        <div class="mt-4 flex items-center space-x-2">
+            <div :class="`w-3 h-3 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`"></div>
+            <span class="text-sm" :class="connected ? 'text-green-700' : 'text-red-700'" x-text="connectionStatus"></span>
+        </div>
+    </div>
+
+    <!-- Terminal Container -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <div id="terminal-container">
+            <div id="terminal"></div>
+        </div>
+
+        <!-- Terminal Info -->
+        <div class="mt-4 text-sm text-gray-600">
+            <p><strong>Tip:</strong> Click inside the terminal to focus. Use Ctrl+C to copy, Ctrl+V to paste.</p>
+            <p class="mt-1"><strong>Note:</strong> KVM virtual machines use graphical console (VNC). Use "Open in Proxmox" button for full access.</p>
+        </div>
+    </div>
+</div>
+
+<script src="{% static 'js/console.js' %}"></script>
+<script>
+function consoleManager(serviceId) {
+    return {
+        serviceId,
+        console: null,
+        connected: false,
+        connecting: false,
+        connectionStatus: 'Initializing...',
+
+        async init() {
+            this.connecting = true;
+            this.connectionStatus = 'Connecting to console...';
+
+            try {
+                // Initialize Proxmox console
+                this.console = new ProxmoxConsole(serviceId, 'terminal');
+                await this.console.init();
+
+                this.connected = true;
+                this.connectionStatus = 'Connected';
+            } catch (error) {
+                console.error('Console error:', error);
+                this.connectionStatus = 'Connection failed: ' + error.message;
+                showError('Failed to connect to console: ' + error.message);
+            } finally {
+                this.connecting = false;
+            }
+        },
+
+        async reconnect() {
+            if (this.console) {
+                this.console.disconnect();
+            }
+            this.connected = false;
+            await this.init();
+        },
+
+        openProxmoxDirectly() {
+            if (!this.console || !this.console.authData) {
+                showError('Console not initialized');
+                return;
+            }
+
+            const { host, node, vmid, vmtype } = this.console.authData;
+            const url = `https://${host}:8006/#v1:0:=:::::${vmtype}%2F${vmid}::::::`;
+            window.open(url, '_blank');
+        }
+    }
+}
+</script>
+{% endblock %}

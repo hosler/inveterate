@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}My Services - Inveterate{% endblock %}
+
+{% block content %}
+<div x-data="serviceList()" x-init="init()">
+    <div class="mb-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">My Services</h1>
+            <p class="mt-2 text-gray-600">Manage your virtual machines</p>
+        </div>
+        <a href="{% url 'service-order' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            + New Service
+        </a>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="flex justify-center py-12">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Services Grid -->
+    <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <template x-for="service in services" :key="service.id">
+            <div class="bg-white rounded-lg shadow-md p-6 card-hover">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900" x-text="service.hostname"></h3>
+                        <p class="text-sm text-gray-500" x-text="`ID: ${service.machine_id || 'Pending'}`"></p>
+                    </div>
+                    <span :class="`status-badge status-${service.status}`" x-text="service.status"></span>
+                </div>
+
+                <div class="space-y-2 mb-4">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Plan:</span>
+                        <span class="font-medium" x-text="service.plan_name || 'N/A'"></span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Node:</span>
+                        <span class="font-medium" x-text="service.node || 'N/A'"></span>
+                    </div>
+                </div>
+
+                <div class="flex space-x-2">
+                    <a :href="`/services/${service.id}/`" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-md text-sm font-medium">
+                        Manage
+                    </a>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="!loading && services.length === 0" class="text-center py-12">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No services</h3>
+        <p class="mt-1 text-sm text-gray-500">Get started by creating your first service.</p>
+    </div>
+</div>
+
+<script>
+function serviceList() {
+    return {
+        services: [],
+        loading: true,
+
+        async init() {
+            await this.loadServices();
+        },
+
+        async loadServices() {
+            try {
+                const response = await api.getServices();
+                this.services = response.results || response;
+            } catch (error) {
+                showError('Failed to load services: ' + error.message);
+            } finally {
+                this.loading = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

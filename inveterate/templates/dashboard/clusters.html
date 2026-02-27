@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Clusters - Inveterate{% endblock %}
+
+{% block content %}
+<div x-data="clusterList()" x-init="init()">
+    <div class="mb-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Proxmox Clusters</h1>
+            <p class="mt-2 text-gray-600">Manage your Proxmox clusters</p>
+        </div>
+        <a href="/admin/inveterate/cluster/add/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            + Add Cluster
+        </a>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="flex justify-center py-12">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Clusters Grid -->
+    <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <template x-for="cluster in clusters" :key="cluster.id">
+            <div class="bg-white rounded-lg shadow-md p-6 card-hover">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900" x-text="cluster.name"></h3>
+                        <p class="text-sm text-gray-500 font-mono" x-text="cluster.host"></p>
+                    </div>
+                    <span x-show="clusterStatus[cluster.id]"
+                          :class="`px-2 py-1 rounded text-xs font-semibold ${clusterStatus[cluster.id]?.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`"
+                          x-text="clusterStatus[cluster.id]?.success ? 'Online' : 'Offline'"></span>
+                </div>
+
+                <div class="space-y-2 mb-4">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">User:</span>
+                        <span class="font-medium font-mono" x-text="cluster.user"></span>
+                    </div>
+                    <div x-show="clusterStatus[cluster.id]?.success" class="text-sm text-gray-600">
+                        <span x-text="clusterStatus[cluster.id]?.message"></span>
+                    </div>
+                </div>
+
+                <div class="flex space-x-2">
+                    <button @click="testConnection(cluster.id)"
+                            :disabled="testing[cluster.id]"
+                            class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white py-2 px-4 rounded-md text-sm font-medium">
+                        <span x-show="!testing[cluster.id]">Test Connection</span>
+                        <span x-show="testing[cluster.id]">Testing...</span>
+                    </button>
+                    <a :href="`/admin/inveterate/cluster/${cluster.id}/change/`"
+                       class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-md text-sm font-medium">
+                        Edit
+                    </a>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="!loading && clusters.length === 0" class="text-center py-12 bg-white rounded-lg shadow-md">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No clusters configured</h3>
+        <p class="mt-1 text-sm text-gray-500">Get started by adding your first Proxmox cluster.</p>
+        <div class="mt-6">
+            <a href="/admin/inveterate/cluster/add/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                + Add Cluster
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+function clusterList() {
+    return {
+        clusters: [],
+        clusterStatus: {},
+        testing: {},
+        loading: true,
+
+        async init() {
+            await this.loadClusters();
+        },
+
+        async loadClusters() {
+            try {
+                const response = await api.getClusters();
+                this.clusters = response.results || response;
+                // Test connection for each cluster
+                this.clusters.forEach(cluster => {
+                    this.checkClusterStatus(cluster.id);
+                });
+            } catch (error) {
+                showError('Failed to load clusters: ' + error.message);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async checkClusterStatus(clusterId) {
+            try {
+                const status = await api.getClusterStatus(clusterId);
+                this.clusterStatus[clusterId] = status;
+            } catch (error) {
+                console.error(`Failed to check cluster ${clusterId} status:`, error);
+                this.clusterStatus[clusterId] = { success: false, message: error.message };
+            }
+        },
+
+        async testConnection(clusterId) {
+            this.testing[clusterId] = true;
+            try {
+                const status = await api.getClusterStatus(clusterId);
+                this.clusterStatus[clusterId] = status;
+                showSuccess(status.message || 'Connection successful');
+            } catch (error) {
+                showError('Connection failed: ' + error.message);
+                this.clusterStatus[clusterId] = { success: false, message: error.message };
+            } finally {
+                this.testing[clusterId] = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

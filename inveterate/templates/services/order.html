@@ -1,0 +1,271 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Order Service - Inveterate{% endblock %}
+
+{% block content %}
+<div x-data="serviceOrder()" x-init="init()">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Order a New Service</h1>
+        <p class="mt-2 text-gray-600">Configure and deploy your virtual machine</p>
+    </div>
+
+    <!-- Step Indicators -->
+    <div class="flex items-center justify-center gap-2 mb-8 flex-wrap">
+        <template x-for="(label, i) in ['Plan', 'Template', 'Configure', 'Review']" :key="i">
+            <div class="flex items-center gap-2">
+                <button @click="if (i + 1 < step) step = i + 1"
+                    :class="{
+                        'step-active': step === i + 1,
+                        'step-completed': step > i + 1,
+                        'step-pending': step < i + 1
+                    }"
+                    class="step-indicator">
+                    <span x-text="i + 1" class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                        :class="step > i + 1 ? 'bg-green-600 text-white' : step === i + 1 ? 'bg-white text-blue-600' : 'bg-gray-300 text-gray-500'"></span>
+                    <span x-text="label"></span>
+                </button>
+                <svg x-show="i < 3" class="h-5 w-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </div>
+        </template>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="flex justify-center py-12">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Step 1: Choose Plan -->
+    <div x-show="!loading && step === 1">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Select a Plan</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <template x-for="plan in plans" :key="plan.id">
+                <div @click="selectedPlan = plan; step = 2"
+                     :class="{'selected': selectedPlan && selectedPlan.id === plan.id}"
+                     class="selectable-card">
+                    <h3 class="text-lg font-semibold text-gray-900" x-text="plan.name"></h3>
+                    <div class="mt-3 space-y-1 text-sm text-gray-600">
+                        <div class="flex justify-between">
+                            <span>CPU</span>
+                            <span class="font-medium text-gray-900" x-text="`${plan.cores} Core${plan.cores > 1 ? 's' : ''}`"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>RAM</span>
+                            <span class="font-medium text-gray-900" x-text="plan.ram >= 1024 ? `${(plan.ram / 1024).toFixed(plan.ram % 1024 === 0 ? 0 : 1)} GB` : `${plan.ram} MB`"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Disk</span>
+                            <span class="font-medium text-gray-900" x-text="`${plan.size} GB`"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Bandwidth</span>
+                            <span class="font-medium text-gray-900" x-text="plan.bandwidth >= 1024 ? `${(plan.bandwidth / 1024).toFixed(plan.bandwidth % 1024 === 0 ? 0 : 1)} TB` : `${plan.bandwidth} GB`"></span>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+        <div x-show="plans.length === 0" class="text-center py-8 text-gray-500">
+            No plans available. Contact an administrator.
+        </div>
+    </div>
+
+    <!-- Step 2: Choose Template -->
+    <div x-show="!loading && step === 2">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Select a Template</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <template x-for="tpl in readyTemplates" :key="tpl.id">
+                <div @click="selectedTemplate = tpl; step = 3"
+                     :class="{'selected': selectedTemplate && selectedTemplate.id === tpl.id}"
+                     class="selectable-card">
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-lg font-semibold text-gray-900" x-text="tpl.name"></h3>
+                        <span :class="`status-badge status-${tpl.type === 'kvm' ? 'active' : 'importing'}`"
+                              x-text="tpl.type.toUpperCase()" class="text-xs"></span>
+                    </div>
+                </div>
+            </template>
+        </div>
+        <div x-show="readyTemplates.length === 0" class="text-center py-8 text-gray-500">
+            No templates available. Contact an administrator.
+        </div>
+        <div class="mt-6">
+            <button @click="step = 1" class="text-gray-600 hover:text-gray-800 text-sm font-medium">&larr; Back to Plans</button>
+        </div>
+    </div>
+
+    <!-- Step 3: Configure -->
+    <div x-show="!loading && step === 3">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Configure Your Service</h2>
+        <div class="max-w-xl space-y-4">
+            <div>
+                <label class="form-label">Hostname <span class="text-red-500">*</span></label>
+                <input x-model="hostname" type="text" class="form-input" placeholder="server.example.com"
+                       pattern="^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-_]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9][A-Za-z0-9\-_]{0,61}[A-Za-z]$">
+                <p class="mt-1 text-xs text-gray-500">Must be a valid domain name (e.g. vps1.example.com)</p>
+            </div>
+            <div>
+                <label class="form-label">Password</label>
+                <input x-model="password" type="password" class="form-input" placeholder="Leave blank for key-only access">
+            </div>
+        </div>
+
+        <!-- App Profiles (KVM only) -->
+        <template x-if="selectedTemplate && selectedTemplate.type === 'kvm' && apps.length > 0">
+            <div class="mt-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">App Profiles <span class="text-sm font-normal text-gray-500">(optional)</span></h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <template x-for="app in apps" :key="app.id">
+                        <div @click="toggleApp(app.id)"
+                             :class="{'selected': selectedApps.includes(app.id)}"
+                             class="selectable-card">
+                            <h4 class="font-semibold text-gray-900" x-text="app.name"></h4>
+                            <p class="text-sm text-gray-500 mt-1" x-text="app.description || 'No description'"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+
+        <div class="mt-6 flex items-center gap-4">
+            <button @click="step = 2" class="text-gray-600 hover:text-gray-800 text-sm font-medium">&larr; Back to Templates</button>
+            <button @click="goToReview()" :disabled="!hostname"
+                    class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-md text-sm font-medium">
+                Continue to Review &rarr;
+            </button>
+        </div>
+    </div>
+
+    <!-- Step 4: Review & Submit -->
+    <div x-show="!loading && step === 4">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Review Your Order</h2>
+        <div class="bg-white rounded-lg shadow-md p-6 max-w-xl">
+            <dl class="space-y-3">
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Plan</dt>
+                    <dd class="font-medium" x-text="selectedPlan ? selectedPlan.name : ''"></dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Template</dt>
+                    <dd class="font-medium" x-text="selectedTemplate ? selectedTemplate.name : ''"></dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Type</dt>
+                    <dd class="font-medium" x-text="selectedTemplate ? selectedTemplate.type.toUpperCase() : ''"></dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Hostname</dt>
+                    <dd class="font-medium" x-text="hostname"></dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">CPU</dt>
+                    <dd class="font-medium" x-text="selectedPlan ? `${selectedPlan.cores} Core${selectedPlan.cores > 1 ? 's' : ''}` : ''"></dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">RAM</dt>
+                    <dd class="font-medium" x-text="selectedPlan ? (selectedPlan.ram >= 1024 ? `${(selectedPlan.ram / 1024).toFixed(0)} GB` : `${selectedPlan.ram} MB`) : ''"></dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Disk</dt>
+                    <dd class="font-medium" x-text="selectedPlan ? `${selectedPlan.size} GB` : ''"></dd>
+                </div>
+                <template x-if="selectedApps.length > 0">
+                    <div class="flex justify-between">
+                        <dt class="text-gray-600">Apps</dt>
+                        <dd class="font-medium" x-text="selectedApps.map(id => apps.find(a => a.id === id)?.name).join(', ')"></dd>
+                    </div>
+                </template>
+            </dl>
+
+            <div class="mt-6 flex items-center gap-4">
+                <button @click="step = 3" class="text-gray-600 hover:text-gray-800 text-sm font-medium">&larr; Back</button>
+                <button @click="submitOrder()" :disabled="submitting"
+                        class="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-6 py-2 rounded-md text-sm font-medium flex items-center gap-2">
+                    <div x-show="submitting" class="spinner" style="width:16px;height:16px;border-width:2px"></div>
+                    <span x-text="submitting ? 'Deploying...' : 'Deploy Service'"></span>
+                </button>
+            </div>
+
+            <div x-show="error" class="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm" x-text="error"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+function serviceOrder() {
+    return {
+        step: 1,
+        loading: true,
+        submitting: false,
+        error: '',
+        plans: [],
+        templates: [],
+        apps: [],
+        selectedPlan: null,
+        selectedTemplate: null,
+        selectedApps: [],
+        hostname: '',
+        password: '',
+
+        get readyTemplates() {
+            return this.templates.filter(t => t.status === 'ready');
+        },
+
+        async init() {
+            try {
+                const [plansRes, templatesRes, appsRes] = await Promise.all([
+                    api.getPlans({no_page: true}),
+                    api.getTemplates({no_page: true}),
+                    api.getApps({no_page: true})
+                ]);
+                this.plans = plansRes.results || plansRes;
+                this.templates = templatesRes.results || templatesRes;
+                this.apps = appsRes.results || appsRes;
+            } catch (e) {
+                this.error = 'Failed to load data: ' + e.message;
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        toggleApp(id) {
+            const idx = this.selectedApps.indexOf(id);
+            if (idx === -1) {
+                this.selectedApps.push(id);
+            } else {
+                this.selectedApps.splice(idx, 1);
+            }
+        },
+
+        goToReview() {
+            if (!this.hostname) return;
+            this.error = '';
+            this.step = 4;
+        },
+
+        async submitOrder() {
+            this.submitting = true;
+            this.error = '';
+            try {
+                const data = {
+                    plan: this.selectedPlan.id,
+                    template: this.selectedTemplate.name,
+                    hostname: this.hostname,
+                };
+                if (this.password) {
+                    data.password = this.password;
+                }
+                if (this.selectedApps.length > 0) {
+                    data.apps = this.selectedApps;
+                }
+                const result = await api.createService(data);
+                window.location.href = `/services/${result.id}/`;
+            } catch (e) {
+                this.error = e.message;
+                this.submitting = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

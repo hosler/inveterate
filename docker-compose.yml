@@ -1,0 +1,108 @@
+services:
+  traefik:
+    image: traefik:v3.3
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: inveterate
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DB_HOST: db
+      REDIS_HOST: redis
+    dns: 192.168.1.1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`inveterate.hosnet.internal`)
+      - traefik.http.routers.web.entrypoints=web
+      - traefik.http.services.web.loadbalancer.server.port=8000
+
+  celery:
+    build: .
+    command: celery -A config worker -l INFO
+    volumes:
+      - .:/app
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DB_HOST: db
+      REDIS_HOST: redis
+    dns: 192.168.1.1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    build: .
+    command: celery -A config beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - .:/app
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DB_HOST: db
+      REDIS_HOST: redis
+    dns: 192.168.1.1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  test:
+    build: .
+    command: python manage.py test inveterate
+    volumes:
+      - .:/app
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+    profiles:
+      - test
+
+volumes:
+  pgdata:

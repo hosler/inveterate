@@ -1,0 +1,4 @@
+recursive-include inveterate/templates *
+recursive-include inveterate/static *
+recursive-include inveterate/migrations *.py
+recursive-include inveterate/management *.py
