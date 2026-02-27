@@ -84,28 +84,28 @@
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-600">CPU Usage:</span>
-                        <span class="font-medium" x-text="`${((vmStatus?.cpu_util || 0) * 100).toFixed(1)}%`"></span>
+                        <span class="font-medium" x-text="`${((vmStatus?.cpu || 0) * 100).toFixed(1)}%`"></span>
                     </div>
                     <div>
                         <div class="flex justify-between mb-1">
                             <span class="text-gray-600">Memory:</span>
-                            <span class="font-medium" x-text="`${formatBytes(vmStatus?.mem_used)} / ${formatBytes(vmStatus?.mem_max)}`"></span>
+                            <span class="font-medium" x-text="`${formatBytes(vmStatus?.mem)} / ${formatBytes(vmStatus?.maxmem)}`"></span>
                         </div>
                         <div class="resource-bar">
                             <div class="resource-bar-fill"
-                                 :class="getResourceClass((vmStatus?.mem_used / vmStatus?.mem_max) * 100)"
-                                 :style="`width: ${(vmStatus?.mem_used / vmStatus?.mem_max) * 100}%`"></div>
+                                 :class="getResourceClass((vmStatus?.mem / vmStatus?.maxmem) * 100)"
+                                 :style="`width: ${(vmStatus?.mem / vmStatus?.maxmem) * 100}%`"></div>
                         </div>
                     </div>
                     <div>
                         <div class="flex justify-between mb-1">
                             <span class="text-gray-600">Disk:</span>
-                            <span class="font-medium" x-text="`${formatBytes(vmStatus?.disk_used)} / ${formatBytes(vmStatus?.disk_max)}`"></span>
+                            <span class="font-medium" x-text="`${formatBytes(vmStatus?.disk)} / ${formatBytes(vmStatus?.maxdisk)}`"></span>
                         </div>
                         <div class="resource-bar">
                             <div class="resource-bar-fill"
-                                 :class="getResourceClass((vmStatus?.disk_used / vmStatus?.disk_max) * 100)"
-                                 :style="`width: ${(vmStatus?.disk_used / vmStatus?.disk_max) * 100}%`"></div>
+                                 :class="getResourceClass((vmStatus?.disk / vmStatus?.maxdisk) * 100)"
+                                 :style="`width: ${(vmStatus?.disk / vmStatus?.maxdisk) * 100}%`"></div>
                         </div>
                     </div>
                 </div>

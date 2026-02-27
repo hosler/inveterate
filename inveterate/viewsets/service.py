@@ -120,6 +120,8 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def status(self, request, pk=None):
         service = self.get_object()
+        if not service.node:
+            return Response({"detail": "Service has no node assigned."}, status=503)
         stats = get_vm_status(service.pk)
         return Response(stats)
 

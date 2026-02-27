@@ -603,17 +603,61 @@ def reboot_vm(service_id):
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def get_vm_status(service_id):
+    from .proxmox import get_proxmox_connection
+
     machine, service = get_vm(service_id)
     vm_stats = machine.status.current.get()
+    disk = vm_stats.get('disk', 0)
+    maxdisk = vm_stats.get('maxdisk', 0)
+
+    # For KVM, Proxmox returns disk=0 in status/current.
+    # Try guest agent first, then fall back to storage volume allocation.
+    if service.service_plan.type == "kvm" and disk == 0:
+        proxmox = get_proxmox_connection(service.node.cluster)
+        node = proxmox.nodes(service.node)
+
+        # Try guest agent for filesystem-level usage (most accurate)
+        if vm_stats.get('status') == 'running':
+            try:
+                fs_info = node.qemu(service.machine_id).agent('get-fsinfo').get()
+                total_used = 0
+                total_size = 0
+                for fs in fs_info.get('result', []):
+                    total_used += fs.get('used-bytes', 0)
+                    total_size += fs.get('total-bytes', 0)
+                if total_size > 0:
+                    disk = total_used
+                    maxdisk = total_size
+            except Exception:
+                pass  # Guest agent unavailable
+
+        # Fall back to storage volume allocation (thin-provisioned actual usage)
+        if disk == 0:
+            try:
+                config = node.qemu(service.machine_id).config.get()
+                for key in ('scsi0', 'virtio0', 'ide0', 'sata0'):
+                    val = config.get(key, '')
+                    if val and ':' in val.split(',')[0]:
+                        storage_name, vol_name = val.split(',')[0].split(':', 1)
+                        vol_id = f"{storage_name}:{vol_name}"
+                        vol_info = node.storage(storage_name).content(vol_id).get()
+                        if vol_info.get('used', 0) > 0:
+                            disk = vol_info['used']
+                            maxdisk = vol_info.get('size', maxdisk)
+                        break
+            except Exception:
+                pass  # Storage query unavailable, keep Proxmox defaults
+
     stats = {
         "status": vm_stats['status'],
-        "mem_max": vm_stats['maxmem'],
-        "mem_used": vm_stats['mem'],
-        "disk_max": vm_stats['maxdisk'],
-        "disk_used": vm_stats['diskwrite'],
-        "cpu_util": vm_stats['cpu'],
-        #"bandwidth_max": service.service_plan.bandwidth * 1024 * 1024,
-        #"bandwidth_used": service.bw_usage + service.bw_banked
+        "cpu": vm_stats.get('cpu', 0),
+        "mem": vm_stats.get('mem', 0),
+        "maxmem": vm_stats.get('maxmem', 0),
+        "disk": disk,
+        "maxdisk": maxdisk,
+        "uptime": vm_stats.get('uptime', 0),
+        "netin": vm_stats.get('netin', 0),
+        "netout": vm_stats.get('netout', 0),
     }
     return stats
 
