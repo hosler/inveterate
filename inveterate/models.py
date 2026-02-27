@@ -86,6 +86,8 @@ class PlanBase(models.Model):
 
 class Plan(PlanBase):
     name = models.CharField(max_length=255)
+    monthly_price = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    annual_price = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
