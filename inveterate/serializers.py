@@ -137,6 +137,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     template = serializers.SlugRelatedField(slug_field='name', queryset=models.Template.objects.all(), write_only=True)
     password = serializers.CharField(write_only=True, required=False)
     apps = serializers.PrimaryKeyRelatedField(queryset=models.AppProfile.objects.all(), many=True, required=False, write_only=True)
+    ssh_keys = serializers.ListField(child=serializers.CharField(), required=False, write_only=True)
     hostname = serializers.CharField(validators=[hostname_validator])
     __str__ = SerializerMethodField('display_name')
 
@@ -154,7 +155,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         model = models.Service
         fields = (
             'id', 'plan_name', 'owner', 'password', 'template', 'machine_id', 'hostname', 'plan',
-            'node', 'status', 'service_plan', 'status_msg', 'apps',
+            'node', 'status', 'service_plan', 'status_msg', 'apps', 'ssh_keys',
             'bw_usage', 'bw_banked', 'bw_stale', 'bw_renewal_dtm', '__str__'
         )
 
@@ -173,6 +174,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         password = validated_data.pop("password", None)
         template = validated_data.pop("template", None)
         apps = validated_data.pop("apps", [])
+        ssh_keys = validated_data.pop("ssh_keys", None)
 
         # Snapshot plan fields into ServicePlan
         plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != "id"]
@@ -197,7 +199,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         service.service_plan = service_plan
         service.save()
         # IP assignment happens inside provision_service task
-        provision_service.delay(service.id, password)
+        provision_service.delay(service.id, password, ssh_keys=ssh_keys)
         return service
 
 
@@ -206,7 +208,7 @@ class ServiceSerializerClient(ServiceSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field not in ['hostname', 'password', 'plan', 'template', 'apps']:
+            if field not in ['hostname', 'password', 'plan', 'template', 'apps', 'ssh_keys']:
                 self.fields[field].read_only = True
 
 

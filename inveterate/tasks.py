@@ -206,8 +206,13 @@ def assign_ips(service_id):
                     logger.warning(f"No available port block on gateway {gw.name} for service {service_id}")
 
 
-def _compose_cloud_init(apps):
-    """Merge AppProfile cloud_init fragments into a single cloud-config document."""
+def _compose_cloud_init(apps, ssh_keys=None):
+    """Merge AppProfile cloud_init fragments into a single cloud-config document.
+
+    Args:
+        apps: QuerySet of AppProfile objects to merge.
+        ssh_keys: Optional list of SSH public key strings to inject via cloud-init.
+    """
     merged_keys = ('packages', 'runcmd', 'write_files')
     merged = {}
     for app in apps.order_by('pk'):
@@ -217,13 +222,15 @@ def _compose_cloud_init(apps):
         for key in merged_keys:
             if key in fragment:
                 merged.setdefault(key, []).extend(fragment[key])
+    if ssh_keys:
+        merged['ssh_authorized_keys'] = list(ssh_keys)
     if not merged:
         return ''
     return '#cloud-config\n' + yaml.dump(merged, default_flow_style=False)
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
-def provision_service(service_id, password):
+def provision_service(service_id, password, ssh_keys=None):
     logger.info(f"Starting provisioning for service {service_id}")
     service = Service.objects.get(pk=service_id)
     logger.info(f"Provisioning {service.service_plan.type} service '{service.hostname}' on node {service.node.name}")
@@ -333,9 +340,9 @@ def provision_service(service_id, password):
             if password is not None:
                 vm_data['cipassword'] = password
 
-            # Compose and upload cloud-init snippet for selected app profiles
-            if service.service_plan.apps.exists():
-                ci_content = _compose_cloud_init(service.service_plan.apps.all())
+            # Compose and upload cloud-init snippet for app profiles and/or SSH keys
+            if service.service_plan.apps.exists() or ssh_keys:
+                ci_content = _compose_cloud_init(service.service_plan.apps.all(), ssh_keys=ssh_keys)
                 if ci_content:
                     snippet_name = f'ci-{service.machine_id}.yml'
                     node.storage('local').upload.post(
@@ -503,6 +510,45 @@ def get_vm(service_id):
     if service.service_plan.type == "lxc":
         machine = node.lxc(service.machine_id)
     return machine, service
+
+
+@shared_task
+def update_service_ssh_keys(service_id, ssh_keys):
+    """Update SSH authorized keys on a running KVM service via cloud-init."""
+    from .proxmox import get_proxmox_connection
+
+    logger.info(f"Updating SSH keys for service {service_id}")
+    service = Service.objects.get(pk=service_id)
+
+    if service.service_plan.type != "kvm":
+        logger.warning(f"SSH key update not supported for LXC service {service_id}")
+        return
+
+    proxmox = get_proxmox_connection(service.node.cluster)
+    node = proxmox.nodes(service.node)
+
+    # Compose cloud-init with just SSH keys merged with existing apps
+    ci_content = _compose_cloud_init(service.service_plan.apps.all(), ssh_keys=ssh_keys)
+    if ci_content:
+        snippet_name = f"ci-{service.machine_id}.yml"
+        node.storage("local").upload.post(
+            content="snippets",
+            filename=snippet_name,
+            file=BytesIO(ci_content.encode()),
+        )
+        node.qemu(service.machine_id).config.post(
+            cicustom=f"user=local:snippets/{snippet_name}"
+        )
+        logger.info(f"Updated cloud-init snippet for service {service_id}")
+
+    # Try to apply via qemu-agent if available
+    try:
+        node.qemu(service.machine_id).agent.exec.post(
+            command="cloud-init clean && cloud-init init",
+        )
+        logger.info(f"Applied SSH key changes via qemu-agent for service {service_id}")
+    except (ResourceException, Exception):
+        logger.info(f"Qemu-agent not available for service {service_id}, reboot may be needed")
 
 
 def get_service_node(service_id):

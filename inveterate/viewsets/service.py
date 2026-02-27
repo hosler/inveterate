@@ -27,7 +27,8 @@ from ..tasks import (
     reset_vm,
     shutdown_vm,
     get_vm_status,
-    get_vm_ips
+    get_vm_ips,
+    update_service_ssh_keys,
 )
 
 UserModel = get_user_model()
@@ -167,6 +168,18 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
             "machine": service.machine_id,
             "type": vm_type,
         })
+
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
+    def ssh_keys(self, request, pk=None):
+        """Update SSH authorized keys on a running KVM service."""
+        service = self.get_object()
+        ssh_keys = request.data.get('ssh_keys', [])
+        if not isinstance(ssh_keys, list):
+            return Response({'detail': 'ssh_keys must be a list of public key strings.'}, status=400)
+        if service.service_plan.type != 'kvm':
+            return Response({'detail': 'SSH key updates are only supported for KVM services.'}, status=400)
+        task = update_service_ssh_keys.delay(service.id, ssh_keys)
+        return Response({'task_id': task.id}, status=202)
 
     @action(methods=['post'], detail=False, permission_classes=[IsAdminUser])
     def bulk_import(self, request):

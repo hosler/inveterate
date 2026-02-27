@@ -156,6 +156,9 @@ class AppProfile(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
     cloud_init = models.TextField()
+    min_cores = models.PositiveIntegerField(default=0)
+    min_ram = models.PositiveIntegerField(default=0)    # MB
+    min_disk = models.PositiveIntegerField(default=0)   # GB
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
