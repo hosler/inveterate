@@ -304,6 +304,11 @@ class PortForwardSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("internal_port must be between 1 and 65535.")
         return value
 
+    def validate_external_port(self, value):
+        if not 1 <= value <= 65535:
+            raise serializers.ValidationError("external_port must be between 1 and 65535.")
+        return value
+
     def validate(self, attrs):
         port_block = attrs.get('port_block') or (self.instance.port_block if self.instance else None)
         external_port = attrs.get('external_port', getattr(self.instance, 'external_port', None))

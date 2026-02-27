@@ -625,6 +625,10 @@ def get_vm_ips(service_id):
         ip = {
             "value": network.ip.value,
             "primary": network.net_id == 0,
+            "pool": {
+                "type": network.ip.pool.type,
+                "internal": network.ip.pool.internal,
+            },
         }
         if network.ip.pool.internal and hasattr(network, 'port_block'):
             pb = network.port_block
