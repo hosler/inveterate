@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from proxmoxer.core import ResourceException
+import requests.exceptions
 from requests.exceptions import ConnectionError
 
 from .proxmox import get_proxmox_connection, is_console_user, is_legacy_console_user
@@ -23,6 +24,8 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+MAX_POLL_SECONDS = 600  # 10 minute timeout for Proxmox polling loops
+
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def calculate_inventory():
@@ -31,14 +34,26 @@ def calculate_inventory():
     nodes = Node.objects.all()
     inventory_fields = ['cores', 'ram', 'bandwidth']
 
+    # Precompute per-node resource usage in a single query
+    node_usage = {}
+    for row in (
+        Service.objects.exclude(status='destroyed')
+        .values('node_id')
+        .annotate(
+            total_cores=Sum('service_plan__cores'),
+            total_ram=Sum('service_plan__ram'),
+            total_bandwidth=Sum('service_plan__bandwidth'),
+            total_size=Sum('service_plan__size'),
+        )
+    ):
+        node_usage[row['node_id']] = row
+
     for node in nodes:
-        services = node.services.all().exclude(status='destroyed')
+        usage = node_usage.get(node.id, {})
         for plan in plans:
             lowest = None
             for field in inventory_fields:
-                services_value = list(services.aggregate(Sum("service_plan__" + field)).values())[0]
-                if services_value is None:
-                    services_value = 0
+                services_value = usage.get(f"total_{field}") or 0
                 node_value = getattr(node, field)
                 plan_value = getattr(plan, field)
                 try:
@@ -64,9 +79,7 @@ def calculate_inventory():
                         total=Sum('service_plan__size')
                     )['total'] or 0
                 else:
-                    disk_used = services.aggregate(
-                        total=Sum('service_plan__size')
-                    )['total'] or 0
+                    disk_used = usage.get('total_size') or 0
                 disk_slots = int((primary_disk.size - disk_used) / plan.size)
                 if lowest is None or disk_slots < lowest:
                     lowest = disk_slots
@@ -160,15 +173,16 @@ def assign_ips(service_id):
                     return True
         raise RuntimeError(f"All {label} IP pools exhausted for service {service_id}")
 
-    for i in range(internal_ips):
-        if not _allocate_ip(lambda p: p.internal is True, "internal"):
-            logger.warning("No internal IP pools configured for node %s (service %s)", service.node, service_id)
-    for i in range(ipv4_ips):
-        if not _allocate_ip(lambda p: p.type == "ipv4" and p.internal is not True, "IPv4"):
-            logger.warning("No IPv4 IP pools configured for node %s (service %s)", service.node, service_id)
-    for i in range(ipv6_ips):
-        if not _allocate_ip(lambda p: p.type == "ipv6" and p.internal is not True, "IPv6"):
-            logger.warning("No IPv6 IP pools configured for node %s (service %s)", service.node, service_id)
+    with transaction.atomic():
+        for i in range(internal_ips):
+            if not _allocate_ip(lambda p: p.internal is True, "internal"):
+                logger.warning("No internal IP pools configured for node %s (service %s)", service.node, service_id)
+        for i in range(ipv4_ips):
+            if not _allocate_ip(lambda p: p.type == "ipv4" and p.internal is not True, "IPv4"):
+                logger.warning("No IPv4 IP pools configured for node %s (service %s)", service.node, service_id)
+        for i in range(ipv6_ips):
+            if not _allocate_ip(lambda p: p.type == "ipv6" and p.internal is not True, "IPv6"):
+                logger.warning("No IPv6 IP pools configured for node %s (service %s)", service.node, service_id)
 
     # Allocate port blocks for internal IPs that don't have one yet
     internal_networks = ServiceNetwork.objects.filter(
@@ -262,19 +276,23 @@ def provision_service(service_id, password, ssh_keys=None):
     # Generate machine_id, avoiding collisions with both cluster VMIDs
     # and machine_ids already assigned to other services (prevents races).
     if not service.machine_id:
-        candidate = int(f"1{service.id:06}")
-        existing_vmids = {
-            r['vmid']
-            for r in proxmox.cluster.resources.get(type='vm')
-        }
-        existing_vmids.update(
-            Service.objects.exclude(machine_id=None)
-            .values_list('machine_id', flat=True)
-        )
-        while candidate in existing_vmids:
-            candidate += 1
-        service.machine_id = candidate
-        service.save(update_fields=['machine_id'])
+        with transaction.atomic():
+            locked_svc = Service.objects.select_for_update().get(pk=service_id)
+            if not locked_svc.machine_id:
+                candidate = int(f"1{locked_svc.id:06}")
+                existing_vmids = {
+                    r['vmid']
+                    for r in proxmox.cluster.resources.get(type='vm')
+                }
+                existing_vmids.update(
+                    Service.objects.exclude(machine_id=None)
+                    .values_list('machine_id', flat=True)
+                )
+                while candidate in existing_vmids:
+                    candidate += 1
+                locked_svc.machine_id = candidate
+                locked_svc.save(update_fields=['machine_id'])
+            service.machine_id = locked_svc.machine_id
     try:
         logger.debug(f"Assigning IPs for service {service_id}")
         assign_ips(service_id)
@@ -312,7 +330,10 @@ def provision_service(service_id, password, ssh_keys=None):
                 # Wait for clone to finish (check both source and target
                 # nodes since the VM may briefly live on the source).
                 locked = True
+                poll_start = time.monotonic()
                 while locked:
+                    if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+                        raise TimeoutError(f"Clone lock poll timed out after {MAX_POLL_SECONDS}s for service {service_id}")
                     time.sleep(2)
                     for check_node in (node, clone_node):
                         try:
@@ -325,7 +346,10 @@ def provision_service(service_id, password, ssh_keys=None):
                 # For cross-node clones, wait until the VM actually
                 # appears on the target node (migration after clone).
                 if cross_node:
+                    poll_start = time.monotonic()
                     while True:
+                        if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+                            raise TimeoutError(f"Cross-node migration poll timed out after {MAX_POLL_SECONDS}s for service {service_id}")
                         try:
                             node.qemu(service.machine_id).status.current.get()
                             break
@@ -421,7 +445,10 @@ def provision_service(service_id, password, ssh_keys=None):
         if service_type == "kvm":
             node.qemu(service.machine_id).config.post(**vm_data)
             lock = True
+            poll_start = time.monotonic()
             while lock:
+                if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+                    raise TimeoutError(f"Config lock poll timed out after {MAX_POLL_SECONDS}s for service {service_id}")
                 status = node.qemu(service.machine_id).status.current.get()
                 if "lock" not in status:
                     lock = False
@@ -474,36 +501,26 @@ def provision_service(service_id, password, ssh_keys=None):
     except NodeDisk.DoesNotExist:
         error_msg = f"No primary storage disk configured for node {service.node.name}"
         logger.error(f"Failed to provision service {service_id}: {error_msg}")
-        service.status = "error"
-        service.status_msg = error_msg
-        service.save()
+        Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
         raise
     except ConnectionError as e:
         error_msg = f"Cannot connect to Proxmox cluster at {service.node.cluster.host}"
         logger.error(f"Failed to provision service {service_id}: {error_msg} - {str(e)}")
-        service.status = "error"
-        service.status_msg = error_msg
-        service.save()
+        Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
         raise
     except ResourceException as e:
         error_msg = f"Proxmox API error: {str(e)}"
         logger.error(f"Failed to provision service {service_id}: {error_msg}")
-        service.status = "error"
-        service.status_msg = error_msg
-        service.save()
+        Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
         raise
     except Exception as e:
         error_msg = f"Unexpected error during provisioning: {str(e)}"
         logger.error(f"Failed to provision service {service_id}: {error_msg}", exc_info=True)
-        service.status = "error"
-        service.status_msg = str(e)
-        service.save()
+        Service.objects.filter(pk=service_id).update(status="error", status_msg=str(e))
         raise
     else:
-        service.status = "active"
-        service.status_msg = None
-        service.save()
-        logger.info(f"Service {service_id} status updated to {service.status}")
+        Service.objects.filter(pk=service_id).update(status="active", status_msg=None)
+        logger.info(f"Service {service_id} status updated to active")
 
     calculate_inventory.delay()
 
@@ -786,42 +803,33 @@ def cancel_service(service_id):
         except Exception:
             pass
 
-    # Clean up NPM resources (port forwards and domain routes)
+    # Collect NPM cleanup info before deleting ServiceNetwork records
+    npm_streams_to_delete = []
+    npm_proxy_hosts_to_delete = []
+
     for sn in service.service_network.all():
         if hasattr(sn, 'port_block'):
+            gateway_id = sn.port_block.gateway_id
             for pf in sn.port_block.forwards.filter(npm_stream_id__isnull=False):
-                try:
-                    from .npm import NPMClient
-                    client = NPMClient(
-                        sn.port_block.gateway.host,
-                        sn.port_block.gateway.admin_email,
-                        sn.port_block.gateway.admin_password,
-                    )
-                    client.delete_stream(pf.npm_stream_id)
-                    logger.info(f"Deleted NPM stream {pf.npm_stream_id} for service {service_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete NPM stream {pf.npm_stream_id}: {e}")
+                npm_streams_to_delete.append((gateway_id, pf.npm_stream_id))
 
-    for dr in service.domain_routes.filter(npm_proxy_host_id__isnull=False):
-        # Find the gateway via any internal service network
-        internal_sn = service.service_network.filter(ip__pool__internal=True).first()
-        if internal_sn and hasattr(internal_sn, 'port_block'):
-            try:
-                from .npm import NPMClient
-                client = NPMClient(
-                    internal_sn.port_block.gateway.host,
-                    internal_sn.port_block.gateway.admin_email,
-                    internal_sn.port_block.gateway.admin_password,
-                )
-                client.delete_proxy_host(dr.npm_proxy_host_id)
-                logger.info(f"Deleted NPM proxy host {dr.npm_proxy_host_id} for service {service_id}")
-            except Exception as e:
-                logger.warning(f"Failed to delete NPM proxy host {dr.npm_proxy_host_id}: {e}")
+    # Collect domain route NPM proxy hosts
+    internal_sn = service.service_network.filter(ip__pool__internal=True).first()
+    if internal_sn and hasattr(internal_sn, 'port_block'):
+        gateway_id = internal_sn.port_block.gateway_id
+        for dr in service.domain_routes.filter(npm_proxy_host_id__isnull=False):
+            npm_proxy_hosts_to_delete.append((gateway_id, dr.npm_proxy_host_id))
 
     # Release IPs back to the pool by deleting ServiceNetwork records.
     # IP.owner is a OneToOneField with on_delete=SET_NULL, so deleting
     # the ServiceNetwork automatically sets IP.owner = NULL.
     service.service_network.all().delete()
+
+    # Fire async NPM cleanup tasks after data is safely collected
+    for gateway_id, npm_stream_id in npm_streams_to_delete:
+        delete_npm_stream.delay(gateway_id, npm_stream_id)
+    for gateway_id, npm_proxy_host_id in npm_proxy_hosts_to_delete:
+        delete_npm_proxy_host.delay(gateway_id, npm_proxy_host_id)
 
     service.status = "destroyed"
     service.save()
@@ -1387,8 +1395,14 @@ def delete_npm_stream(gateway_id, npm_stream_id):
         logger.info(f"Deleted NPM stream {npm_stream_id}")
     except PortGateway.DoesNotExist:
         logger.warning(f"Gateway {gateway_id} not found, cannot delete stream {npm_stream_id}")
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            logger.info(f"NPM stream {npm_stream_id} already deleted (404)")
+        else:
+            logger.error(f"HTTP error deleting NPM stream {npm_stream_id}: {e}")
+            raise
     except Exception as e:
-        logger.warning(f"Failed to delete NPM stream {npm_stream_id}: {e}")
+        logger.error(f"Failed to delete NPM stream {npm_stream_id}: {e}")
 
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
@@ -1402,5 +1416,11 @@ def delete_npm_proxy_host(gateway_id, npm_proxy_host_id):
         logger.info(f"Deleted NPM proxy host {npm_proxy_host_id}")
     except PortGateway.DoesNotExist:
         logger.warning(f"Gateway {gateway_id} not found, cannot delete proxy host {npm_proxy_host_id}")
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            logger.info(f"NPM proxy host {npm_proxy_host_id} already deleted (404)")
+        else:
+            logger.error(f"HTTP error deleting NPM proxy host {npm_proxy_host_id}: {e}")
+            raise
     except Exception as e:
-        logger.warning(f"Failed to delete NPM proxy host {npm_proxy_host_id}: {e}")
+        logger.error(f"Failed to delete NPM proxy host {npm_proxy_host_id}: {e}")

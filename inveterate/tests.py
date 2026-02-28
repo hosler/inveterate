@@ -2077,14 +2077,14 @@ class TestNPMSyncTasks(TestCase):
 
     @patch('inveterate.npm.NPMClient')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    def test_cancel_service_cleans_npm_resources(self, mock_prox_cls, mock_client_cls):
+    @patch('inveterate.tasks.delete_npm_proxy_host')
+    @patch('inveterate.tasks.delete_npm_stream')
+    def test_cancel_service_cleans_npm_resources(self, mock_del_stream, mock_del_proxy,
+                                                  mock_prox_cls, mock_client_cls):
         mock_proxmox = MagicMock()
         mock_prox_cls.return_value = mock_proxmox
         mock_node = MagicMock()
         mock_proxmox.nodes.return_value = mock_node
-
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
 
         svc, sn, pb, gw = self._setup_internal_service()
         pf = PortForward.objects.create(
@@ -2101,8 +2101,8 @@ class TestNPMSyncTasks(TestCase):
 
         svc.refresh_from_db()
         self.assertEqual(svc.status, 'destroyed')
-        mock_client.delete_stream.assert_called_with(42)
-        mock_client.delete_proxy_host.assert_called_with(99)
+        mock_del_stream.delay.assert_called_with(gw.id, 42)
+        mock_del_proxy.delay.assert_called_with(gw.id, 99)
 
 
 # ===================================================================

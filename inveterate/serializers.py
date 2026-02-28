@@ -154,7 +154,12 @@ class ServiceSerializer(serializers.ModelSerializer):
         for key in value:
             if not any(key.startswith(prefix) for prefix in _SSH_KEY_PREFIXES):
                 raise serializers.ValidationError(
-                    f"Invalid SSH key format. Keys must start with a known type (e.g. ssh-rsa, ssh-ed25519)."
+                    "Invalid SSH key format. Keys must start with a known type (e.g. ssh-rsa, ssh-ed25519)."
+                )
+            parts = key.split()
+            if len(parts) < 2:
+                raise serializers.ValidationError(
+                    "Invalid SSH key format. Keys must have at least a type and base64 data."
                 )
         return value
 
@@ -201,7 +206,9 @@ class ServiceSerializer(serializers.ModelSerializer):
             if "owner" not in validated_data:
                 validated_data["owner"] = request.user
             if "node" not in validated_data:
-                inventory = models.Inventory.objects.filter(plan=plan).first()
+                inventory = models.Inventory.objects.filter(plan=plan, quantity__gt=0).first()
+                if not inventory:
+                    raise serializers.ValidationError({"plan": "No available capacity for this plan."})
                 validated_data["node"] = inventory.node
             if template:
                 service_plan.template = template

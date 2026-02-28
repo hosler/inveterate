@@ -164,6 +164,9 @@ def console_auth_view(request, service_id):
     if not service.machine_id:
         return JsonResponse({'error': 'No machine provisioned'}, status=400)
 
+    if not service.node:
+        return JsonResponse({'error': 'Service has no node assigned'}, status=400)
+
     try:
         proxmox = get_proxmox_connection(service.node.cluster)
         userid, password = ensure_console_user(proxmox, service, service.machine_id)
@@ -210,6 +213,9 @@ def console_termproxy_view(request, service_id):
 
     if not service.machine_id:
         return JsonResponse({'error': 'No machine provisioned'}, status=400)
+
+    if not service.node:
+        return JsonResponse({'error': 'Service has no node assigned'}, status=400)
 
     # Accept credentials from JSON body, form body, or headers
     body = {}

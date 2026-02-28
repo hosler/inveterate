@@ -235,9 +235,9 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
                     errors.append(f"Node {node_id} not found for VM {vm_name}")
                     continue
 
-                # Check if service with this machine_id already exists
-                if models.Service.objects.filter(machine_id=vm_id, node=node).exists():
-                    errors.append(f"VM {vm_name} (ID: {vm_id}) already imported on node {node.name}")
+                # Check if service with this machine_id already exists (any node)
+                if models.Service.objects.filter(machine_id=vm_id).exclude(status='destroyed').exists():
+                    errors.append(f"VM {vm_name} (ID: {vm_id}) already imported")
                     continue
 
                 # Convert VM type from Proxmox format to our format
