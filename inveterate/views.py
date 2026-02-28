@@ -174,8 +174,10 @@ def console_auth_view(request, service_id):
             service.node.cluster.host, userid, password,
             verify_ssl=getattr(service.node.cluster, 'verify_ssl', False),
         )
-    except ProxmoxConsoleError as e:
-        return JsonResponse({'error': f'Console unavailable: {e}'}, status=502)
+    except ProxmoxConsoleError:
+        import logging
+        logging.getLogger(__name__).exception("Console auth error for service %s", service_id)
+        return JsonResponse({'error': 'Console temporarily unavailable'}, status=502)
     except Exception:
         import logging
         logging.getLogger(__name__).exception("Unexpected error in console_auth_view for service %s", service_id)
@@ -271,9 +273,11 @@ def console_termproxy_view(request, service_id):
         )
 
     if resp.status_code != 200:
+        import logging
+        logging.getLogger(__name__).warning("Proxmox termproxy returned %s for service %s", resp.status_code, service_id)
         return JsonResponse(
-            {'error': f'Proxmox returned {resp.status_code}'},
-            status=resp.status_code,
+            {'error': 'Console temporarily unavailable'},
+            status=502,
         )
 
     data = resp.json().get('data', {})

@@ -151,6 +151,8 @@ class ServiceSerializer(serializers.ModelSerializer):
         return obj.hostname
 
     def validate_ssh_keys(self, value):
+        if len(value) > 20:
+            raise serializers.ValidationError("A maximum of 20 SSH keys may be provided.")
         for key in value:
             if not any(key.startswith(prefix) for prefix in _SSH_KEY_PREFIXES):
                 raise serializers.ValidationError(

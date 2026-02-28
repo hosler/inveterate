@@ -9,9 +9,13 @@ import re
 import secrets
 
 import requests
+import urllib3
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
+
+# Suppress InsecureRequestWarning for Proxmox connections with verify_ssl=False
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 

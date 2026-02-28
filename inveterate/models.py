@@ -249,6 +249,9 @@ class ServiceNetwork(models.Model):
 
     class Meta:
         ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(fields=['service', 'net_id'], name='unique_service_net_id'),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.net_id:

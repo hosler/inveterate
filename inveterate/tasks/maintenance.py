@@ -1,0 +1,306 @@
+from io import BytesIO
+
+from celery import shared_task
+from celery_singleton import Singleton
+from django.db.models import Sum
+from proxmoxer.core import ResourceException
+from requests.exceptions import ConnectionError
+
+from ..models import (
+    IP,
+    Cluster,
+    Inventory,
+    IPPool,
+    Node,
+    Plan,
+    Service,
+    ServiceNetwork,
+)
+from ..proxmox import get_proxmox_connection, is_console_user, is_legacy_console_user
+from ._common import logger
+
+
+@shared_task(name="inveterate.tasks.calculate_inventory", base=Singleton, lock_expiry=60 * 15)
+def calculate_inventory():
+    logger.info("Starting inventory calculation")
+    plans = Plan.objects.all()
+    nodes = Node.objects.all()
+    inventory_fields = ["cores", "ram", "bandwidth"]
+
+    # Precompute per-node resource usage in a single query
+    node_usage = {}
+    for row in (
+        Service.objects.exclude(status="destroyed")
+        .values("node_id")
+        .annotate(
+            total_cores=Sum("service_plan__cores"),
+            total_ram=Sum("service_plan__ram"),
+            total_bandwidth=Sum("service_plan__bandwidth"),
+            total_size=Sum("service_plan__size"),
+        )
+    ):
+        node_usage[row["node_id"]] = row
+
+    # Precompute shared disk usage by storage name (avoids N+1 in the plan loop)
+    shared_disk_usage = {}
+    for row in (
+        Service.objects.filter(
+            service_plan__storage__shared=True,
+        )
+        .exclude(status="destroyed")
+        .values("service_plan__storage__name")
+        .annotate(total=Sum("service_plan__size"))
+    ):
+        shared_disk_usage[row["service_plan__storage__name"]] = row["total"] or 0
+
+    for node in nodes:
+        usage = node_usage.get(node.id, {})
+        for plan in plans:
+            lowest = None
+            for field in inventory_fields:
+                services_value = usage.get(f"total_{field}") or 0
+                node_value = getattr(node, field)
+                plan_value = getattr(plan, field)
+                try:
+                    quantity = int((node_value - services_value) / plan_value)
+                except ZeroDivisionError:
+                    quantity = float("inf")
+                if lowest is None or quantity < lowest:
+                    lowest = quantity
+
+            # Disk accounting: use primary disk, fall back to largest
+            primary_disk = node.node_disk.filter(primary=True).first()
+            if not primary_disk:
+                primary_disk = node.node_disk.order_by("-size").first()
+            if primary_disk and plan.size > 0:
+                if primary_disk.shared:
+                    disk_used = shared_disk_usage.get(primary_disk.name, 0)
+                else:
+                    disk_used = usage.get("total_size") or 0
+                disk_slots = int((primary_disk.size - disk_used) / plan.size)
+                if lowest is None or disk_slots < lowest:
+                    lowest = disk_slots
+
+            # IP accounting: check available IPs in pools assigned to this node
+            node_pools = IPPool.objects.filter(nodes=node)
+            for ip_type, plan_field in [("internal", "internal_ips"), ("ipv4", "ipv4_ips"), ("ipv6", "ipv6_ips")]:
+                needed = getattr(plan, plan_field)
+                if needed <= 0:
+                    continue
+                if ip_type == "internal":
+                    pools = node_pools.filter(internal=True)
+                else:
+                    pools = node_pools.filter(internal=False, type=ip_type)
+                free_ips = IP.objects.filter(pool__in=pools, owner__isnull=True).count()
+                ip_slots = int(free_ips / needed)
+                if lowest is None or ip_slots < lowest:
+                    lowest = ip_slots
+
+            inventory, created = Inventory.objects.get_or_create(plan=plan, node=node)
+            inventory.quantity = lowest if lowest is not None else 0
+            inventory.save()
+            logger.debug(f"Node {node.name}, Plan {plan.name}: {inventory.quantity} slots available")
+
+    # Cluster-level bandwidth cap
+    for cluster in Cluster.objects.all():
+        if cluster.bandwidth <= 0:
+            continue
+        cluster_nodes = nodes.filter(cluster=cluster)
+        bw_used = (
+            Service.objects.filter(node__cluster=cluster)
+            .exclude(status="destroyed")
+            .aggregate(total=Sum("service_plan__bandwidth"))["total"]
+            or 0
+        )
+        bw_remaining = cluster.bandwidth - bw_used
+
+        for plan in plans:
+            if plan.bandwidth <= 0:
+                continue
+            bw_slots = max(0, int(bw_remaining / plan.bandwidth))
+            # Cap each node's inventory for this plan by the cluster bandwidth limit
+            for node in cluster_nodes:
+                try:
+                    inv = Inventory.objects.get(plan=plan, node=node)
+                    if inv.quantity > bw_slots:
+                        inv.quantity = bw_slots
+                        inv.save()
+                        logger.debug(f"Node {node.name}, Plan {plan.name}: capped to {bw_slots} by cluster bandwidth")
+                except Inventory.DoesNotExist:
+                    pass
+
+    logger.info("Inventory calculation completed")
+
+
+@shared_task(
+    name="inveterate.tasks.cancel_service",
+    base=Singleton,
+    lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError,),
+    retry_backoff=5,
+    retry_backoff_max=60,
+    max_retries=3,
+)
+def cancel_service(service_id):
+    logger.info(f"Cancelling service {service_id}")
+    # Import via the package so that tests can patch ``inveterate.tasks.delete_npm_*``
+    import inveterate.tasks as _tasks
+
+    from .control import get_service_node, get_vm
+
+    delete_npm_stream = _tasks.delete_npm_stream
+    delete_npm_proxy_host = _tasks.delete_npm_proxy_host
+
+    machine, service = get_vm(service_id)
+    machine.delete(force=1)
+
+    # Clean up cloud-init snippet if one was uploaded
+    if service.service_plan and service.service_plan.type == "kvm" and service.machine_id:
+        try:
+            node = get_service_node(service_id)
+            node.storage("local").content.delete(f"snippets/ci-{service.machine_id}.yml")
+        except Exception:
+            logger.warning("Failed to delete cloud-init snippet for service %s", service_id, exc_info=True)
+
+    # Collect NPM cleanup info before deleting ServiceNetwork records
+    npm_streams_to_delete = []
+    npm_proxy_hosts_to_delete = []
+
+    for sn in service.service_network.all():
+        if hasattr(sn, "port_block"):
+            gateway_id = sn.port_block.gateway_id
+            for pf in sn.port_block.forwards.filter(npm_stream_id__isnull=False):
+                npm_streams_to_delete.append((gateway_id, pf.npm_stream_id))
+
+    # Collect domain route NPM proxy hosts
+    internal_sn = service.service_network.filter(ip__pool__internal=True).first()
+    if internal_sn and hasattr(internal_sn, "port_block"):
+        gateway_id = internal_sn.port_block.gateway_id
+        for dr in service.domain_routes.filter(npm_proxy_host_id__isnull=False):
+            npm_proxy_hosts_to_delete.append((gateway_id, dr.npm_proxy_host_id))
+
+    # Release IPs back to the pool by deleting ServiceNetwork records.
+    # IP.owner is a OneToOneField with on_delete=SET_NULL, so deleting
+    # the ServiceNetwork automatically sets IP.owner = NULL.
+    service.service_network.all().delete()
+
+    # Fire async NPM cleanup tasks after data is safely collected
+    for gateway_id, npm_stream_id in npm_streams_to_delete:
+        delete_npm_stream.delay(gateway_id, npm_stream_id)
+    for gateway_id, npm_proxy_host_id in npm_proxy_hosts_to_delete:
+        delete_npm_proxy_host.delay(gateway_id, npm_proxy_host_id)
+
+    service.status = "destroyed"
+    service.save()
+
+
+@shared_task(name="inveterate.tasks.cleanup_orphaned_ips", base=Singleton, lock_expiry=60 * 15)
+def cleanup_orphaned_ips():
+    """
+    Safety-net task to release IPs orphaned by past bugs or edge cases.
+    Finds ServiceNetwork records belonging to destroyed services and deletes
+    them, which auto-nulls IP.owner via the SET_NULL cascade.
+    """
+    logger.info("Starting orphaned IP cleanup")
+    orphaned = ServiceNetwork.objects.filter(service__status="destroyed")
+    count = orphaned.count()
+    if count:
+        orphaned.delete()
+        logger.info(f"Cleaned up {count} orphaned ServiceNetwork records")
+    else:
+        logger.info("No orphaned IPs found")
+
+
+@shared_task(name="inveterate.tasks.cleanup_console_users", base=Singleton, lock_expiry=60 * 15)
+def cleanup_console_users():
+    """
+    Clean up orphaned Proxmox console users.
+
+    Current format: ``inv-s{service_id}@pve`` (per-service).
+    Also cleans up legacy ``inveterate{owner_id}@pve`` users left over from
+    the previous per-owner naming scheme.
+    """
+
+    logger.info("Starting console user cleanup")
+
+    active_service_ids = set(Service.objects.exclude(status="destroyed").values_list("id", flat=True))
+    # Legacy fallback: owners who still have active services
+    active_owner_ids = set(Service.objects.exclude(status="destroyed").values_list("owner_id", flat=True).distinct())
+
+    cleaned_up = 0
+    errors = 0
+
+    for cluster in Cluster.objects.all():
+        try:
+            proxmox = get_proxmox_connection(cluster)
+            users = proxmox.access.users.get()
+
+            for user in users:
+                userid = user.get("userid", "")
+
+                # Per-service users (current format)
+                service_id = is_console_user(userid)
+                if service_id is not None:
+                    if service_id not in active_service_ids:
+                        proxmox.access.users(userid).delete()
+                        logger.info(f"Deleted orphaned console user: {userid}")
+                        cleaned_up += 1
+                    continue
+
+                # Legacy per-owner users (transitional cleanup)
+                owner_id = is_legacy_console_user(userid)
+                if owner_id is not None:
+                    if owner_id not in active_owner_ids:
+                        proxmox.access.users(userid).delete()
+                        logger.info(f"Deleted legacy console user: {userid}")
+                        cleaned_up += 1
+
+        except ConnectionError as e:
+            logger.error(f"Cannot connect to cluster {cluster.name}: {str(e)}")
+            errors += 1
+        except ResourceException as e:
+            logger.error(f"Proxmox API error on cluster {cluster.name}: {str(e)}")
+            errors += 1
+        except Exception as e:
+            logger.error(f"Failed to cleanup console users on cluster {cluster.name}: {str(e)}", exc_info=True)
+            errors += 1
+
+    logger.info(f"Console user cleanup completed: {cleaned_up} users removed, {errors} clusters with errors")
+
+
+@shared_task(name="inveterate.tasks.update_service_ssh_keys")
+def update_service_ssh_keys(service_id, ssh_keys):
+    """Update SSH authorized keys on a running KVM service via cloud-init."""
+
+    logger.info(f"Updating SSH keys for service {service_id}")
+    service = Service.objects.get(pk=service_id)
+
+    if service.service_plan.type != "kvm":
+        logger.warning(f"SSH key update not supported for LXC service {service_id}")
+        return
+
+    proxmox = get_proxmox_connection(service.node.cluster)
+    node = proxmox.nodes(service.node)
+
+    # Compose cloud-init with just SSH keys merged with existing apps
+    from .provisioning import _compose_cloud_init
+
+    ci_content = _compose_cloud_init(service.service_plan.apps.all(), ssh_keys=ssh_keys)
+    if ci_content:
+        snippet_name = f"ci-{service.machine_id}.yml"
+        node.storage("local").upload.post(
+            content="snippets",
+            filename=snippet_name,
+            file=BytesIO(ci_content.encode()),
+        )
+        node.qemu(service.machine_id).config.post(cicustom=f"user=local:snippets/{snippet_name}")
+        logger.info(f"Updated cloud-init snippet for service {service_id}")
+
+    # Try to apply via qemu-agent if available
+    try:
+        node.qemu(service.machine_id).agent.exec.post(
+            command="cloud-init clean && cloud-init init",
+        )
+        logger.info(f"Applied SSH key changes via qemu-agent for service {service_id}")
+    except (ResourceException, Exception):
+        logger.info(f"Qemu-agent not available for service {service_id}, reboot may be needed")
