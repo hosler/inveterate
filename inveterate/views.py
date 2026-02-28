@@ -8,7 +8,6 @@ from django.contrib.auth import views as auth_views
 from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
 import requests as http_requests
 
 from .models import Service
@@ -168,7 +167,10 @@ def console_auth_view(request, service_id):
     try:
         proxmox = get_proxmox_connection(service.node.cluster)
         userid, password = ensure_console_user(proxmox, service, service.machine_id)
-        ticket_data = get_console_ticket(service.node.cluster.host, userid, password)
+        ticket_data = get_console_ticket(
+            service.node.cluster.host, userid, password,
+            verify_ssl=getattr(service.node.cluster, 'verify_ssl', False),
+        )
     except ProxmoxConsoleError as e:
         return JsonResponse({'error': f'Console unavailable: {e}'}, status=502)
 
@@ -186,7 +188,6 @@ def console_auth_view(request, service_id):
 
 
 @login_required
-@csrf_exempt
 def console_termproxy_view(request, service_id):
     """
     Proxy a termproxy request to Proxmox and return connection details.
@@ -247,7 +248,7 @@ def console_termproxy_view(request, service_id):
                 'Cookie': f'PVEAuthCookie={ticket}',
                 'CSRFPreventionToken': csrf_token,
             },
-            verify=False,
+            verify=getattr(service.node.cluster, 'verify_ssl', False),
             timeout=15,
         )
     except http_requests.exceptions.Timeout:

@@ -11,9 +11,10 @@ from dateutil.relativedelta import relativedelta
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
-from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
+
+from .proxmox import get_proxmox_connection, is_console_user, is_legacy_console_user
 
 from .models import (
     Node, Plan, Inventory, Service, Cluster, IP, ServiceNetwork, IPPool,
@@ -235,9 +236,7 @@ def provision_service(service_id, password, ssh_keys=None):
     service = Service.objects.get(pk=service_id)
     logger.info(f"Provisioning {service.service_plan.type} service '{service.hostname}' on node {service.node.name}")
 
-    proxmox = ProxmoxAPI(service.node.cluster.host, user=service.node.cluster.user, token_name='inveterate',
-                         token_value=service.node.cluster.key,
-                         verify_ssl=False, port=8006, timeout=600)
+    proxmox = get_proxmox_connection(service.node.cluster, timeout=600)
     node = proxmox.nodes(service.node)
     service_type = service.service_plan.type
     try:
@@ -500,7 +499,6 @@ def provision_service(service_id, password, ssh_keys=None):
 
 
 def get_vm(service_id):
-    from .proxmox import get_proxmox_connection
     service = Service.objects.get(pk=service_id)
     proxmox = get_proxmox_connection(service.node.cluster)
     node = proxmox.nodes(service.node)
@@ -515,7 +513,6 @@ def get_vm(service_id):
 @shared_task
 def update_service_ssh_keys(service_id, ssh_keys):
     """Update SSH authorized keys on a running KVM service via cloud-init."""
-    from .proxmox import get_proxmox_connection
 
     logger.info(f"Updating SSH keys for service {service_id}")
     service = Service.objects.get(pk=service_id)
@@ -552,7 +549,6 @@ def update_service_ssh_keys(service_id, ssh_keys):
 
 
 def get_service_node(service_id):
-    from .proxmox import get_proxmox_connection
     service = Service.objects.get(pk=service_id)
     proxmox = get_proxmox_connection(service.node.cluster)
     node = proxmox.nodes(service.node)
@@ -560,41 +556,60 @@ def get_service_node(service_id):
 
 
 def get_cluster(cluster_id):
-    from .proxmox import get_proxmox_connection
     cluster = Cluster.objects.get(pk=cluster_id)
     proxmox = get_proxmox_connection(cluster)
     return proxmox.cluster
 
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    base=Singleton, lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError, ResourceException),
+    retry_backoff=5, retry_backoff_max=60, max_retries=3,
+)
 def start_vm(service_id):
     logger.info(f"Starting VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.start.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    base=Singleton, lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError, ResourceException),
+    retry_backoff=5, retry_backoff_max=60, max_retries=3,
+)
 def stop_vm(service_id):
     logger.info(f"Stopping VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.stop.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    base=Singleton, lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError, ResourceException),
+    retry_backoff=5, retry_backoff_max=60, max_retries=3,
+)
 def reset_vm(service_id):
     logger.info(f"Resetting VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.reset.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    base=Singleton, lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError, ResourceException),
+    retry_backoff=5, retry_backoff_max=60, max_retries=3,
+)
 def shutdown_vm(service_id):
     logger.info(f"Shutting down VM for service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.shutdown.post()
 
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    base=Singleton, lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError, ResourceException),
+    retry_backoff=5, retry_backoff_max=60, max_retries=3,
+)
 def reboot_vm(service_id):
     logger.info(f"Rebooting VM for service {service_id}")
     machine, service = get_vm(service_id)
@@ -603,8 +618,6 @@ def reboot_vm(service_id):
 
 @shared_task(base=Singleton, lock_expiry=60 * 15)
 def get_vm_status(service_id):
-    from .proxmox import get_proxmox_connection
-
     machine, service = get_vm(service_id)
     vm_stats = machine.status.current.get()
     disk = vm_stats.get('disk', 0)
@@ -717,24 +730,39 @@ def get_cluster_resources(pk=None, query_type="node"):
     return stats
 
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    base=Singleton, lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError,),
+    retry_backoff=5, retry_backoff_max=60, max_retries=3,
+)
 def suspend_service(service_id):
+    logger.info(f"Suspending service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.suspend.post(todisk=1)
     service.status = "suspended"
     service.save()
 
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    base=Singleton, lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError,),
+    retry_backoff=5, retry_backoff_max=60, max_retries=3,
+)
 def reinstate_service(service_id):
+    logger.info(f"Reinstating service {service_id}")
     machine, service = get_vm(service_id)
     machine.status.start.post()
     service.status = "active"
     service.save()
 
 
-@shared_task(base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    base=Singleton, lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError,),
+    retry_backoff=5, retry_backoff_max=60, max_retries=3,
+)
 def cancel_service(service_id):
+    logger.info(f"Cancelling service {service_id}")
     machine, service = get_vm(service_id)
     machine.delete(force=1)
 
@@ -828,14 +856,7 @@ def meter_bandwidth():
 
             node_name = service.node.name
             if node_name not in api_objects:
-                api_objects[node_name] = ProxmoxAPI(
-                    service.node.cluster.host,
-                    user=service.node.cluster.user,
-                    token_name='inveterate',
-                    token_value=service.node.cluster.key,
-                    verify_ssl=False,
-                    port=8006
-                )
+                api_objects[node_name] = get_proxmox_connection(service.node.cluster)
             node = api_objects[node_name].nodes(node_name)
 
             # Handle bandwidth renewal
@@ -904,7 +925,6 @@ def cleanup_console_users():
     Also cleans up legacy ``inveterate{owner_id}@pve`` users left over from
     the previous per-owner naming scheme.
     """
-    from .proxmox import get_proxmox_connection, is_console_user, is_legacy_console_user
 
     logger.info("Starting console user cleanup")
 
@@ -978,15 +998,7 @@ def sync_templates():
 
     for cluster in Cluster.objects.all():
         try:
-            proxmox = ProxmoxAPI(
-                cluster.host,
-                user=cluster.user,
-                token_name='inveterate',
-                token_value=cluster.key,
-                verify_ssl=False,
-                port=8006,
-                timeout=120
-            )
+            proxmox = get_proxmox_connection(cluster, timeout=120)
 
             for node in Node.objects.filter(cluster=cluster):
                 # Get templates already on this node
@@ -1101,10 +1113,7 @@ def import_kvm_template(template_id):
 
     cluster = target_node.cluster
     try:
-        proxmox = ProxmoxAPI(
-            cluster.host, user=cluster.user, token_name='inveterate',
-            token_value=cluster.key, verify_ssl=False, port=8006, timeout=600,
-        )
+        proxmox = get_proxmox_connection(cluster, timeout=600)
         node = proxmox.nodes(target_node.name)
 
         # Get primary storage for VM disk
@@ -1233,10 +1242,7 @@ def sync_kvm_templates():
         if template.status == 'ready' and template.file and template.node:
             try:
                 cluster = template.node.cluster
-                proxmox = ProxmoxAPI(
-                    cluster.host, user=cluster.user, token_name='inveterate',
-                    token_value=cluster.key, verify_ssl=False, port=8006,
-                )
+                proxmox = get_proxmox_connection(cluster)
                 vmid = int(template.file)
                 found = any(
                     r['vmid'] == vmid

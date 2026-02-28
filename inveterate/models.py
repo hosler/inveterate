@@ -103,6 +103,10 @@ class Cluster(models.Model):
     host = models.CharField(max_length=255)
     user = models.CharField(max_length=255)
     key = models.CharField(max_length=255)
+    verify_ssl = models.BooleanField(
+        default=False,
+        help_text="Verify TLS certificates when connecting to the Proxmox API.",
+    )
     bandwidth = models.IntegerField(default=0, help_text="Monthly bandwidth budget in GB (0 = unlimited)")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)

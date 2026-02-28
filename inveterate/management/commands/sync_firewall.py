@@ -2,10 +2,10 @@ import json
 from pathlib import Path
 
 from django.core.management.base import BaseCommand
-from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 
 from inveterate.models import Cluster
+from inveterate.proxmox import get_proxmox_connection
 
 
 class Command(BaseCommand):
@@ -38,14 +38,7 @@ class Command(BaseCommand):
         for cluster in clusters:
             self.stdout.write(f"\n--- Cluster: {cluster.name} ({cluster.host}) ---")
             try:
-                proxmox = ProxmoxAPI(
-                    cluster.host,
-                    user=cluster.user,
-                    token_name="inveterate",
-                    token_value=cluster.key,
-                    verify_ssl=False,
-                    port=8006,
-                )
+                proxmox = get_proxmox_connection(cluster)
 
                 # Ensure cluster firewall is enabled
                 opts = proxmox.cluster.firewall.options.get()
