@@ -29,7 +29,7 @@ def calculate_inventory():
     logger.info("Starting inventory calculation")
     plans = Plan.objects.all()
     nodes = Node.objects.all()
-    inventory_fields = ['cores', 'ram']
+    inventory_fields = ['cores', 'ram', 'bandwidth']
 
     for node in nodes:
         services = node.services.all().exclude(status='destroyed')
@@ -140,39 +140,35 @@ def assign_ips(service_id):
         elif ip.pool.type == "ipv6":
             ipv6_ips -= 1
     ip_pools = IPPool.objects.filter(nodes=service.node).all()
+
+    def _allocate_ip(pool_filter, label):
+        """Try to allocate one IP matching pool_filter.
+
+        Returns True on success, False if no matching pools exist (config gap),
+        raises RuntimeError if matching pools exist but are exhausted.
+        """
+        matching_pools = [p for p in ip_pools if pool_filter(p)]
+        if not matching_pools:
+            return False
+        for pool in matching_pools:
+            with transaction.atomic():
+                ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
+                if ip:
+                    service_network = ServiceNetwork.objects.create(service=service)
+                    ip.owner = service_network
+                    ip.save()
+                    return True
+        raise RuntimeError(f"All {label} IP pools exhausted for service {service_id}")
+
     for i in range(internal_ips):
-        for pool in ip_pools:
-            if pool.internal is False:
-                continue
-            with transaction.atomic():
-                ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
-                if ip:
-                    service_network = ServiceNetwork.objects.create(service=service)
-                    ip.owner = service_network
-                    ip.save()
-                    break
+        if not _allocate_ip(lambda p: p.internal is True, "internal"):
+            logger.warning("No internal IP pools configured for node %s (service %s)", service.node, service_id)
     for i in range(ipv4_ips):
-        for pool in ip_pools:
-            if pool.type != "ipv4" or pool.internal is True:
-                continue
-            with transaction.atomic():
-                ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
-                if ip:
-                    service_network = ServiceNetwork.objects.create(service=service)
-                    ip.owner = service_network
-                    ip.save()
-                    break
+        if not _allocate_ip(lambda p: p.type == "ipv4" and p.internal is not True, "IPv4"):
+            logger.warning("No IPv4 IP pools configured for node %s (service %s)", service.node, service_id)
     for i in range(ipv6_ips):
-        for pool in ip_pools:
-            if pool.type != "ipv6" or pool.internal is True:
-                continue
-            with transaction.atomic():
-                ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
-                if ip:
-                    service_network = ServiceNetwork.objects.create(service=service)
-                    ip.owner = service_network
-                    ip.save()
-                    break
+        if not _allocate_ip(lambda p: p.type == "ipv6" and p.internal is not True, "IPv6"):
+            logger.warning("No IPv6 IP pools configured for node %s (service %s)", service.node, service_id)
 
     # Allocate port blocks for internal IPs that don't have one yet
     internal_networks = ServiceNetwork.objects.filter(
@@ -207,6 +203,12 @@ def assign_ips(service_id):
                     logger.warning(f"No available port block on gateway {gw.name} for service {service_id}")
 
 
+_SSH_KEY_PREFIXES = (
+    'ssh-rsa ', 'ssh-ed25519 ', 'ssh-dss ', 'ecdsa-sha2-',
+    'sk-ssh-ed25519@openssh.com ', 'sk-ecdsa-sha2-',
+)
+
+
 def _compose_cloud_init(apps, ssh_keys=None):
     """Merge AppProfile cloud_init fragments into a single cloud-config document.
 
@@ -222,9 +224,17 @@ def _compose_cloud_init(apps, ssh_keys=None):
             continue
         for key in merged_keys:
             if key in fragment:
-                merged.setdefault(key, []).extend(fragment[key])
+                value = fragment[key]
+                if not isinstance(value, list):
+                    logger.warning("AppProfile %s has non-list value for '%s', skipping", app.pk, key)
+                    continue
+                merged.setdefault(key, []).extend(value)
     if ssh_keys:
-        merged['ssh_authorized_keys'] = list(ssh_keys)
+        valid_keys = [k for k in ssh_keys if any(k.startswith(p) for p in _SSH_KEY_PREFIXES)]
+        if len(valid_keys) != len(ssh_keys):
+            logger.warning("Filtered %d invalid SSH keys from cloud-init", len(ssh_keys) - len(valid_keys))
+        if valid_keys:
+            merged['ssh_authorized_keys'] = valid_keys
     if not merged:
         return ''
     return '#cloud-config\n' + yaml.dump(merged, default_flow_style=False)
@@ -676,7 +686,9 @@ def get_vm_status(service_id):
 
 
 def get_vm_ips(service_id):
-    networks = ServiceNetwork.objects.filter(service_id=service_id).select_related('ip__pool')
+    networks = ServiceNetwork.objects.filter(service_id=service_id).select_related(
+        'ip__pool'
+    ).prefetch_related('port_block__gateway', 'port_block__forwards')
     ips = []
     for network in networks:
         ip = {

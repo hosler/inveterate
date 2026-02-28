@@ -392,7 +392,7 @@ class TestProvisionService(TestCase):
         return svc
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_lxc_provisioning_uses_storage_name(self, mock_cls, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -412,7 +412,7 @@ class TestProvisionService(TestCase):
         self.assertEqual(call_kwargs['rootfs'], f'local-lvm:{svc.service_plan.size}')
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_lxc_sets_status_active(self, mock_cls, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -429,7 +429,7 @@ class TestProvisionService(TestCase):
         self.assertEqual(svc.status, 'active')
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_sets_bw_renewal_dtm(self, mock_cls, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -446,7 +446,7 @@ class TestProvisionService(TestCase):
         self.assertIsNotNone(svc.bw_renewal_dtm)
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_connection_error_sets_error_status(self, mock_cls, _mock_inv):
         from requests.exceptions import ConnectionError
         mock_proxmox = MagicMock()
@@ -464,7 +464,7 @@ class TestProvisionService(TestCase):
         self.assertEqual(svc.status, 'error')
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_resource_exception_sets_error_status(self, mock_cls, _mock_inv):
         from proxmoxer.core import ResourceException
         mock_proxmox = MagicMock()
@@ -484,7 +484,7 @@ class TestProvisionService(TestCase):
         self.assertEqual(svc.status, 'error')
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_kvm_provisioning_calls_clone(self, mock_cls, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -507,7 +507,7 @@ class TestProvisionService(TestCase):
         self.assertEqual(svc.status, 'active')
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_default_storage_fallback(self, mock_cls, _mock_inv):
         """When service_plan.storage is None, provision should grab primary disk and use it."""
         mock_proxmox = MagicMock()
@@ -593,7 +593,7 @@ class TestAssignIps(TestCase):
 
 class TestMeterBandwidth(TestCase):
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_normal_tick_increase(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -617,7 +617,7 @@ class TestMeterBandwidth(TestCase):
         self.assertEqual(svc.bw_usage, 8000)
         self.assertEqual(svc.bw_system_tick, 100)
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_vm_restart_banks_correctly(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -647,7 +647,7 @@ class TestMeterBandwidth(TestCase):
         self.assertEqual(svc.bw_stale, 0)
         self.assertEqual(svc.bw_system_tick, 10)
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_renewal_resets_bandwidth(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -675,7 +675,7 @@ class TestMeterBandwidth(TestCase):
         # After renewal, normal tick: usage = netin + netout
         self.assertEqual(svc.bw_usage, 1000)
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_skip_no_renewal_dtm(self, mock_cls):
         """Services with bw_renewal_dtm=None should be skipped."""
         mock_proxmox = MagicMock()
@@ -824,7 +824,7 @@ class TestImportKvmTemplate(TestCase):
         self.node = _node(cluster=self.cluster)
         self.disk = _disk(self.node)
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_import_sets_ready_and_file(self, mock_cls):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -855,7 +855,7 @@ class TestImportKvmTemplate(TestCase):
         self.assertEqual(tpl.file, '9000')
         self.assertEqual(tpl.status_msg, '')
 
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_connection_error_sets_error(self, mock_cls):
         mock_cls.side_effect = ConnectionError("refused")
 
@@ -1053,7 +1053,7 @@ class TestProvisionServiceApps(TestCase):
         return svc
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_provision_uploads_snippet_when_apps_selected(self, mock_cls, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -1085,7 +1085,7 @@ class TestProvisionServiceApps(TestCase):
         self.assertIn(f'ci-{svc.machine_id}.yml', config_kwargs['cicustom'])
 
     @patch('inveterate.tasks.calculate_inventory')
-    @patch('inveterate.tasks.ProxmoxAPI')
+    @patch('inveterate.proxmox.ProxmoxAPI')
     def test_provision_skips_snippet_when_no_apps(self, mock_cls, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
@@ -2148,15 +2148,20 @@ class TestProxmoxHelpers(TestCase):
         from proxmoxer.core import ResourceException
 
         proxmox = MagicMock()
-        proxmox.access.users.post.side_effect = ResourceException(
-            status_code=500, status_message='',
-            content='user already exists', errors=None,
-        )
+        # First post raises "already exists", second post (after delete) succeeds
+        proxmox.access.users.post.side_effect = [
+            ResourceException(
+                status_code=500, status_message='',
+                content='user already exists', errors=None,
+            ),
+            None,  # second call succeeds
+        ]
         svc = MagicMock(id=7)
         userid, password = ensure_console_user(proxmox, svc, 1000007)
 
         self.assertEqual(userid, 'inv-s7@pve')
-        proxmox.access.users('inv-s7@pve').put.assert_called_once()
+        proxmox.access.users('inv-s7@pve').delete.assert_called_once()
+        self.assertEqual(proxmox.access.users.post.call_count, 2)
         proxmox.access.acl.put.assert_called_once()
 
     def test_ensure_console_user_reraises_other_error(self):
@@ -2224,7 +2229,7 @@ class TestProxmoxHelpers(TestCase):
 
     def test_get_proxmox_connection(self):
         from .proxmox import get_proxmox_connection
-        cluster = MagicMock(host='10.0.0.1', user='root@pam', key='tok')
+        cluster = MagicMock(host='10.0.0.1', user='root@pam', key='tok', verify_ssl=False)
         with patch('inveterate.proxmox.ProxmoxAPI') as mock_cls:
             get_proxmox_connection(cluster, timeout=60)
             mock_cls.assert_called_once_with(

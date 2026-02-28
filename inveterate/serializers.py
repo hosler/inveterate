@@ -2,7 +2,7 @@ import ipaddress
 import re
 
 from django.core.validators import RegexValidator
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
@@ -124,6 +124,12 @@ class Owner(serializers.SlugRelatedField):
         return queryset
 
 
+_SSH_KEY_PREFIXES = (
+    'ssh-rsa ', 'ssh-ed25519 ', 'ssh-dss ', 'ecdsa-sha2-',
+    'sk-ssh-ed25519@openssh.com ', 'sk-ecdsa-sha2-',
+)
+
+
 class ServiceSerializer(serializers.ModelSerializer):
     hostname_pattern = re.compile(
         r'^[a-zA-Z0-9]'  # Must start with alphanumeric
@@ -143,6 +149,14 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     def display_name(self, obj):
         return obj.hostname
+
+    def validate_ssh_keys(self, value):
+        for key in value:
+            if not any(key.startswith(prefix) for prefix in _SSH_KEY_PREFIXES):
+                raise serializers.ValidationError(
+                    f"Invalid SSH key format. Keys must start with a known type (e.g. ssh-rsa, ssh-ed25519)."
+                )
+        return value
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -176,29 +190,31 @@ class ServiceSerializer(serializers.ModelSerializer):
         apps = validated_data.pop("apps", [])
         ssh_keys = validated_data.pop("ssh_keys", None)
 
-        # Snapshot plan fields into ServicePlan
-        plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != "id"]
-        plan_values = dict([(x, getattr(plan, x)) for x in plan_fields])
-        plan_values['name'] = plan.name
-        sps = ServicePlanSerializer()
-        service_plan = sps.create(plan_values)
+        with transaction.atomic():
+            # Snapshot plan fields into ServicePlan
+            plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != "id"]
+            plan_values = dict([(x, getattr(plan, x)) for x in plan_fields])
+            plan_values['name'] = plan.name
+            sps = ServicePlanSerializer()
+            service_plan = sps.create(plan_values)
 
-        if "owner" not in validated_data:
-            validated_data["owner"] = request.user
-        if "node" not in validated_data:
-            inventory = models.Inventory.objects.filter(plan=plan).first()
-            validated_data["node"] = inventory.node
-        if template:
-            service_plan.template = template
-            service_plan.type = template.type
-        service = super().create(validated_data)
-        service_plan.storage = service.node.node_disk.filter(primary=True).first()
-        service_plan.save()
-        if apps:
-            service_plan.apps.set(apps)
-        service.service_plan = service_plan
-        service.save()
-        # IP assignment happens inside provision_service task
+            if "owner" not in validated_data:
+                validated_data["owner"] = request.user
+            if "node" not in validated_data:
+                inventory = models.Inventory.objects.filter(plan=plan).first()
+                validated_data["node"] = inventory.node
+            if template:
+                service_plan.template = template
+                service_plan.type = template.type
+            service = super().create(validated_data)
+            service_plan.storage = service.node.node_disk.filter(primary=True).first()
+            service_plan.save()
+            if apps:
+                service_plan.apps.set(apps)
+            service.service_plan = service_plan
+            service.save()
+
+        # IP assignment happens inside provision_service task (outside transaction)
         provision_service.delay(service.id, password, ssh_keys=ssh_keys)
         return service
 

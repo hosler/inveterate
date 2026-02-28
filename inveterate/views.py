@@ -173,6 +173,10 @@ def console_auth_view(request, service_id):
         )
     except ProxmoxConsoleError as e:
         return JsonResponse({'error': f'Console unavailable: {e}'}, status=502)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Unexpected error in console_auth_view for service %s", service_id)
+        return JsonResponse({'error': 'Console temporarily unavailable'}, status=502)
 
     vm_type = "lxc" if service.service_plan.type == "lxc" else "qemu"
     return JsonResponse({
