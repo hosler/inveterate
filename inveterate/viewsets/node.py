@@ -3,11 +3,11 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from requests.exceptions import ConnectionError, Timeout
-from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 
 from .base import DynamicPageModelViewSet
 from .. import models
+from ..proxmox import get_proxmox_connection
 from .. import serializers
 
 
@@ -54,9 +54,7 @@ class NodeViewSet(DynamicPageModelViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             cluster = node.cluster
-            proxmox = ProxmoxAPI(cluster.host, user=cluster.user, token_name='inveterate',
-                                 token_value=cluster.key,
-                                 verify_ssl=False, port=8006, timeout=10)
+            proxmox = get_proxmox_connection(cluster, timeout=10)
 
             # Get node status and resource information
             node_status = proxmox.nodes(node.name).status.get()
@@ -226,9 +224,7 @@ class NodeViewSet(DynamicPageModelViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             cluster = node.cluster
-            proxmox = ProxmoxAPI(cluster.host, user=cluster.user, token_name='inveterate',
-                                 token_value=cluster.key,
-                                 verify_ssl=False, port=8006, timeout=10)
+            proxmox = get_proxmox_connection(cluster, timeout=10)
 
             # Get VMs and LXCs from this specific node
             try:
@@ -341,9 +337,7 @@ class NodeDiskViewSet(DynamicPageModelViewSet):
             for node in all_nodes:
                 try:
                     cluster = node.cluster
-                    proxmox = ProxmoxAPI(cluster.host, user=cluster.user, token_name='inveterate',
-                                         token_value=cluster.key,
-                                         verify_ssl=False, port=8006, timeout=10)
+                    proxmox = get_proxmox_connection(cluster, timeout=10)
 
                     # Get storage information for this node
                     try:

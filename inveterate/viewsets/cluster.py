@@ -1,14 +1,14 @@
+from proxmoxer import ProxmoxAPI
+from proxmoxer.core import ResourceException
+from requests.exceptions import ConnectionError, Timeout
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
-from requests.exceptions import ConnectionError, Timeout
-from proxmoxer import ProxmoxAPI
-from proxmoxer.core import ResourceException
 
+from .. import models, serializers
+from ..proxmox import get_proxmox_connection
 from .base import DynamicPageModelViewSet, MultiSerializerViewSetMixin
-from .. import models
-from .. import serializers
 
 
 class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
@@ -35,9 +35,7 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
             # Test connection using proxmoxer
 
             cluster = models.Cluster.objects.get(pk=pk)
-            proxmox = ProxmoxAPI(cluster.host, user=cluster.user, token_name='inveterate',
-                                 token_value=cluster.key,
-                                 verify_ssl=False, port=8006)
+            proxmox = get_proxmox_connection(cluster)
 
             # Try to get cluster status and version to verify connection
             version = proxmox.version.get()
@@ -83,14 +81,15 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
 
         try:
             # Test connection using proxmoxer
+            verify_ssl = request.data.get('verify_ssl', False)
             proxmox = ProxmoxAPI(
                 host,
                 user=user,
                 token_name='inveterate',
                 token_value=key,
-                verify_ssl=False,
+                verify_ssl=verify_ssl,
                 port=8006,
-                timeout=10  # 10 second timeout
+                timeout=10,
             )
 
             # Try to get cluster status and version to verify connection

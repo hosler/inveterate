@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
@@ -120,6 +121,8 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def status(self, request, pk=None):
         service = self.get_object()
+        if not service.node:
+            return Response({"detail": "Service has no node assigned."}, status=503)
         stats = get_vm_status(service.pk)
         return Response(stats)
 
@@ -210,75 +213,76 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         imported_services = []
         errors = []
 
-        for vm_data in vms_data:
-            try:
-                node_id = vm_data.get('node_id')
-                vm_id = vm_data.get('vmid')
-                vm_name = vm_data.get('name')
-                vm_type = vm_data.get('type')  # 'qemu' or 'lxc'
-                vm_status = vm_data.get('status')
-                vm_mem = vm_data.get('mem', 0)
-                vm_maxmem = vm_data.get('maxmem', 512 * 1024 * 1024)  # Default 512MB
-                vm_cpus = vm_data.get('cpus', 1)
-                vm_disk = vm_data.get('disk', 0)
-                vm_maxdisk = vm_data.get('maxdisk', 8 * 1024 * 1024 * 1024)  # Default 8GB
-
-                if not all([node_id, vm_id, vm_name]):
-                    errors.append(f"Missing required fields for VM: {vm_data}")
-                    continue
-
+        with transaction.atomic():
+            for vm_data in vms_data:
                 try:
-                    node = models.Node.objects.get(pk=node_id)
-                except models.Node.DoesNotExist:
-                    errors.append(f"Node {node_id} not found for VM {vm_name}")
-                    continue
+                    node_id = vm_data.get('node_id')
+                    vm_id = vm_data.get('vmid')
+                    vm_name = vm_data.get('name')
+                    vm_type = vm_data.get('type')  # 'qemu' or 'lxc'
+                    vm_status = vm_data.get('status')
+                    vm_mem = vm_data.get('mem', 0)
+                    vm_maxmem = vm_data.get('maxmem', 512 * 1024 * 1024)  # Default 512MB
+                    vm_cpus = vm_data.get('cpus', 1)
+                    vm_disk = vm_data.get('disk', 0)
+                    vm_maxdisk = vm_data.get('maxdisk', 8 * 1024 * 1024 * 1024)  # Default 8GB
 
-                # Check if service with this machine_id already exists
-                if models.Service.objects.filter(machine_id=vm_id, node=node).exists():
-                    errors.append(f"VM {vm_name} (ID: {vm_id}) already imported on node {node.name}")
-                    continue
+                    if not all([node_id, vm_id, vm_name]):
+                        errors.append(f"Missing required fields for VM: {vm_data}")
+                        continue
 
-                # Convert VM type from Proxmox format to our format
-                service_type = 'lxc' if vm_type == 'lxc' else 'kvm'
+                    try:
+                        node = models.Node.objects.get(pk=node_id)
+                    except models.Node.DoesNotExist:
+                        errors.append(f"Node {node_id} not found for VM {vm_name}")
+                        continue
 
-                # Create ServicePlan with VM specifications
-                service_plan = models.ServicePlan.objects.create(
-                    name=f'Imported {service_type.upper()}',
-                    type=service_type,
-                    # Convert bytes to appropriate units
-                    size=int(vm_maxdisk / (1024**3)) if vm_maxdisk else 8,  # GB
-                    ram=int(vm_maxmem / (1024**2)) if vm_maxmem else 512,   # MB
-                    cores=int(vm_cpus) if vm_cpus else 1,
-                    swap=int(vm_maxmem / (1024**2) / 2) if vm_maxmem else 256,  # Half of RAM
-                    cpu_units=1024,  # Default
-                    cpu_limit=1.00,  # Default
-                    bandwidth=1024,  # Default 1Gbps
-                    ipv4_ips=1,     # Default 1 IP
-                    ipv6_ips=0,     # Default no IPv6
-                    internal_ips=0  # Default no internal IPs
-                )
+                    # Check if service with this machine_id already exists (any node)
+                    if models.Service.objects.filter(machine_id=vm_id).exclude(status='destroyed').exists():
+                        errors.append(f"VM {vm_name} (ID: {vm_id}) already imported")
+                        continue
 
-                # Create Service
-                service = models.Service.objects.create(
-                    owner=default_owner,
-                    hostname=vm_name,
-                    machine_id=int(vm_id),
-                    node=node,
-                    service_plan=service_plan,
-                    status='active' if vm_status == 'running' else 'suspended'
-                )
+                    # Convert VM type from Proxmox format to our format
+                    service_type = 'lxc' if vm_type == 'lxc' else 'kvm'
 
-                imported_services.append({
-                    'id': service.id,
-                    'hostname': service.hostname,
-                    'machine_id': service.machine_id,
-                    'node': node.name,
-                    'type': service_type,
-                    'status': service.status
-                })
+                    # Create ServicePlan with VM specifications
+                    service_plan = models.ServicePlan.objects.create(
+                        name=f'Imported {service_type.upper()}',
+                        type=service_type,
+                        # Convert bytes to appropriate units
+                        size=int(vm_maxdisk / (1024**3)) if vm_maxdisk else 8,  # GB
+                        ram=int(vm_maxmem / (1024**2)) if vm_maxmem else 512,   # MB
+                        cores=int(vm_cpus) if vm_cpus else 1,
+                        swap=int(vm_maxmem / (1024**2) / 2) if vm_maxmem else 256,  # Half of RAM
+                        cpu_units=1024,  # Default
+                        cpu_limit=1.00,  # Default
+                        bandwidth=1024,  # Default 1Gbps
+                        ipv4_ips=1,     # Default 1 IP
+                        ipv6_ips=0,     # Default no IPv6
+                        internal_ips=0  # Default no internal IPs
+                    )
 
-            except Exception as e:
-                errors.append(f"Error importing VM {vm_data.get('name', 'unknown')}: {str(e)}")
+                    # Create Service
+                    service = models.Service.objects.create(
+                        owner=default_owner,
+                        hostname=vm_name,
+                        machine_id=int(vm_id),
+                        node=node,
+                        service_plan=service_plan,
+                        status='active' if vm_status == 'running' else 'suspended'
+                    )
+
+                    imported_services.append({
+                        'id': service.id,
+                        'hostname': service.hostname,
+                        'machine_id': service.machine_id,
+                        'node': node.name,
+                        'type': service_type,
+                        'status': service.status
+                    })
+
+                except Exception as e:
+                    errors.append(f"Error importing VM {vm_data.get('name', 'unknown')}: {str(e)}")
 
         return Response({
             'success': len(imported_services) > 0,
@@ -297,6 +301,9 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     def get_queryset(self):
+        qs = models.Service.objects.select_related(
+            'service_plan', 'node', 'node__cluster',
+        ).exclude(status='destroyed').order_by('pk')
         if self.request.user.is_staff:
-            return models.Service.objects.all().exclude(status='destroyed').order_by('pk')
-        return models.Service.objects.filter(owner=self.request.user).exclude(status='destroyed').order_by('pk')
+            return qs
+        return qs.filter(owner=self.request.user)

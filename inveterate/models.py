@@ -103,6 +103,10 @@ class Cluster(models.Model):
     host = models.CharField(max_length=255)
     user = models.CharField(max_length=255)
     key = models.CharField(max_length=255)
+    verify_ssl = models.BooleanField(
+        default=False,
+        help_text="Verify TLS certificates when connecting to the Proxmox API.",
+    )
     bandwidth = models.IntegerField(default=0, help_text="Monthly bandwidth budget in GB (0 = unlimited)")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
@@ -168,6 +172,21 @@ class AppProfile(models.Model):
     def __str__(self):
         return self.name
 
+    def clean(self):
+        import yaml
+        from django.core.exceptions import ValidationError
+
+        try:
+            fragment = yaml.safe_load(self.cloud_init)
+        except yaml.YAMLError as e:
+            raise ValidationError({"cloud_init": f"Invalid YAML: {e}"})
+        if fragment is not None and not isinstance(fragment, dict):
+            raise ValidationError({"cloud_init": "cloud-init must be a YAML mapping (key: value)."})
+        if isinstance(fragment, dict):
+            for key in ('packages', 'runcmd', 'write_files'):
+                if key in fragment and not isinstance(fragment[key], list):
+                    raise ValidationError({"cloud_init": f"'{key}' must be a list."})
+
 
 class ServicePlan(PlanBase):
     name = models.CharField(max_length=255, default='')
@@ -230,6 +249,9 @@ class ServiceNetwork(models.Model):
 
     class Meta:
         ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(fields=['service', 'net_id'], name='unique_service_net_id'),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.net_id:

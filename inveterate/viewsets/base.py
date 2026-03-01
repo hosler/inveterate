@@ -6,7 +6,7 @@ class DynamicPageModelViewSet(viewsets.ModelViewSet):
     """Base viewset with pagination control and form rendering support"""
 
     def paginate_queryset(self, queryset):
-        if 'no_page' in self.request.query_params:
+        if 'no_page' in self.request.query_params and self.request.user.is_staff:
             return None
 
         return super().paginate_queryset(queryset)

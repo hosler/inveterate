@@ -8,7 +8,6 @@ from django.contrib.auth import views as auth_views
 from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
 import requests as http_requests
 
 from .models import Service
@@ -165,12 +164,24 @@ def console_auth_view(request, service_id):
     if not service.machine_id:
         return JsonResponse({'error': 'No machine provisioned'}, status=400)
 
+    if not service.node:
+        return JsonResponse({'error': 'Service has no node assigned'}, status=400)
+
     try:
         proxmox = get_proxmox_connection(service.node.cluster)
         userid, password = ensure_console_user(proxmox, service, service.machine_id)
-        ticket_data = get_console_ticket(service.node.cluster.host, userid, password)
-    except ProxmoxConsoleError as e:
-        return JsonResponse({'error': f'Console unavailable: {e}'}, status=502)
+        ticket_data = get_console_ticket(
+            service.node.cluster.host, userid, password,
+            verify_ssl=getattr(service.node.cluster, 'verify_ssl', False),
+        )
+    except ProxmoxConsoleError:
+        import logging
+        logging.getLogger(__name__).exception("Console auth error for service %s", service_id)
+        return JsonResponse({'error': 'Console temporarily unavailable'}, status=502)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Unexpected error in console_auth_view for service %s", service_id)
+        return JsonResponse({'error': 'Console temporarily unavailable'}, status=502)
 
     vm_type = "lxc" if service.service_plan.type == "lxc" else "qemu"
     return JsonResponse({
@@ -186,7 +197,6 @@ def console_auth_view(request, service_id):
 
 
 @login_required
-@csrf_exempt
 def console_termproxy_view(request, service_id):
     """
     Proxy a termproxy request to Proxmox and return connection details.
@@ -205,6 +215,9 @@ def console_termproxy_view(request, service_id):
 
     if not service.machine_id:
         return JsonResponse({'error': 'No machine provisioned'}, status=400)
+
+    if not service.node:
+        return JsonResponse({'error': 'Service has no node assigned'}, status=400)
 
     # Accept credentials from JSON body, form body, or headers
     body = {}
@@ -247,7 +260,7 @@ def console_termproxy_view(request, service_id):
                 'Cookie': f'PVEAuthCookie={ticket}',
                 'CSRFPreventionToken': csrf_token,
             },
-            verify=False,
+            verify=getattr(service.node.cluster, 'verify_ssl', False),
             timeout=15,
         )
     except http_requests.exceptions.Timeout:
@@ -260,9 +273,11 @@ def console_termproxy_view(request, service_id):
         )
 
     if resp.status_code != 200:
+        import logging
+        logging.getLogger(__name__).warning("Proxmox termproxy returned %s for service %s", resp.status_code, service_id)
         return JsonResponse(
-            {'error': f'Proxmox returned {resp.status_code}'},
-            status=resp.status_code,
+            {'error': 'Console temporarily unavailable'},
+            status=502,
         )
 
     data = resp.json().get('data', {})

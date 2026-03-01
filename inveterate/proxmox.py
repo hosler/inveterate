@@ -9,9 +9,13 @@ import re
 import secrets
 
 import requests
+import urllib3
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
+
+# Suppress InsecureRequestWarning for Proxmox connections with verify_ssl=False
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +37,7 @@ def get_proxmox_connection(cluster, timeout=30):
         user=cluster.user,
         token_name='inveterate',
         token_value=cluster.key,
-        verify_ssl=False,
+        verify_ssl=getattr(cluster, 'verify_ssl', False),
         port=8006,
         timeout=timeout,
     )
@@ -83,7 +87,7 @@ def ensure_console_user(proxmox, service, machine_id):
     return userid, password
 
 
-def get_console_ticket(cluster_host, userid, password):
+def get_console_ticket(cluster_host, userid, password, verify_ssl=False):
     """Authenticate to Proxmox and return ``{ticket, CSRFPreventionToken}``.
 
     Raises ``ProxmoxConsoleError`` on auth failure or connection error.
@@ -92,7 +96,7 @@ def get_console_ticket(cluster_host, userid, password):
         resp = requests.post(
             f'https://{cluster_host}:8006/api2/json/access/ticket',
             data={'username': userid, 'password': password},
-            verify=False,
+            verify=verify_ssl,
         )
     except (ConnectionError, requests.RequestException) as e:
         raise ProxmoxConsoleError(str(e)) from e
