@@ -251,6 +251,13 @@ class InventorySerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class InventorySerializerClient(serializers.ModelSerializer):
+    class Meta:
+        model = models.Inventory
+        fields = ('id', 'plan', 'quantity')
+        read_only_fields = fields
+
+
 class IPSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.IP
@@ -262,11 +269,25 @@ class AppProfileSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class AppProfileSerializerClient(serializers.ModelSerializer):
+    class Meta:
+        model = models.AppProfile
+        fields = ('id', 'name', 'description', 'min_cores', 'min_ram', 'min_disk', 'created')
+        read_only_fields = fields
+
+
 class TemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Template
         fields = '__all__'
         read_only_fields = ('status', 'status_msg')
+
+
+class TemplateSerializerClient(serializers.ModelSerializer):
+    class Meta:
+        model = models.Template
+        fields = ('id', 'name', 'type', 'status', 'created')
+        read_only_fields = fields
 
     def create(self, validated_data):
         template = super().create(validated_data)
