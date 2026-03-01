@@ -326,7 +326,7 @@ def provision_service(service_id, password, ssh_keys=None):
                 "cores": service.service_plan.cores,
                 "balloon": 0,
                 "name": service.hostname,
-                "ciuser": service.owner.email.split("@")[0],
+                "ciuser": service.username or service.owner.email.split("@")[0],
             }
             if password is not None:
                 vm_data["cipassword"] = password
