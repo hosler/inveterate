@@ -35,6 +35,11 @@ class InventoryViewSet(DynamicPageModelViewSet):
     queryset = models.Inventory.objects.order_by('pk')
     serializer_class = serializers.InventorySerializer
 
+    def get_serializer_class(self):
+        if self.request.user.is_staff:
+            return serializers.InventorySerializer
+        return serializers.InventorySerializerClient
+
     @action(methods=['post'], detail=False)
     def calculate(self, request):
         task = calculate_inventory.delay()
@@ -80,7 +85,7 @@ class PlanViewSet(DynamicPageModelViewSet):
     search_fields = ['name']
     ordering_fields = ['id', 'name', 'size', 'ram', 'cores', 'created']
 
-    @action(methods=['get'], detail=False)
+    @action(methods=['get'], detail=False, permission_classes=[IsAdminUser])
     def stats(self, request, pk=None):
         stats = {
             'plans': {
@@ -100,6 +105,11 @@ class AppProfileViewSet(DynamicPageModelViewSet):
     search_fields = ['name']
     ordering_fields = ['id', 'name', 'created']
 
+    def get_serializer_class(self):
+        if self.request.user.is_staff:
+            return serializers.AppProfileSerializer
+        return serializers.AppProfileSerializerClient
+
 
 class TemplateViewSet(DynamicPageModelViewSet):
     permission_classes = [IsAdminUser | ReadOnlyAnonymous]
@@ -110,7 +120,12 @@ class TemplateViewSet(DynamicPageModelViewSet):
     search_fields = ['name']
     ordering_fields = ['id', 'name', 'type', 'created']
 
-    @action(methods=['get'], detail=False)
+    def get_serializer_class(self):
+        if self.request.user.is_staff:
+            return serializers.TemplateSerializer
+        return serializers.TemplateSerializerClient
+
+    @action(methods=['get'], detail=False, permission_classes=[IsAdminUser])
     def stats(self, request, pk=None):
         stats = {
             'templates': {
