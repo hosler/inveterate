@@ -218,6 +218,7 @@ class Service(models.Model):
     status = models.CharField(max_length=255, default='pending', choices=STATUS_CHOICES)
     status_msg = models.CharField(max_length=255, null=True, blank=True)
     hostname = models.CharField(max_length=255)
+    username = models.CharField(max_length=32, blank=True, default="")
     machine_id = models.IntegerField(null=True, blank=True)
     node = models.ForeignKey(Node, null=True, on_delete=models.SET_NULL, related_name='services')
     service_plan = models.OneToOneField(ServicePlan, on_delete=models.SET_NULL, null=True, related_name='service')

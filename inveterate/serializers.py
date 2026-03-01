@@ -150,6 +150,14 @@ class ServiceSerializer(serializers.ModelSerializer):
     def display_name(self, obj):
         return obj.hostname
 
+    def validate_username(self, value):
+        if value and not re.match(r'^[a-z_][a-z0-9_-]*$', value):
+            raise serializers.ValidationError(
+                "Username must start with a lowercase letter or underscore, "
+                "and contain only lowercase letters, digits, underscores, and hyphens."
+            )
+        return value
+
     def validate_ssh_keys(self, value):
         if len(value) > 20:
             raise serializers.ValidationError("A maximum of 20 SSH keys may be provided.")
@@ -175,7 +183,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Service
         fields = (
-            'id', 'plan_name', 'owner', 'password', 'template', 'machine_id', 'hostname', 'plan',
+            'id', 'plan_name', 'owner', 'password', 'template', 'machine_id', 'hostname', 'username', 'plan',
             'node', 'status', 'service_plan', 'status_msg', 'apps', 'ssh_keys',
             'bw_usage', 'bw_banked', 'bw_stale', 'bw_renewal_dtm', '__str__'
         )
@@ -233,7 +241,7 @@ class ServiceSerializerClient(ServiceSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:
-            if field not in ['hostname', 'password', 'plan', 'template', 'apps', 'ssh_keys']:
+            if field not in ['hostname', 'password', 'plan', 'template', 'apps', 'ssh_keys', 'username']:
                 self.fields[field].read_only = True
 
 
