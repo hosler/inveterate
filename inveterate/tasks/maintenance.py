@@ -153,6 +153,25 @@ def cancel_service(service_id):
     if service.service_plan.type == "lxc":
         machine.delete(force=1)
     else:
+        # KVM delete doesn't support force — stop the VM first if running
+        try:
+            status = machine.status.current.get()
+            if status.get("status") == "running":
+                machine.status.stop.post()
+                import time
+
+                from ._common import MAX_POLL_SECONDS
+
+                poll_start = time.monotonic()
+                while True:
+                    if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+                        raise TimeoutError(f"Stop timed out for service {service_id}")
+                    s = machine.status.current.get()
+                    if s.get("status") == "stopped":
+                        break
+                    time.sleep(2)
+        except ResourceException:
+            pass
         machine.delete()
 
     # Clean up cloud-init snippet if one was written
