@@ -1,5 +1,3 @@
-from io import BytesIO
-
 from celery import shared_task
 from celery_singleton import Singleton
 from django.db.models import Sum
@@ -17,7 +15,7 @@ from ..models import (
     ServiceNetwork,
 )
 from ..proxmox import get_proxmox_connection, is_console_user, is_legacy_console_user
-from ._common import logger
+from ._common import delete_snippet, logger, write_snippet
 
 
 @shared_task(name="inveterate.tasks.calculate_inventory", base=Singleton, lock_expiry=60 * 15)
@@ -146,19 +144,22 @@ def cancel_service(service_id):
     # Import via the package so that tests can patch ``inveterate.tasks.delete_npm_*``
     import inveterate.tasks as _tasks
 
-    from .control import get_service_node, get_vm
+    from .control import get_vm
 
     delete_npm_stream = _tasks.delete_npm_stream
     delete_npm_proxy_host = _tasks.delete_npm_proxy_host
 
     machine, service = get_vm(service_id)
-    machine.delete(force=1)
+    if service.service_plan.type == "lxc":
+        machine.delete(force=1)
+    else:
+        machine.delete()
 
-    # Clean up cloud-init snippet if one was uploaded
+    # Clean up cloud-init snippet if one was written
     if service.service_plan and service.service_plan.type == "kvm" and service.machine_id:
         try:
-            node = get_service_node(service_id)
-            node.storage("local").content.delete(f"snippets/ci-{service.machine_id}.yml")
+            proxmox = get_proxmox_connection(service.node.cluster)
+            delete_snippet(proxmox, service.node.name, f"ci-{service.machine_id}.yml")
         except Exception:
             logger.warning("Failed to delete cloud-init snippet for service %s", service_id, exc_info=True)
 
@@ -270,7 +271,10 @@ def cleanup_console_users():
 
 @shared_task(name="inveterate.tasks.update_service_ssh_keys")
 def update_service_ssh_keys(service_id, ssh_keys):
-    """Update SSH authorized keys on a running KVM service via cloud-init."""
+    """Update SSH authorized keys on a KVM service via cloud-init snippet."""
+    import urllib.parse
+
+    from .provisioning import _SSH_KEY_PREFIXES, _compose_cloud_init
 
     logger.info(f"Updating SSH keys for service {service_id}")
     service = Service.objects.get(pk=service_id)
@@ -279,28 +283,39 @@ def update_service_ssh_keys(service_id, ssh_keys):
         logger.warning(f"SSH key update not supported for LXC service {service_id}")
         return
 
+    valid_keys = [k for k in ssh_keys if any(k.startswith(p) for p in _SSH_KEY_PREFIXES)]
+    if not valid_keys:
+        logger.warning(f"No valid SSH keys provided for service {service_id}")
+        return
+
     proxmox = get_proxmox_connection(service.node.cluster)
     node = proxmox.nodes(service.node)
+    machine = node.qemu(service.machine_id)
 
-    # Compose cloud-init with just SSH keys merged with existing apps
-    from .provisioning import _compose_cloud_init
+    # Set SSH keys in VM config (used when cicustom is not set)
+    encoded_keys = urllib.parse.quote("\n".join(valid_keys), safe="")
+    machine.config.post(sshkeys=encoded_keys)
+    logger.info(f"Set {len(valid_keys)} SSH key(s) in VM config for service {service_id}")
 
-    ci_content = _compose_cloud_init(service.service_plan.apps.all(), ssh_keys=ssh_keys)
+    # Regenerate cloud-init snippet with app profiles + SSH keys.
+    # When cicustom is set it replaces auto-generated user-data entirely,
+    # so we must include the user directive for keys to apply correctly.
+    ciuser = service.owner.email.split("@")[0]
+    snippet_name = f"ci-{service.machine_id}.yml"
+    ci_content = _compose_cloud_init(
+        service.service_plan.apps.all(),
+        ssh_keys=valid_keys,
+        user=ciuser,
+        hostname=service.hostname,
+    )
     if ci_content:
-        snippet_name = f"ci-{service.machine_id}.yml"
-        node.storage("local").upload.post(
-            content="snippets",
-            filename=snippet_name,
-            file=BytesIO(ci_content.encode()),
-        )
-        node.qemu(service.machine_id).config.post(cicustom=f"user=local:snippets/{snippet_name}")
-        logger.info(f"Updated cloud-init snippet for service {service_id}")
+        write_snippet(proxmox, service.node.name, snippet_name, ci_content)
+        machine.config.post(cicustom=f"user=local:snippets/{snippet_name}")
+    logger.info(f"Updated cloud-init snippet for service {service_id}")
 
-    # Try to apply via qemu-agent if available
-    try:
-        node.qemu(service.machine_id).agent.exec.post(
-            command="cloud-init clean && cloud-init init",
-        )
-        logger.info(f"Applied SSH key changes via qemu-agent for service {service_id}")
-    except (ResourceException, Exception):
-        logger.info(f"Qemu-agent not available for service {service_id}, reboot may be needed")
+    # Regenerate cloud-init drive and reboot to apply
+    machine.cloudinit.put()
+    logger.info(f"Regenerated cloud-init drive for service {service_id}")
+
+    machine.status.reboot.post()
+    logger.info(f"Rebooted service {service_id} to apply SSH key changes")

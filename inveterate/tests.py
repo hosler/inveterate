@@ -1053,8 +1053,9 @@ class TestProvisionServiceApps(TestCase):
         return svc
 
     @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.tasks.provisioning.write_snippet')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    def test_provision_uploads_snippet_when_apps_selected(self, mock_cls, _mock_inv):
+    def test_provision_uploads_snippet_when_apps_selected(self, mock_cls, mock_write, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
         mock_node = MagicMock()
@@ -1071,11 +1072,11 @@ class TestProvisionServiceApps(TestCase):
         provision_service(svc.id, 'testpass')
         svc.refresh_from_db()
 
-        # Verify snippet was uploaded
-        mock_node.storage.return_value.upload.post.assert_called_once()
-        call_kwargs = mock_node.storage.return_value.upload.post.call_args[1]
-        self.assertEqual(call_kwargs['content'], 'snippets')
-        self.assertIn(f'ci-{svc.machine_id}', call_kwargs['filename'])
+        # Verify snippet was written via SSH
+        mock_write.assert_called_once()
+        call_args = mock_write.call_args
+        self.assertEqual(call_args[0][1], svc.node.name)
+        self.assertIn(f'ci-{svc.machine_id}', call_args[0][2])
 
         # Verify cicustom was set in vm config
         config_call = mock_node.qemu.return_value.config.post
@@ -1085,8 +1086,9 @@ class TestProvisionServiceApps(TestCase):
         self.assertIn(f'ci-{svc.machine_id}.yml', config_kwargs['cicustom'])
 
     @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.tasks.provisioning.write_snippet')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    def test_provision_skips_snippet_when_no_apps(self, mock_cls, _mock_inv):
+    def test_provision_skips_snippet_when_no_apps(self, mock_cls, mock_write, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
         mock_node = MagicMock()
@@ -1100,8 +1102,8 @@ class TestProvisionServiceApps(TestCase):
         from .tasks import provision_service
         provision_service(svc.id, 'testpass')
 
-        # Verify snippet was NOT uploaded
-        mock_node.storage.return_value.upload.post.assert_not_called()
+        # Verify snippet was NOT written
+        mock_write.assert_not_called()
 
         # Verify cicustom was NOT set
         config_kwargs = mock_node.qemu.return_value.config.post.call_args[1]
@@ -1114,8 +1116,9 @@ class TestProvisionServiceApps(TestCase):
 
 class TestCancelServiceSnippetCleanup(TestCase):
 
+    @patch('inveterate.tasks.maintenance.delete_snippet')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    def test_cancel_service_cleans_up_snippet(self, mock_cls):
+    def test_cancel_service_cleans_up_snippet(self, mock_cls, mock_delete):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
         mock_node = MagicMock()
@@ -1132,20 +1135,21 @@ class TestCancelServiceSnippetCleanup(TestCase):
         from .tasks import cancel_service
         cancel_service(svc.id)
 
-        # Snippet delete should have been attempted
-        mock_node.storage.return_value.content.delete.assert_called_once_with(
-            f'snippets/ci-{svc.machine_id}.yml'
+        # Snippet delete should have been attempted via SSH
+        mock_delete.assert_called_once_with(
+            mock_proxmox, node.name, f'ci-{svc.machine_id}.yml'
         )
         svc.refresh_from_db()
         self.assertEqual(svc.status, 'destroyed')
 
+    @patch('inveterate.tasks.maintenance.delete_snippet')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    def test_cancel_service_ignores_snippet_error(self, mock_cls):
+    def test_cancel_service_ignores_snippet_error(self, mock_cls, mock_delete):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
         mock_node = MagicMock()
         mock_proxmox.nodes.return_value = mock_node
-        mock_node.storage.return_value.content.delete.side_effect = Exception("not found")
+        mock_delete.side_effect = Exception("ssh failed")
 
         user = _admin()
         cluster = _cluster()

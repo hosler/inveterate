@@ -1,5 +1,4 @@
 import time
-from io import BytesIO
 
 import yaml
 from celery import shared_task
@@ -12,7 +11,7 @@ from requests.exceptions import ConnectionError
 
 from ..models import IP, IPPool, NodeDisk, PortBlock, PortGateway, Service, ServiceNetwork
 from ..proxmox import get_proxmox_connection
-from ._common import MAX_POLL_SECONDS, logger
+from ._common import MAX_POLL_SECONDS, logger, write_snippet
 
 _SSH_KEY_PREFIXES = (
     "ssh-rsa ",
@@ -24,15 +23,65 @@ _SSH_KEY_PREFIXES = (
 )
 
 
-def _compose_cloud_init(apps, ssh_keys=None):
+def _wait_for_task(node, upid, service_id, label=""):
+    """Poll a Proxmox task UPID until it completes."""
+    poll_start = time.monotonic()
+    while True:
+        if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+            raise TimeoutError(f"Task wait ({label}) timed out after {MAX_POLL_SECONDS}s for service {service_id}")
+        task = node.tasks(upid).status.get()
+        if task.get("status") == "stopped":
+            if task.get("exitstatus") != "OK":
+                raise RuntimeError(
+                    f"Proxmox task {label} failed for service {service_id}: {task.get('exitstatus')}"
+                )
+            return
+        time.sleep(2)
+
+
+def _wait_for_unlock(node, machine_id, service_id, label=""):
+    """Poll until the VM config is no longer locked."""
+    poll_start = time.monotonic()
+    while True:
+        if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+            raise TimeoutError(f"Lock wait ({label}) timed out after {MAX_POLL_SECONDS}s for service {service_id}")
+        status = node.qemu(machine_id).status.current.get()
+        if "lock" not in status:
+            return
+        time.sleep(2)
+
+
+def _compose_cloud_init(apps, ssh_keys=None, user=None, hostname=None, password=None):
     """Merge AppProfile cloud_init fragments into a single cloud-config document.
+
+    When ``cicustom user=...`` is set on a Proxmox VM, it completely replaces
+    the auto-generated user-data.  We therefore need to include ``user``,
+    ``hostname``, ``manage_etc_hosts``, and ``fqdn`` ourselves so that
+    cloud-init applies SSH keys and other settings to the correct account.
 
     Args:
         apps: QuerySet of AppProfile objects to merge.
         ssh_keys: Optional list of SSH public key strings to inject via cloud-init.
+        user: Unix username that cloud-init should configure (maps to Proxmox ``ciuser``).
+        hostname: VM hostname (written as ``hostname`` + ``fqdn`` in cloud-config).
+        password: Hashed password string for ``chpasswd`` (Proxmox ``cipassword``).
     """
     merged_keys = ("packages", "runcmd", "write_files")
     merged = {}
+
+    # Include identity fields that Proxmox would auto-generate but are lost
+    # when ``cicustom`` overrides the user-data section.
+    if user:
+        merged["user"] = user
+        merged["users"] = ["default"]
+    if hostname:
+        merged["hostname"] = hostname
+        merged["manage_etc_hosts"] = True
+        merged["fqdn"] = hostname
+    if password:
+        merged["password"] = password
+        merged["chpasswd"] = {"expire": False}
+
     for app in apps.order_by("pk"):
         fragment = yaml.safe_load(app.cloud_init)
         if not isinstance(fragment, dict):
@@ -191,11 +240,12 @@ def provision_service(service_id, password, ssh_keys=None):
                     clone_node = proxmox.nodes(resource["node"])
                     break
 
-            # Cross-node clone requires shared storage; use it as
-            # intermediate then move to the target disk if needed.
             target_storage = service.service_plan.storage.name
-            clone_storage = target_storage
             cross_node = clone_node is not node
+
+            # Cross-node clone requires shared storage as intermediate;
+            # we move the disk to target storage afterwards.
+            clone_storage = target_storage
             if cross_node:
                 shared_disk = NodeDisk.objects.filter(node=service.node, shared=True).first()
                 if shared_disk:
@@ -247,6 +297,28 @@ def provision_service(service_id, password, ssh_keys=None):
                 else:
                     raise
 
+            # Move disks from shared intermediate to target local storage
+            if clone_storage != target_storage:
+                # Discover which disks need moving (main disk + cloud-init)
+                config = node.qemu(service.machine_id).config.get()
+                disks_to_move = []
+                for key, value in config.items():
+                    if isinstance(value, str) and f"{clone_storage}:" in value:
+                        disks_to_move.append(key)
+
+                for disk in disks_to_move:
+                    # Wait for any lock to clear before starting move
+                    _wait_for_unlock(node, service.machine_id, service_id, "pre-move")
+
+                    logger.info(
+                        "Moving %s from %s to %s for service %s",
+                        disk, clone_storage, target_storage, service_id,
+                    )
+                    upid = node.qemu(service.machine_id).move_disk.post(
+                        disk=disk, storage=target_storage, delete=1,
+                    )
+                    _wait_for_task(node, upid, service_id, f"move-{disk}")
+
             vm_data = {
                 "onboot": 1,
                 "memory": service.service_plan.ram,
@@ -254,21 +326,25 @@ def provision_service(service_id, password, ssh_keys=None):
                 "cores": service.service_plan.cores,
                 "balloon": 0,
                 "name": service.hostname,
-                "ciuser": service.owner,
+                "ciuser": service.owner.email.split("@")[0],
             }
             if password is not None:
                 vm_data["cipassword"] = password
 
-            # Compose and upload cloud-init snippet for app profiles and/or SSH keys
+            # Compose and write cloud-init snippet for app profiles and/or SSH keys.
+            # When cicustom is set it completely replaces the auto-generated
+            # user-data, so we must include identity fields (user, hostname, password).
             if service.service_plan.apps.exists() or ssh_keys:
-                ci_content = _compose_cloud_init(service.service_plan.apps.all(), ssh_keys=ssh_keys)
+                ci_content = _compose_cloud_init(
+                    service.service_plan.apps.all(),
+                    ssh_keys=ssh_keys,
+                    user=vm_data.get("ciuser"),
+                    hostname=service.hostname,
+                    password=password,
+                )
                 if ci_content:
                     snippet_name = f"ci-{service.machine_id}.yml"
-                    node.storage("local").upload.post(
-                        content="snippets",
-                        filename=snippet_name,
-                        file=BytesIO(ci_content.encode()),
-                    )
+                    write_snippet(proxmox, service.node.name, snippet_name, ci_content)
                     vm_data["cicustom"] = f"user=local:snippets/{snippet_name}"
 
         if service_type == "lxc":
