@@ -162,6 +162,7 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
                 ws_url,
                 ssl=ssl_context,
                 additional_headers=headers,
+                subprotocols=[websockets.Subprotocol('binary')],
             )
         except Exception as e:
             logger.warning("Proxmox WS connect failed for service %s: %s", self.service_id, e)
