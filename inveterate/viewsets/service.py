@@ -26,9 +26,11 @@ from ..tasks import (
     stop_vm,
     reboot_vm,
     reset_vm,
+    reset_vm_password,
     shutdown_vm,
     get_vm_status,
     get_vm_ips,
+    get_vm_osinfo,
     update_service_ssh_keys,
 )
 
@@ -183,6 +185,33 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
             return Response({'detail': 'SSH key updates are only supported for KVM services.'}, status=400)
         task = update_service_ssh_keys.delay(service.id, ssh_keys)
         return Response({'task_id': task.id}, status=202)
+
+    @action(methods=['get'], detail=True)
+    def osinfo(self, request, pk=None):
+        """Get OS info from QEMU guest agent."""
+        service = self.get_object()
+        info = get_vm_osinfo(service.pk)
+        return Response(info or {})
+
+    @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
+    def reset_password(self, request, pk=None):
+        """Reset a user's password inside the guest via QEMU guest agent."""
+        service = self.get_object()
+        username = request.data.get('username', '').strip()
+        password = request.data.get('password', '')
+        if not username:
+            return Response({'detail': 'username is required.'}, status=400)
+        if len(password) < 8:
+            return Response({'detail': 'password must be at least 8 characters.'}, status=400)
+        if service.service_plan.type != 'kvm':
+            return Response({'detail': 'Password reset is only supported for KVM services.'}, status=400)
+        try:
+            reset_vm_password(service.pk, username, password)
+            return Response({'success': True})
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=400)
+        except Exception as e:
+            return Response({'detail': f'Password reset failed: {e}'}, status=502)
 
     @action(methods=['post'], detail=False, permission_classes=[IsAdminUser])
     def bulk_import(self, request):

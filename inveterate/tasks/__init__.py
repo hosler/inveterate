@@ -11,6 +11,7 @@ from .control import (  # noqa: F401
     get_vm,
     reboot_vm,
     reset_vm,
+    reset_vm_password,
     shutdown_vm,
     start_vm,
     stop_vm,
@@ -25,6 +26,7 @@ from .maintenance import (  # noqa: F401
 from .monitoring import (  # noqa: F401
     get_cluster_resources,
     get_vm_ips,
+    get_vm_osinfo,
     get_vm_status,
     meter_bandwidth,
     reinstate_service,
@@ -55,6 +57,7 @@ __all__ = [
     "get_vm",
     "reboot_vm",
     "reset_vm",
+    "reset_vm_password",
     "shutdown_vm",
     "start_vm",
     "stop_vm",
@@ -67,6 +70,7 @@ __all__ = [
     # monitoring
     "get_cluster_resources",
     "get_vm_ips",
+    "get_vm_osinfo",
     "get_vm_status",
     "meter_bandwidth",
     "reinstate_service",

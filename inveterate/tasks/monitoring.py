@@ -11,6 +11,28 @@ from ._common import logger
 from .control import get_cluster, get_vm
 
 
+def get_vm_osinfo(service_id):
+    """Get OS info from QEMU guest agent. Returns None for LXC or if agent unavailable."""
+    machine, service = get_vm(service_id)
+    if service.service_plan.type != "kvm":
+        return None
+    try:
+        proxmox = get_proxmox_connection(service.node.cluster)
+        node = proxmox.nodes(service.node)
+        response = node.qemu(service.machine_id).agent("get-osinfo").get()
+        result = response.get("result", {})
+        return {
+            "name": result.get("name", ""),
+            "version": result.get("version", ""),
+            "kernel_release": result.get("kernel-release", ""),
+            "kernel_version": result.get("kernel-version", ""),
+            "machine": result.get("machine", ""),
+        }
+    except Exception:
+        logger.debug("Guest agent OS info unavailable for service %s", service_id)
+        return None
+
+
 @shared_task(name="inveterate.tasks.get_vm_status", base=Singleton, lock_expiry=60 * 15)
 def get_vm_status(service_id):
     machine, service = get_vm(service_id)

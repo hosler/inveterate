@@ -33,6 +33,19 @@ def get_cluster(cluster_id):
     return proxmox.cluster
 
 
+def reset_vm_password(service_id, username, password):
+    """Reset a user's password inside a KVM guest via QEMU guest agent."""
+    machine, service = get_vm(service_id)
+    if service.service_plan.type != "kvm":
+        raise ValueError("Password reset is only supported for KVM services.")
+    proxmox = get_proxmox_connection(service.node.cluster)
+    node = proxmox.nodes(service.node)
+    node.qemu(service.machine_id).agent("set-user-password").post(
+        username=username, password=password, crypted=False
+    )
+    logger.info("Password reset for user %s on service %s", username, service_id)
+
+
 @shared_task(
     name="inveterate.tasks.start_vm",
     base=Singleton,
