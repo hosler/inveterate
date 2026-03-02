@@ -43,6 +43,11 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
         self.proxy_task = None
         self.authenticated = False
         self.service = None
+        self.vmtype = None
+        self.node_name = None
+        self.vmid = None
+        self.cluster = None
+        self._resize_handle = None
 
     async def connect(self):
         self.service_id = int(self.scope['url_route']['kwargs']['service_id'])
@@ -115,6 +120,8 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
                     cols = int(msg.get('cols', 80))
                     rows = int(msg.get('rows', 24))
                     await self.proxmox_ws.send(f"1:{cols}:{rows}:")
+                    if self.vmtype == 'qemu':
+                        self._schedule_guest_resize(cols, rows)
                 elif msg and msg.get('type') == 'input':
                     payload = msg.get('data', '')
                     byte_len = len(payload.encode('utf-8'))
@@ -137,6 +144,11 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
         node = details['node']
         vmtype = details['vmtype']
         vmid = details['vmid']
+
+        self.vmtype = vmtype
+        self.node_name = node
+        self.vmid = vmid
+        self.cluster = details['cluster']
 
         port = data['port']
         vncticket = quote(data['vncticket'], safe='')
@@ -236,7 +248,27 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
         finally:
             await self.close()
 
+    async def _guest_resize(self, cols, rows):
+        """Run guest agent resize in a thread pool (blocking Proxmox API call)."""
+        from .proxmox import guest_agent_resize
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, guest_agent_resize, self.cluster, self.node_name, self.vmid, cols, rows,
+        )
+
+    def _schedule_guest_resize(self, cols, rows):
+        """Debounce guest agent resize calls (0.5s)."""
+        if self._resize_handle is not None:
+            self._resize_handle.cancel()
+        loop = asyncio.get_event_loop()
+        self._resize_handle = loop.call_later(
+            0.5, lambda: asyncio.ensure_future(self._guest_resize(cols, rows)),
+        )
+
     async def disconnect(self, code):
+        if self._resize_handle is not None:
+            self._resize_handle.cancel()
+            self._resize_handle = None
         if self.proxy_task and not self.proxy_task.done():
             self.proxy_task.cancel()
             try:
@@ -279,4 +311,5 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
             'node': service.node.name,
             'vmid': service.machine_id,
             'vmtype': vmtype,
+            'cluster': service.node.cluster,
         }

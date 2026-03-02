@@ -51,7 +51,7 @@ def _wait_for_unlock(node, machine_id, service_id, label=""):
         time.sleep(2)
 
 
-def _compose_cloud_init(apps, ssh_keys=None, user=None, hostname=None, password=None):
+def _compose_cloud_init(apps, ssh_keys=None, user=None, hostname=None, password=None, kvm=False):
     """Merge AppProfile cloud_init fragments into a single cloud-config document.
 
     When ``cicustom user=...`` is set on a Proxmox VM, it completely replaces
@@ -65,6 +65,7 @@ def _compose_cloud_init(apps, ssh_keys=None, user=None, hostname=None, password=
         user: Unix username that cloud-init should configure (maps to Proxmox ``ciuser``).
         hostname: VM hostname (written as ``hostname`` + ``fqdn`` in cloud-config).
         password: Hashed password string for ``chpasswd`` (Proxmox ``cipassword``).
+        kvm: If True, include ``qemu-guest-agent`` package and enable the service.
     """
     merged_keys = ("packages", "runcmd", "write_files")
     merged = {}
@@ -99,6 +100,9 @@ def _compose_cloud_init(apps, ssh_keys=None, user=None, hostname=None, password=
             logger.warning("Filtered %d invalid SSH keys from cloud-init", len(ssh_keys) - len(valid_keys))
         if valid_keys:
             merged["ssh_authorized_keys"] = valid_keys
+    if kvm:
+        merged.setdefault("packages", []).append("qemu-guest-agent")
+        merged.setdefault("runcmd", []).append("systemctl enable --now qemu-guest-agent")
     if not merged:
         return ""
     return "#cloud-config\n" + yaml.dump(merged, default_flow_style=False)
@@ -327,25 +331,27 @@ def provision_service(service_id, password, ssh_keys=None):
                 "balloon": 0,
                 "name": service.hostname,
                 "ciuser": service.username or service.owner.email.split("@")[0],
+                "agent": "1",
             }
             if password is not None:
                 vm_data["cipassword"] = password
 
-            # Compose and write cloud-init snippet for app profiles and/or SSH keys.
+            # Compose and write cloud-init snippet for KVM VMs.
+            # Always generated to ensure qemu-guest-agent is installed.
             # When cicustom is set it completely replaces the auto-generated
             # user-data, so we must include identity fields (user, hostname, password).
-            if service.service_plan.apps.exists() or ssh_keys:
-                ci_content = _compose_cloud_init(
-                    service.service_plan.apps.all(),
-                    ssh_keys=ssh_keys,
-                    user=vm_data.get("ciuser"),
-                    hostname=service.hostname,
-                    password=password,
-                )
-                if ci_content:
-                    snippet_name = f"ci-{service.machine_id}.yml"
-                    write_snippet(proxmox, service.node.name, snippet_name, ci_content)
-                    vm_data["cicustom"] = f"user=local:snippets/{snippet_name}"
+            ci_content = _compose_cloud_init(
+                service.service_plan.apps.all(),
+                ssh_keys=ssh_keys,
+                user=vm_data.get("ciuser"),
+                hostname=service.hostname,
+                password=password,
+                kvm=True,
+            )
+            if ci_content:
+                snippet_name = f"ci-{service.machine_id}.yml"
+                write_snippet(proxmox, service.node.name, snippet_name, ci_content)
+                vm_data["cicustom"] = f"user=local:snippets/{snippet_name}"
 
         if service_type == "lxc":
             vm_data = {

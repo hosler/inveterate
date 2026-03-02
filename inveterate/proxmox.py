@@ -127,6 +127,28 @@ _LEGACY_RE = re.compile(
 )
 
 
+def guest_agent_resize(cluster, node_name, vmid, cols, rows):
+    """Resize the guest terminal via QEMU Guest Agent exec.
+
+    Runs ``stty`` on ``/dev/ttyS0`` and sends ``SIGWINCH`` to processes on that
+    tty so the shell picks up the new dimensions immediately.
+
+    Returns ``True`` on success, ``False`` if the guest agent is unavailable or
+    the command fails (fire-and-forget).
+    """
+    try:
+        proxmox = get_proxmox_connection(cluster, timeout=10)
+        node = proxmox.nodes(node_name)
+        node.qemu(vmid).agent("exec").post(
+            command="/bin/sh",
+            **{"input-data": f"stty -F /dev/ttyS0 cols {cols} rows {rows}\npkill -WINCH -t ttyS0\n"},
+        )
+        return True
+    except Exception:
+        logger.debug("Guest agent resize failed for VM %s on %s", vmid, node_name)
+        return False
+
+
 def is_legacy_console_user(userid):
     """Parse a legacy ``inveterate{owner_id}@pve`` userid and return the owner id, or ``None``."""
     m = _LEGACY_RE.match(userid)

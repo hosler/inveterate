@@ -326,6 +326,7 @@ def update_service_ssh_keys(service_id, ssh_keys):
         ssh_keys=valid_keys,
         user=ciuser,
         hostname=service.hostname,
+        kvm=True,
     )
     if ci_content:
         write_snippet(proxmox, service.node.name, snippet_name, ci_content)
