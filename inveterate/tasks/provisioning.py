@@ -10,6 +10,7 @@ from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
 
 from ..models import IP, IPPool, NodeDisk, PortBlock, PortGateway, Service, ServiceNetwork
+from ..provisioning_steps import progress_msg
 from ..proxmox import get_proxmox_connection
 from ._common import MAX_POLL_SECONDS, logger, write_snippet
 
@@ -191,6 +192,11 @@ def assign_ips(service_id):
                     logger.warning(f"No available port block on gateway {gw.name} for service {service_id}")
 
 
+def _update_progress(service_id, step_key):
+    """Write a provisioning progress marker to status_msg (single SQL UPDATE)."""
+    Service.objects.filter(pk=service_id).update(status_msg=progress_msg(step_key))
+
+
 @shared_task(name="inveterate.tasks.provision_service", base=Singleton, lock_expiry=60 * 15)
 def provision_service(service_id, password, ssh_keys=None):
     logger.info(f"Starting provisioning for service {service_id}")
@@ -231,11 +237,13 @@ def provision_service(service_id, password, ssh_keys=None):
                 locked_svc.save(update_fields=["machine_id"])
             service.machine_id = locked_svc.machine_id
     try:
+        _update_progress(service_id, "assign_ips")
         logger.debug(f"Assigning IPs for service {service_id}")
         assign_ips(service_id)
         logger.debug(f"IP assignment completed for service {service_id}")
 
         if service_type == "kvm":
+            _update_progress(service_id, "clone_vm")
             # Find which node has the template
             clone_node = node
             template_vmid = int(service.service_plan.template.file)
@@ -303,6 +311,7 @@ def provision_service(service_id, password, ssh_keys=None):
 
             # Move disks from shared intermediate to target local storage
             if clone_storage != target_storage:
+                _update_progress(service_id, "move_disks")
                 # Discover which disks need moving (main disk + cloud-init)
                 config = node.qemu(service.machine_id).config.get()
                 disks_to_move = []
@@ -323,6 +332,7 @@ def provision_service(service_id, password, ssh_keys=None):
                     )
                     _wait_for_task(node, upid, service_id, f"move-{disk}")
 
+            _update_progress(service_id, "cloud_init")
             vm_data = {
                 "onboot": 1,
                 "memory": service.service_plan.ram,
@@ -354,6 +364,7 @@ def provision_service(service_id, password, ssh_keys=None):
                 vm_data["cicustom"] = f"user=local:snippets/{snippet_name}"
 
         if service_type == "lxc":
+            _update_progress(service_id, "configure")
             vm_data = {
                 "ostemplate": f"local:vztmpl/{service.service_plan.template.file}",
                 "hostname": service.hostname,
@@ -370,6 +381,7 @@ def provision_service(service_id, password, ssh_keys=None):
                 "pool": "inveterate",
             }
 
+        _update_progress(service_id, "network")
         # Build network configuration from assigned IPs
         for network in service.service_network.all():
             firewall = 0
@@ -411,6 +423,7 @@ def provision_service(service_id, password, ssh_keys=None):
             service.bw_renewal_dtm = timezone.now() + relativedelta(months=1)
             service.save()
 
+        _update_progress(service_id, "configure")
         machine = None
         if service_type == "kvm":
             node.qemu(service.machine_id).config.post(**vm_data)
@@ -442,6 +455,7 @@ def provision_service(service_id, password, ssh_keys=None):
                     raise
             machine = node.lxc(service.machine_id)
 
+        _update_progress(service_id, "firewall")
         for network in service.service_network.all():
             try:
                 cidrs = machine.firewall.ipset(f"ipfilter-net{network.net_id}").get()
@@ -462,6 +476,7 @@ def provision_service(service_id, password, ssh_keys=None):
         else:
             machine.firewall.rules.post(type="group", action="inveterate", enable=1)
 
+        _update_progress(service_id, "finalize")
         try:
             proxmox.pools("inveterate").put(vms=service.machine_id)
         except ResourceException as e:

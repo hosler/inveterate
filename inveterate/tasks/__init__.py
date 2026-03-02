@@ -44,6 +44,7 @@ from .provisioning import (  # noqa: F401
     assign_ips,
     provision_service,
 )
+from ..provisioning_steps import PROVISIONING_STEPS  # noqa: F401
 from .templates import (  # noqa: F401
     import_kvm_template,
     sync_kvm_templates,
@@ -85,6 +86,7 @@ __all__ = [
     "_compose_cloud_init",
     "assign_ips",
     "provision_service",
+    "PROVISIONING_STEPS",
     # templates
     "import_kvm_template",
     "sync_kvm_templates",
