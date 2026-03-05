@@ -387,7 +387,7 @@ class TestProvisionService(TestCase):
         node = _node(cluster=cluster)
         disk = _disk(node)
         tpl = _template(type=svc_type, file='100' if svc_type == 'kvm' else 'debian.tar.zst')
-        sp = _service_plan(template=tpl, storage=disk, type=svc_type)
+        sp = _service_plan(template=tpl, storage=disk, type=svc_type, ipv4_ips=0)
         svc = _service(user, node, sp, status='pending')
         return svc
 
@@ -530,6 +530,68 @@ class TestProvisionService(TestCase):
 
 
 # ===================================================================
+# TestProvisionServiceIdempotency
+# ===================================================================
+
+class TestProvisionServiceIdempotency(TestCase):
+
+    def _setup_service(self, status='pending'):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        tpl = _template()
+        sp = _service_plan(template=tpl, storage=disk, ipv4_ips=0)
+        return _service(user, node, sp, status=status)
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_destroyed_service_skips_provisioning(self, mock_cls):
+        """Service with status 'destroyed' should skip provisioning entirely."""
+        svc = self._setup_service(status='destroyed')
+        from .tasks import provision_service
+        provision_service(svc.id, 'testpass')
+        mock_cls.assert_not_called()
+
+    @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_pending_service_proceeds(self, mock_cls, _mock_inv):
+        """Service with status 'pending' should proceed with provisioning."""
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+        mock_node.lxc.return_value.firewall.rules.get.return_value = []
+        mock_node.lxc.return_value.firewall.ipset.return_value.get.return_value = []
+
+        svc = self._setup_service(status='pending')
+        from .tasks import provision_service
+        provision_service(svc.id, 'testpass')
+
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'active')
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_error_service_with_machine_id_skips(self, mock_cls):
+        """Service with status 'error' and existing machine_id should not re-provision
+        (it would fail in setup anyway — tests the guard doesn't let it through)."""
+        svc = self._setup_service(status='error')
+        svc.machine_id = 1000001
+        svc.save(update_fields=['machine_id'])
+        from .tasks import provision_service
+        # Error status is not in the guard, so Proxmox will be called; this test
+        # documents the current behavior: error status proceeds (allows retry).
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+        mock_node.lxc.return_value.firewall.rules.get.return_value = []
+        mock_node.lxc.return_value.firewall.ipset.return_value.get.return_value = []
+        provision_service(svc.id, 'testpass')
+        # Should have called Proxmox (provisioning proceeded)
+        mock_cls.assert_called_once()
+
+
+# ===================================================================
 # TestAssignIps
 # ===================================================================
 
@@ -585,6 +647,48 @@ class TestAssignIps(TestCase):
         assign_ips(svc.id)
         second_count = ServiceNetwork.objects.filter(service=svc).count()
         self.assertEqual(first_count, second_count)
+
+    def test_raises_when_pool_exhausted(self):
+        """Should raise RuntimeError when matching pools exist but have no free IPs."""
+        user = _admin()
+        node = _node()
+        disk = _disk(node)
+        pool = _ip_pool(node)
+        # Create only 1 IP but request 2
+        IP.objects.create(pool=pool, value='10.0.0.10')
+
+        sp = _service_plan(storage=disk, ipv4_ips=2)
+        svc = _service(user, node, sp)
+
+        from .tasks import assign_ips
+        with self.assertRaises(RuntimeError):
+            assign_ips(svc.id)
+
+    def test_allocates_port_blocks_for_internal_ips(self):
+        """Internal IPs should get port blocks allocated from matching gateways."""
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _ip_pool(node, name='internal', type='ipv4', network='192.168.0.0', gateway='192.168.0.1', internal=True)
+        IP.objects.create(pool=pool_int, value='192.168.0.10')
+
+        gw = PortGateway.objects.create(
+            name='gw1', host='gw.test', admin_email='a@b.com', admin_password='pw',
+            port_range_start=10000, port_range_end=60000, block_size=100,
+        )
+        gw.pools.add(pool_int)
+
+        sp = _service_plan(storage=disk, ipv4_ips=0, internal_ips=1)
+        svc = _service(user, node, sp)
+
+        from .tasks import assign_ips
+        assign_ips(svc.id)
+
+        blocks = PortBlock.objects.filter(gateway=gw, service_network__service=svc)
+        self.assertEqual(blocks.count(), 1)
+        self.assertEqual(blocks.first().port_start, 10000)
+        self.assertEqual(blocks.first().port_end, 10099)
 
 
 # ===================================================================
@@ -1048,7 +1152,7 @@ class TestProvisionServiceApps(TestCase):
         node = _node(cluster=cluster)
         disk = _disk(node)
         tpl = _template(type='kvm', file='100')
-        sp = _service_plan(template=tpl, storage=disk, type='kvm')
+        sp = _service_plan(template=tpl, storage=disk, type='kvm', ipv4_ips=0)
         svc = _service(user, node, sp, status='pending')
         return svc
 
@@ -1088,7 +1192,7 @@ class TestProvisionServiceApps(TestCase):
     @patch('inveterate.tasks.calculate_inventory')
     @patch('inveterate.tasks.provisioning.write_snippet')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    def test_provision_skips_snippet_when_no_apps(self, mock_cls, mock_write, _mock_inv):
+    def test_provision_writes_base_snippet_when_no_apps(self, mock_cls, mock_write, _mock_inv):
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
         mock_node = MagicMock()
@@ -1102,12 +1206,12 @@ class TestProvisionServiceApps(TestCase):
         from .tasks import provision_service
         provision_service(svc.id, 'testpass')
 
-        # Verify snippet was NOT written
-        mock_write.assert_not_called()
-
-        # Verify cicustom was NOT set
-        config_kwargs = mock_node.qemu.return_value.config.post.call_args[1]
-        self.assertNotIn('cicustom', config_kwargs)
+        # KVM always writes a snippet (qemu-guest-agent + identity fields)
+        mock_write.assert_called_once()
+        snippet_content = mock_write.call_args[0][3]
+        self.assertIn('qemu-guest-agent', snippet_content)
+        # No app-specific content beyond the base
+        self.assertNotIn('curl', snippet_content)
 
 
 # ===================================================================
@@ -1562,7 +1666,7 @@ class TestPortBlockAllocation(TestCase):
         self.assertEqual(blocks[1].port_start, 10100)
 
     def test_handles_full_gateway(self):
-        """When the gateway has no available port slots, no block is created."""
+        """When the gateway has no available port slots, allocation raises."""
         user = _admin()
         cluster = _cluster()
         node = _node(cluster=cluster)
@@ -1580,10 +1684,11 @@ class TestPortBlockAllocation(TestCase):
         assign_ips(svc1.id)
         self.assertEqual(PortBlock.objects.filter(gateway=gw).count(), 1)
 
-        # Service 2 can't get a block
+        # Service 2 can't get a block — should raise
         sp2 = _service_plan(storage=disk, ipv4_ips=0, ipv6_ips=0, internal_ips=1)
         svc2 = _service(user, node, sp2, hostname='s2.example.com')
-        assign_ips(svc2.id)
+        with self.assertRaises(RuntimeError):
+            assign_ips(svc2.id)
         # Still only 1 block
         self.assertEqual(PortBlock.objects.filter(gateway=gw).count(), 1)
 

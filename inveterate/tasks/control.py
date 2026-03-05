@@ -33,6 +33,15 @@ def get_cluster(cluster_id):
     return proxmox.cluster
 
 
+@shared_task(
+    name="inveterate.tasks.reset_vm_password",
+    base=Singleton,
+    lock_expiry=60 * 5,
+    autoretry_for=(ConnectionError, ResourceException),
+    retry_backoff=5,
+    retry_backoff_max=60,
+    max_retries=3,
+)
 def reset_vm_password(service_id, username, password):
     """Reset a user's password inside a KVM guest via QEMU guest agent."""
     machine, service = get_vm(service_id)

@@ -1,5 +1,7 @@
-from django.db import models
+from django.db import models, transaction
 from django.contrib.auth import get_user_model
+
+from .fields import EncryptedCharField
 
 # Get the UserModel
 UserModel = get_user_model()
@@ -102,7 +104,7 @@ class Cluster(models.Model):
     name = models.CharField(max_length=255)
     host = models.CharField(max_length=255)
     user = models.CharField(max_length=255)
-    key = models.CharField(max_length=255)
+    key = EncryptedCharField(max_length=255)
     verify_ssl = models.BooleanField(
         default=False,
         help_text="Verify TLS certificates when connecting to the Proxmox API.",
@@ -255,16 +257,17 @@ class ServiceNetwork(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        if not self.net_id:
-            net_devices = ServiceNetwork.objects.filter(service=self.service)
-            if len(net_devices) > 0:
-                for i, net_device in enumerate(net_devices):
-                    if net_device.net_id != i:
-                        self.net_id = i
-                        return super().save(*args, **kwargs)
-                self.net_id = len(net_devices)
-            else:
-                self.net_id = 0
+        if self.net_id is None:
+            with transaction.atomic():
+                existing_qs = ServiceNetwork.objects.filter(service=self.service).select_for_update()
+                if self.pk:
+                    existing_qs = existing_qs.exclude(pk=self.pk)
+                used_ids = set(existing_qs.values_list("net_id", flat=True))
+                net_id = 0
+                while net_id in used_ids:
+                    net_id += 1
+                self.net_id = net_id
+                return super().save(*args, **kwargs)
         return super().save(*args, **kwargs)
 
 
@@ -297,7 +300,7 @@ class PortGateway(models.Model):
     name = models.CharField(max_length=255)
     host = models.CharField(max_length=255)
     admin_email = models.EmailField()
-    admin_password = models.CharField(max_length=255)
+    admin_password = EncryptedCharField(max_length=255)
     port_range_start = models.IntegerField(default=10000)
     port_range_end = models.IntegerField(default=60000)
     block_size = models.IntegerField(default=100)

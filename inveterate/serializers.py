@@ -120,7 +120,7 @@ class Owner(serializers.SlugRelatedField):
         queryset = UserModel.objects.all()
         request = self.context.get('request', None)
         if not request.user.is_superuser:
-            queryset = queryset.filter(username=request.user)
+            queryset = queryset.filter(pk=request.user.pk)
         return queryset
 
 

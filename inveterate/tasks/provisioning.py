@@ -14,6 +14,23 @@ from ..provisioning_steps import progress_msg
 from ..proxmox import get_proxmox_connection
 from ._common import MAX_POLL_SECONDS, logger, write_snippet
 
+
+def _release_service_networking(service_id):
+    """Release IPs and port blocks allocated during a failed provisioning attempt.
+
+    This avoids tying up pool resources while a service sits in error state.
+    Does NOT touch the Proxmox VM — admins can inspect and clean up manually.
+    """
+    networks = ServiceNetwork.objects.filter(service_id=service_id)
+    released_ips = IP.objects.filter(owner__in=networks).update(owner=None)
+    deleted_blocks = PortBlock.objects.filter(service_network__in=networks).delete()[0]
+    deleted_networks = networks.delete()[0]
+    if released_ips or deleted_blocks or deleted_networks:
+        logger.info(
+            "Released resources for failed service %s: %d IPs, %d port blocks, %d networks",
+            service_id, released_ips, deleted_blocks, deleted_networks,
+        )
+
 _SSH_KEY_PREFIXES = (
     "ssh-rsa ",
     "ssh-ed25519 ",
@@ -149,13 +166,19 @@ def assign_ips(service_id):
     with transaction.atomic():
         for i in range(internal_ips):
             if not _allocate_ip(lambda p: p.internal is True, "internal"):
-                logger.warning("No internal IP pools configured for node %s (service %s)", service.node, service_id)
+                raise RuntimeError(
+                    f"No internal IP pools configured for node {service.node} (service {service_id})"
+                )
         for i in range(ipv4_ips):
             if not _allocate_ip(lambda p: p.type == "ipv4" and p.internal is not True, "IPv4"):
-                logger.warning("No IPv4 IP pools configured for node %s (service %s)", service.node, service_id)
+                raise RuntimeError(
+                    f"No IPv4 IP pools configured for node {service.node} (service {service_id})"
+                )
         for i in range(ipv6_ips):
             if not _allocate_ip(lambda p: p.type == "ipv6" and p.internal is not True, "IPv6"):
-                logger.warning("No IPv6 IP pools configured for node %s (service %s)", service.node, service_id)
+                raise RuntimeError(
+                    f"No IPv6 IP pools configured for node {service.node} (service {service_id})"
+                )
 
     # Allocate port blocks for internal IPs that don't have one yet
     internal_networks = (
@@ -189,7 +212,9 @@ def assign_ips(service_id):
                         break
                     port += gw.block_size
                 if not allocated:
-                    logger.warning(f"No available port block on gateway {gw.name} for service {service_id}")
+                    raise RuntimeError(
+                        f"No available port block on gateway {gw.name} for service {service_id}"
+                    )
 
 
 def _update_progress(service_id, step_key):
@@ -197,14 +222,240 @@ def _update_progress(service_id, step_key):
     Service.objects.filter(pk=service_id).update(status_msg=progress_msg(step_key))
 
 
+def _provision_kvm(service, node, proxmox, password, ssh_keys):
+    """Clone template, move disks, configure cloud-init for a KVM service."""
+    service_id = service.id
+
+    _update_progress(service_id, "clone_vm")
+    # Find which node has the template
+    clone_node = node
+    template_vmid = int(service.service_plan.template.file)
+    for resource in proxmox.cluster.resources.get(type="vm"):
+        if resource["vmid"] == template_vmid:
+            clone_node = proxmox.nodes(resource["node"])
+            break
+
+    target_storage = service.service_plan.storage.name
+    cross_node = clone_node is not node
+
+    # Cross-node clone requires shared storage as intermediate;
+    # we move the disk to target storage afterwards.
+    clone_storage = target_storage
+    if cross_node:
+        shared_disk = NodeDisk.objects.filter(node=service.node, shared=True).first()
+        if shared_disk:
+            clone_storage = shared_disk.name
+
+    clone_data = {
+        "newid": service.machine_id,
+        "storage": clone_storage,
+        "full": 1,
+        "target": service.node.name,
+    }
+    # Skip clone if VM already exists on the target node
+    vm_exists = False
+    try:
+        node.qemu(service.machine_id).status.current.get()
+        vm_exists = True
+    except ResourceException:
+        pass
+
+    if not vm_exists:
+        clone_node.qemu(service.service_plan.template.file).clone.post(**clone_data)
+        # Wait for clone to finish (check both source and target
+        # nodes since the VM may briefly live on the source).
+        locked = True
+        poll_start = time.monotonic()
+        while locked:
+            if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+                raise TimeoutError(
+                    f"Clone lock poll timed out after {MAX_POLL_SECONDS}s for service {service_id}"
+                )
+            time.sleep(2)
+            for check_node in (node, clone_node):
+                try:
+                    status = check_node.qemu(service.machine_id).status.current.get()
+                    if "lock" not in status:
+                        locked = False
+                    break
+                except ResourceException:
+                    continue
+        # For cross-node clones, wait until the VM actually
+        # appears on the target node (migration after clone).
+        if cross_node:
+            poll_start = time.monotonic()
+            while True:
+                if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+                    raise TimeoutError(
+                        f"Cross-node migration poll timed out after {MAX_POLL_SECONDS}s for service {service_id}"
+                    )
+                try:
+                    node.qemu(service.machine_id).status.current.get()
+                    break
+                except ResourceException:
+                    time.sleep(2)
+
+    # Move disks from shared intermediate to target local storage
+    if clone_storage != target_storage:
+        _update_progress(service_id, "move_disks")
+        config = node.qemu(service.machine_id).config.get()
+        disks_to_move = [key for key, value in config.items() if isinstance(value, str) and f"{clone_storage}:" in value]
+
+        for disk in disks_to_move:
+            _wait_for_unlock(node, service.machine_id, service_id, "pre-move")
+            logger.info("Moving %s from %s to %s for service %s", disk, clone_storage, target_storage, service_id)
+            upid = node.qemu(service.machine_id).move_disk.post(disk=disk, storage=target_storage, delete=1)
+            _wait_for_task(node, upid, service_id, f"move-{disk}")
+
+    _update_progress(service_id, "cloud_init")
+    vm_data = {
+        "onboot": 1,
+        "memory": service.service_plan.ram,
+        "vcpus": service.service_plan.cores,
+        "cores": service.service_plan.cores,
+        "balloon": 0,
+        "name": service.hostname,
+        "ciuser": service.username or service.owner.email.split("@")[0],
+        "agent": "1",
+    }
+    if password is not None:
+        vm_data["cipassword"] = password
+
+    ci_content = _compose_cloud_init(
+        service.service_plan.apps.all(),
+        ssh_keys=ssh_keys,
+        user=vm_data.get("ciuser"),
+        hostname=service.hostname,
+        password=password,
+        kvm=True,
+    )
+    if ci_content:
+        snippet_name = f"ci-{service.machine_id}.yml"
+        write_snippet(proxmox, service.node.name, snippet_name, ci_content)
+        vm_data["cicustom"] = f"user=local:snippets/{snippet_name}"
+
+    return vm_data
+
+
+def _build_lxc_config(service, password):
+    """Build the LXC container configuration dict."""
+    return {
+        "ostemplate": f"local:vztmpl/{service.service_plan.template.file}",
+        "hostname": service.hostname,
+        "storage": service.service_plan.storage.name,
+        "memory": service.service_plan.ram,
+        "swap": service.service_plan.swap,
+        "cores": service.service_plan.cores,
+        "rootfs": f"{service.service_plan.storage.name}:{service.service_plan.size}",
+        "password": password,
+        "unprivileged": "1",
+        "onboot": "1",
+        "start": "1",
+        "searchdomain": service.hostname,
+        "pool": "inveterate",
+    }
+
+
+def _build_network_config(service, service_type, vm_data):
+    """Add network interfaces and DNS to vm_data from assigned IPs."""
+    for network in service.service_network.all():
+        firewall = 1 if network.ip.pool.internal is True else 0
+        net_data = {
+            "bridge": network.ip.pool.interface,
+            "firewall": firewall,
+        }
+        if network.ip.pool.vlan_tag:
+            net_data["tag"] = network.ip.pool.vlan_tag
+        if service_type == "kvm":
+            net_data["model"] = "virtio"
+            if network.ip.pool.type == "ipv4":
+                vm_data[f"ipconfig{network.net_id}"] = (
+                    f"ip={network.ip.value}/{network.ip.pool.mask},gw={network.ip.pool.gateway}"
+                )
+            else:
+                vm_data[f"ipconfig{network.net_id}"] = (
+                    f"ip6={network.ip.value}/{network.ip.pool.mask},gw6={network.ip.pool.gateway}"
+                )
+        if service_type == "lxc":
+            net_data["name"] = f"eth{network.net_id}"
+            if network.ip.pool.type == "ipv4":
+                net_data["ip"] = f"{network.ip.value}/{network.ip.pool.mask}"
+                net_data["gw"] = f"{network.ip.pool.gateway}"
+            else:
+                net_data["ip6"] = f"{network.ip.value}/{network.ip.pool.mask}"
+                net_data["gw6"] = f"{network.ip.pool.gateway}"
+
+        vm_data[f"net{network.net_id}"] = ",".join([f"{key}={value}" for key, value in net_data.items()])
+
+    first_network = service.service_network.first()
+    if first_network and first_network.ip.pool.dns:
+        vm_data["nameserver"] = first_network.ip.pool.dns
+
+
+def _create_or_update_lxc(node, service, vm_data):
+    """Create an LXC container, or update its config if it already exists."""
+    try:
+        node.lxc.create(vmid=service.machine_id, **vm_data)
+    except ResourceException as e:
+        if "already exists" in str(e):
+            update_data = {
+                k: v
+                for k, v in vm_data.items()
+                if k not in ("ostemplate", "rootfs", "password", "unprivileged", "storage", "pool", "start")
+            }
+            node.lxc(service.machine_id).config.put(**update_data)
+        else:
+            raise
+    return node.lxc(service.machine_id)
+
+
+def _apply_kvm_config(node, service, vm_data):
+    """Apply KVM config, wait for lock, resize disk."""
+    service_id = service.id
+    node.qemu(service.machine_id).config.post(**vm_data)
+    poll_start = time.monotonic()
+    while True:
+        if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+            raise TimeoutError(f"Config lock poll timed out after {MAX_POLL_SECONDS}s for service {service_id}")
+        status = node.qemu(service.machine_id).status.current.get()
+        if "lock" not in status:
+            break
+        time.sleep(1)
+    node.qemu(service.machine_id).resize.put(disk="scsi0", size=f"{service.service_plan.size}G")
+    return node.qemu(service.machine_id)
+
+
+def _setup_firewall(machine, service):
+    """Configure IP filters and firewall rules on the VM."""
+    for network in service.service_network.all():
+        try:
+            cidrs = machine.firewall.ipset(f"ipfilter-net{network.net_id}").get()
+            for cidr in cidrs:
+                machine.firewall.ipset(f"ipfilter-net{network.net_id}/{cidr['cidr']}").delete()
+            machine.firewall.ipset(f"ipfilter-net{network.net_id}").delete()
+        except ResourceException as e:
+            if "no such IPSet" in str(e):
+                pass
+            else:
+                raise
+        machine.firewall.ipset.post(name=f"ipfilter-net{network.net_id}")
+        machine.firewall.ipset(f"ipfilter-net{network.net_id}").post(cidr=f"{network.ip.value}")
+    machine.firewall.options.put(enable=1, ipfilter=1)
+    for rule in machine.firewall.rules.get():
+        if rule["type"] == "group" and rule["action"] == "inveterate":
+            break
+    else:
+        machine.firewall.rules.post(type="group", action="inveterate", enable=1)
+
+
 @shared_task(name="inveterate.tasks.provision_service", base=Singleton, lock_expiry=60 * 15)
 def provision_service(service_id, password, ssh_keys=None):
     logger.info(f"Starting provisioning for service {service_id}")
     service = Service.objects.get(pk=service_id)
 
-    # Idempotency guard: skip if already provisioned
-    if service.status == "active":
-        logger.warning(f"Service {service_id} is already active, skipping provisioning")
+    # Idempotency guard: skip if destroyed
+    if service.status == "destroyed":
+        logger.warning("Service %s is destroyed, skipping provisioning", service_id)
         return
 
     logger.info(f"Provisioning {service.service_plan.type} service '{service.hostname}' on node {service.node.name}")
@@ -214,16 +465,13 @@ def provision_service(service_id, password, ssh_keys=None):
     service_type = service.service_plan.type
     try:
         proxmox.pools.post(poolid="inveterate")
-        logger.debug("Created or verified 'inveterate' pool exists")
     except ResourceException:
         pass
 
-    # If you got no storage you get some storage
     if not service.service_plan.storage:
         service.service_plan.storage = NodeDisk.objects.get(node=service.node, primary=True)
 
-    # Generate machine_id, avoiding collisions with both cluster VMIDs
-    # and machine_ids already assigned to other services (prevents races).
+    # Generate machine_id, avoiding collisions
     if not service.machine_id:
         with transaction.atomic():
             locked_svc = Service.objects.select_for_update().get(pk=service_id)
@@ -236,274 +484,63 @@ def provision_service(service_id, password, ssh_keys=None):
                 locked_svc.machine_id = candidate
                 locked_svc.save(update_fields=["machine_id"])
             service.machine_id = locked_svc.machine_id
+
     try:
         _update_progress(service_id, "assign_ips")
-        logger.debug(f"Assigning IPs for service {service_id}")
         assign_ips(service_id)
-        logger.debug(f"IP assignment completed for service {service_id}")
 
         if service_type == "kvm":
-            _update_progress(service_id, "clone_vm")
-            # Find which node has the template
-            clone_node = node
-            template_vmid = int(service.service_plan.template.file)
-            for resource in proxmox.cluster.resources.get(type="vm"):
-                if resource["vmid"] == template_vmid:
-                    clone_node = proxmox.nodes(resource["node"])
-                    break
-
-            target_storage = service.service_plan.storage.name
-            cross_node = clone_node is not node
-
-            # Cross-node clone requires shared storage as intermediate;
-            # we move the disk to target storage afterwards.
-            clone_storage = target_storage
-            if cross_node:
-                shared_disk = NodeDisk.objects.filter(node=service.node, shared=True).first()
-                if shared_disk:
-                    clone_storage = shared_disk.name
-
-            clone_data = {
-                "newid": service.machine_id,
-                "storage": clone_storage,
-                "full": 1,
-                "target": service.node.name,
-            }
-            try:
-                clone_node.qemu(service.service_plan.template.file).clone.post(**clone_data)
-                # Wait for clone to finish (check both source and target
-                # nodes since the VM may briefly live on the source).
-                locked = True
-                poll_start = time.monotonic()
-                while locked:
-                    if time.monotonic() - poll_start > MAX_POLL_SECONDS:
-                        raise TimeoutError(
-                            f"Clone lock poll timed out after {MAX_POLL_SECONDS}s for service {service_id}"
-                        )
-                    time.sleep(2)
-                    for check_node in (node, clone_node):
-                        try:
-                            status = check_node.qemu(service.machine_id).status.current.get()
-                            if "lock" not in status:
-                                locked = False
-                            break
-                        except ResourceException:
-                            continue
-                # For cross-node clones, wait until the VM actually
-                # appears on the target node (migration after clone).
-                if cross_node:
-                    poll_start = time.monotonic()
-                    while True:
-                        if time.monotonic() - poll_start > MAX_POLL_SECONDS:
-                            raise TimeoutError(
-                                f"Cross-node migration poll timed out after {MAX_POLL_SECONDS}s for service {service_id}"
-                            )
-                        try:
-                            node.qemu(service.machine_id).status.current.get()
-                            break
-                        except ResourceException:
-                            time.sleep(2)
-            except ResourceException as e:
-                if "config file already exists" in str(e):
-                    pass
-                else:
-                    raise
-
-            # Move disks from shared intermediate to target local storage
-            if clone_storage != target_storage:
-                _update_progress(service_id, "move_disks")
-                # Discover which disks need moving (main disk + cloud-init)
-                config = node.qemu(service.machine_id).config.get()
-                disks_to_move = []
-                for key, value in config.items():
-                    if isinstance(value, str) and f"{clone_storage}:" in value:
-                        disks_to_move.append(key)
-
-                for disk in disks_to_move:
-                    # Wait for any lock to clear before starting move
-                    _wait_for_unlock(node, service.machine_id, service_id, "pre-move")
-
-                    logger.info(
-                        "Moving %s from %s to %s for service %s",
-                        disk, clone_storage, target_storage, service_id,
-                    )
-                    upid = node.qemu(service.machine_id).move_disk.post(
-                        disk=disk, storage=target_storage, delete=1,
-                    )
-                    _wait_for_task(node, upid, service_id, f"move-{disk}")
-
-            _update_progress(service_id, "cloud_init")
-            vm_data = {
-                "onboot": 1,
-                "memory": service.service_plan.ram,
-                "vcpus": service.service_plan.cores,
-                "cores": service.service_plan.cores,
-                "balloon": 0,
-                "name": service.hostname,
-                "ciuser": service.username or service.owner.email.split("@")[0],
-                "agent": "1",
-            }
-            if password is not None:
-                vm_data["cipassword"] = password
-
-            # Compose and write cloud-init snippet for KVM VMs.
-            # Always generated to ensure qemu-guest-agent is installed.
-            # When cicustom is set it completely replaces the auto-generated
-            # user-data, so we must include identity fields (user, hostname, password).
-            ci_content = _compose_cloud_init(
-                service.service_plan.apps.all(),
-                ssh_keys=ssh_keys,
-                user=vm_data.get("ciuser"),
-                hostname=service.hostname,
-                password=password,
-                kvm=True,
-            )
-            if ci_content:
-                snippet_name = f"ci-{service.machine_id}.yml"
-                write_snippet(proxmox, service.node.name, snippet_name, ci_content)
-                vm_data["cicustom"] = f"user=local:snippets/{snippet_name}"
-
-        if service_type == "lxc":
+            vm_data = _provision_kvm(service, node, proxmox, password, ssh_keys)
+        else:
             _update_progress(service_id, "configure")
-            vm_data = {
-                "ostemplate": f"local:vztmpl/{service.service_plan.template.file}",
-                "hostname": service.hostname,
-                "storage": service.service_plan.storage.name,
-                "memory": service.service_plan.ram,
-                "swap": service.service_plan.swap,
-                "cores": service.service_plan.cores,
-                "rootfs": f"{service.service_plan.storage.name}:{service.service_plan.size}",
-                "password": password,
-                "unprivileged": "1",
-                "onboot": "1",
-                "start": "1",
-                "searchdomain": service.hostname,
-                "pool": "inveterate",
-            }
+            vm_data = _build_lxc_config(service, password)
 
         _update_progress(service_id, "network")
-        # Build network configuration from assigned IPs
-        for network in service.service_network.all():
-            firewall = 0
-            if network.ip.pool.internal is True:
-                firewall = 1
-            net_data = {
-                "bridge": network.ip.pool.interface,
-                "firewall": firewall,
-            }
-            if network.ip.pool.vlan_tag:
-                net_data["tag"] = network.ip.pool.vlan_tag
-            if service_type == "kvm":
-                net_data["model"] = "virtio"
-                if network.ip.pool.type == "ipv4":
-                    vm_data[f"ipconfig{network.net_id}"] = (
-                        f"ip={network.ip.value}/{network.ip.pool.mask},gw={network.ip.pool.gateway}"
-                    )
-                else:
-                    vm_data[f"ipconfig{network.net_id}"] = (
-                        f"ip6={network.ip.value}/{network.ip.pool.mask},gw6={network.ip.pool.gateway}"
-                    )
-            if service_type == "lxc":
-                net_data["name"] = f"eth{network.net_id}"
-                if network.ip.pool.type == "ipv4":
-                    net_data["ip"] = f"{network.ip.value}/{network.ip.pool.mask}"
-                    net_data["gw"] = f"{network.ip.pool.gateway}"
-                else:
-                    net_data["ip6"] = f"{network.ip.value}/{network.ip.pool.mask}"
-                    net_data["gw6"] = f"{network.ip.pool.gateway}"
-
-            vm_data[f"net{network.net_id}"] = ",".join([f"{key}={value}" for key, value in net_data.items()])
-
-        # Set DNS from the first network's pool
-        first_network = service.service_network.first()
-        if first_network and first_network.ip.pool.dns:
-            vm_data["nameserver"] = first_network.ip.pool.dns
+        _build_network_config(service, service_type, vm_data)
 
         if not service.bw_renewal_dtm:
             service.bw_renewal_dtm = timezone.now() + relativedelta(months=1)
             service.save()
 
         _update_progress(service_id, "configure")
-        machine = None
         if service_type == "kvm":
-            node.qemu(service.machine_id).config.post(**vm_data)
-            lock = True
-            poll_start = time.monotonic()
-            while lock:
-                if time.monotonic() - poll_start > MAX_POLL_SECONDS:
-                    raise TimeoutError(f"Config lock poll timed out after {MAX_POLL_SECONDS}s for service {service_id}")
-                status = node.qemu(service.machine_id).status.current.get()
-                if "lock" not in status:
-                    lock = False
-                else:
-                    time.sleep(1)
-            node.qemu(service.machine_id).resize.put(disk="scsi0", size=f"{service.service_plan.size}G")
-            machine = node.qemu(service.machine_id)
-        if service_type == "lxc":
-            try:
-                node.lxc.create(vmid=service.machine_id, **vm_data)
-            except ResourceException as e:
-                if "already exists" in str(e):
-                    # Existing container -- update config (skip create-only keys)
-                    update_data = {
-                        k: v
-                        for k, v in vm_data.items()
-                        if k not in ("ostemplate", "rootfs", "password", "unprivileged", "storage", "pool", "start")
-                    }
-                    node.lxc(service.machine_id).config.put(**update_data)
-                else:
-                    raise
-            machine = node.lxc(service.machine_id)
+            machine = _apply_kvm_config(node, service, vm_data)
+        else:
+            machine = _create_or_update_lxc(node, service, vm_data)
 
         _update_progress(service_id, "firewall")
-        for network in service.service_network.all():
-            try:
-                cidrs = machine.firewall.ipset(f"ipfilter-net{network.net_id}").get()
-                for cidr in cidrs:
-                    machine.firewall.ipset(f"ipfilter-net{network.net_id}/{cidr['cidr']}").delete()
-                machine.firewall.ipset(f"ipfilter-net{network.net_id}").delete()
-            except ResourceException as e:
-                if "no such IPSet" in str(e):
-                    pass
-                else:
-                    raise
-            machine.firewall.ipset.post(name=f"ipfilter-net{network.net_id}")
-            machine.firewall.ipset(f"ipfilter-net{network.net_id}").post(cidr=f"{network.ip.value}")
-        machine.firewall.options.put(enable=1, ipfilter=1)
-        for rule in machine.firewall.rules.get():
-            if rule["type"] == "group" and rule["action"] == "inveterate":
-                break
-        else:
-            machine.firewall.rules.post(type="group", action="inveterate", enable=1)
+        _setup_firewall(machine, service)
 
         _update_progress(service_id, "finalize")
         try:
             proxmox.pools("inveterate").put(vms=service.machine_id)
         except ResourceException as e:
-            if "already a pool member" in str(e):
-                pass
-            else:
+            if "already a pool member" not in str(e):
                 raise
         logger.info(f"Successfully provisioned service {service_id} with machine_id {service.machine_id}")
     except NodeDisk.DoesNotExist:
         error_msg = f"No primary storage disk configured for node {service.node.name}"
         logger.error(f"Failed to provision service {service_id}: {error_msg}")
         Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
+        _release_service_networking(service_id)
         raise
     except ConnectionError as e:
         error_msg = f"Cannot connect to Proxmox cluster at {service.node.cluster.host}"
         logger.error(f"Failed to provision service {service_id}: {error_msg} - {str(e)}")
         Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
+        _release_service_networking(service_id)
         raise
     except ResourceException as e:
         error_msg = f"Proxmox API error: {str(e)}"
         logger.error(f"Failed to provision service {service_id}: {error_msg}")
         Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
+        _release_service_networking(service_id)
         raise
     except Exception as e:
         error_msg = f"Unexpected error during provisioning: {str(e)}"
         logger.error(f"Failed to provision service {service_id}: {error_msg}", exc_info=True)
         Service.objects.filter(pk=service_id).update(status="error", status_msg=str(e))
+        _release_service_networking(service_id)
         raise
     else:
         Service.objects.filter(pk=service_id).update(status="active", status_msg=None)

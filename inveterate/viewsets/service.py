@@ -205,13 +205,8 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
             return Response({'detail': 'password must be at least 8 characters.'}, status=400)
         if service.service_plan.type != 'kvm':
             return Response({'detail': 'Password reset is only supported for KVM services.'}, status=400)
-        try:
-            reset_vm_password(service.pk, username, password)
-            return Response({'success': True})
-        except ValueError as e:
-            return Response({'detail': str(e)}, status=400)
-        except Exception as e:
-            return Response({'detail': f'Password reset failed: {e}'}, status=502)
+        task = reset_vm_password.delay(service.pk, username, password)
+        return Response({'task_id': task.id}, status=202)
 
     @action(methods=['post'], detail=False, permission_classes=[IsAdminUser])
     def bulk_import(self, request):
