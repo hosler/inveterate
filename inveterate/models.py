@@ -250,6 +250,13 @@ class Service(models.Model):
 
     class Meta:
         ordering = ['-created']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['machine_id', 'node'],
+                condition=models.Q(machine_id__isnull=False),
+                name='unique_machine_id_per_node',
+            ),
+        ]
 
     def delete(self, *args, **kwargs):
         super().delete(*args, **kwargs)

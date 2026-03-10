@@ -287,14 +287,19 @@ def _provision_kvm(service, node, proxmox, password, ssh_keys):
                     f"Clone lock poll timed out after {MAX_POLL_SECONDS}s for service {service_id}"
                 )
             time.sleep(2)
+            found_on_any_node = False
             for check_node in (node, clone_node):
                 try:
                     status = check_node.qemu(service.machine_id).status.current.get()
-                    if "lock" not in status:
-                        locked = False
-                    break
+                    found_on_any_node = True
+                    if "lock" in status:
+                        break  # Still locked, keep polling
                 except ResourceException:
                     continue
+            else:
+                # Loop completed without finding a lock on any reachable node
+                if found_on_any_node:
+                    locked = False
         # For cross-node clones, wait until the VM actually
         # appears on the target node (migration after clone).
         if cross_node:

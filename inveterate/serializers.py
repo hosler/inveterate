@@ -202,6 +202,27 @@ class ServiceSerializer(serializers.ModelSerializer):
         provision_service.delay(instance.id, password)
         return instance
 
+    def validate(self, attrs):
+        plan = attrs.get("plan")
+        template = attrs.get("template")
+        apps = attrs.get("apps", [])
+        if template and plan:
+            # Validate minimum resource requirements for selected apps
+            for app in apps:
+                if app.min_cores and plan.cores < app.min_cores:
+                    raise serializers.ValidationError(
+                        {"apps": f"App '{app.name}' requires at least {app.min_cores} cores."}
+                    )
+                if app.min_ram and plan.ram < app.min_ram:
+                    raise serializers.ValidationError(
+                        {"apps": f"App '{app.name}' requires at least {app.min_ram} MB RAM."}
+                    )
+                if app.min_disk and plan.size < app.min_disk:
+                    raise serializers.ValidationError(
+                        {"apps": f"App '{app.name}' requires at least {app.min_disk} GB disk."}
+                    )
+        return attrs
+
     def create(self, validated_data):
         request = self.context.get('request', None)
         plan = validated_data.pop("plan")
