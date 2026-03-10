@@ -138,6 +138,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     )
     hostname_validator = RegexValidator(hostname_pattern)
     owner = Owner(slug_field='id')
+    service_plan = ServicePlanSerializer(read_only=True)
     plan_name = serializers.ReadOnlyField(source='service_plan.name')
     plan = serializers.PrimaryKeyRelatedField(queryset=models.Plan.objects.all(), write_only=True, required=False)
     template = serializers.SlugRelatedField(slug_field='name', queryset=models.Template.objects.all(), write_only=True)
@@ -237,6 +238,7 @@ class ServiceSerializer(serializers.ModelSerializer):
 
 
 class ServiceSerializerClient(ServiceSerializer):
+    service_plan = ServicePlanSerializerClient(read_only=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

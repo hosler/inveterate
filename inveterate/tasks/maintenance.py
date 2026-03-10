@@ -23,7 +23,7 @@ def calculate_inventory():
     logger.info("Starting inventory calculation")
     plans = Plan.objects.all()
     nodes = Node.objects.all()
-    inventory_fields = ["cores", "ram", "bandwidth"]
+    inventory_fields = ["cores", "ram"]
 
     # Precompute per-node resource usage in a single query
     node_usage = {}
@@ -33,7 +33,6 @@ def calculate_inventory():
         .annotate(
             total_cores=Sum("service_plan__cores"),
             total_ram=Sum("service_plan__ram"),
-            total_bandwidth=Sum("service_plan__bandwidth"),
             total_size=Sum("service_plan__size"),
         )
     ):

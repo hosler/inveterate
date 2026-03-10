@@ -159,15 +159,8 @@ class NodeViewSet(DynamicPageModelViewSet):
 
         for node_data in nodes_data:
             try:
-                cluster_id = node_data.get('cluster_id')
+                cluster_id = node_data.get('cluster_id') or node_data.get('cluster')
                 node_name = node_data.get('name')
-                node_status = node_data.get('status')
-                node_mem = node_data.get('mem')
-                node_maxmem = node_data.get('maxmem')
-                node_cpu = node_data.get('cpu')
-                node_maxcpu = node_data.get('maxcpu')
-                node_disk = node_data.get('disk')
-                node_maxdisk = node_data.get('maxdisk')
 
                 if not cluster_id or not node_name:
                     errors.append(f"Missing cluster_id or name for node: {node_data}")
@@ -184,14 +177,23 @@ class NodeViewSet(DynamicPageModelViewSet):
                     errors.append(f"Node {node_name} already exists in cluster {cluster.name}")
                     continue
 
-                # Create the node with resource information
+                # Accept either raw Proxmox values (maxcpu/maxmem/maxdisk in bytes)
+                # or pre-converted values (cores/ram in MB/size in GB) from the frontend
+                if node_data.get('maxcpu') or node_data.get('maxmem') or node_data.get('maxdisk'):
+                    cores = int(node_data['maxcpu']) if node_data.get('maxcpu') else 0
+                    ram = int(node_data['maxmem'] / (1024**2)) if node_data.get('maxmem') else 0
+                    size = int(node_data['maxdisk'] / (1024**3)) if node_data.get('maxdisk') else 0
+                else:
+                    cores = int(node_data.get('cores', 0))
+                    ram = int(node_data.get('ram', 0))
+                    size = int(node_data.get('size', 0))
+
                 node = models.Node.objects.create(
                     name=node_name,
                     cluster=cluster,
-                    # Convert bytes to GB for storage, MB for RAM
-                    size=int(node_maxdisk / (1024**3)) if node_maxdisk else 0,
-                    ram=int(node_maxmem / (1024**2)) if node_maxmem else 0,
-                    cores=int(node_maxcpu) if node_maxcpu else 0
+                    cores=cores,
+                    ram=ram,
+                    size=size,
                 )
 
                 imported_nodes.append({
