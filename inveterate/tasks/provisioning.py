@@ -4,7 +4,7 @@ import yaml
 from celery import shared_task
 from celery_singleton import Singleton
 from dateutil.relativedelta import relativedelta
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
@@ -190,31 +190,46 @@ def assign_ips(service_id):
     for sn in internal_networks:
         gateways = PortGateway.objects.filter(pools=sn.ip.pool)
         for gw in gateways:
-            with transaction.atomic():
-                # Lock gateway's port blocks to find next available slot
-                existing_starts = set(
-                    PortBlock.objects.select_for_update().filter(gateway=gw).values_list("port_start", flat=True)
-                )
-                port = gw.port_range_start
-                allocated = False
-                while port + gw.block_size - 1 <= gw.port_range_end:
-                    if port not in existing_starts:
-                        PortBlock.objects.create(
-                            gateway=gw,
-                            service_network=sn,
-                            port_start=port,
-                            port_end=port + gw.block_size - 1,
+            allocated = False
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    with transaction.atomic():
+                        # Lock gateway's port blocks to find next available slot
+                        existing_starts = set(
+                            PortBlock.objects.select_for_update().filter(gateway=gw).values_list(
+                                "port_start", flat=True
+                            )
                         )
-                        logger.info(
-                            f"Allocated port block {port}-{port + gw.block_size - 1} on {gw.name} for service {service_id}"
-                        )
-                        allocated = True
+                        port = gw.port_range_start
+                        while port + gw.block_size - 1 <= gw.port_range_end:
+                            if port not in existing_starts:
+                                PortBlock.objects.create(
+                                    gateway=gw,
+                                    service_network=sn,
+                                    port_start=port,
+                                    port_end=port + gw.block_size - 1,
+                                )
+                                logger.info(
+                                    f"Allocated port block {port}-{port + gw.block_size - 1} "
+                                    f"on {gw.name} for service {service_id}"
+                                )
+                                allocated = True
+                                break
+                            port += gw.block_size
+                    if allocated:
                         break
-                    port += gw.block_size
-                if not allocated:
-                    raise RuntimeError(
-                        f"No available port block on gateway {gw.name} for service {service_id}"
-                    )
+                except IntegrityError:
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"Port block allocation conflict on {gw.name} (attempt {attempt + 1}), retrying"
+                        )
+                    else:
+                        raise
+            if not allocated:
+                raise RuntimeError(
+                    f"No available port block on gateway {gw.name} for service {service_id}"
+                )
 
 
 def _update_progress(service_id, step_key):
@@ -479,8 +494,11 @@ def provision_service(service_id, password, ssh_keys=None):
                 candidate = int(f"1{locked_svc.id:06}")
                 existing_vmids = {r["vmid"] for r in proxmox.cluster.resources.get(type="vm")}
                 existing_vmids.update(Service.objects.exclude(machine_id=None).values_list("machine_id", flat=True))
+                max_vmid = 999999999  # Proxmox VMID upper limit
                 while candidate in existing_vmids:
                     candidate += 1
+                    if candidate > max_vmid:
+                        raise RuntimeError("VMID allocation exhausted — no available IDs below %d" % max_vmid)
                 locked_svc.machine_id = candidate
                 locked_svc.save(update_fields=["machine_id"])
             service.machine_id = locked_svc.machine_id

@@ -59,10 +59,10 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
                 'message': 'Authentication failed: Check username and API token'
             }, status=status.HTTP_401_UNAUTHORIZED)
 
-        except Exception as e:
+        except Exception:
             return Response({
                 'success': False,
-                'message': f'Connection test failed: {str(e)}'
+                'message': 'Connection test failed: unexpected error'
             }, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['post'], detail=False)
@@ -112,10 +112,10 @@ class ClusterViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
                 'message': 'Authentication failed: Check username and API token'
             }, status=status.HTTP_401_UNAUTHORIZED)
 
-        except Exception as e:
+        except Exception:
             return Response({
                 'success': False,
-                'message': f'Connection test failed: {str(e)}'
+                'message': 'Connection test failed: unexpected error'
             }, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['get'], detail=True)

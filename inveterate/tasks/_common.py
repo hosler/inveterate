@@ -1,4 +1,6 @@
 import logging
+import re
+import shlex
 import subprocess
 
 logger = logging.getLogger("inveterate.tasks")
@@ -15,6 +17,17 @@ _SSH_OPTS = [
     "-o", "LogLevel=ERROR",
 ]
 
+# Only allow safe characters in snippet filenames (alphanumeric, hyphen, underscore, dot)
+_SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+
+
+def _validate_snippet_filename(filename: str) -> None:
+    """Raise ValueError if filename contains unsafe characters or path traversal."""
+    if not filename or not _SAFE_FILENAME_RE.match(filename):
+        raise ValueError(f"Invalid snippet filename: {filename!r}")
+    if ".." in filename or "/" in filename:
+        raise ValueError(f"Path traversal in snippet filename: {filename!r}")
+
 
 def _get_node_ip(proxmox, node_name):
     """Resolve a Proxmox node name to its cluster IP via the cluster status API."""
@@ -30,9 +43,11 @@ def write_snippet(proxmox, node_name, filename, content):
     The Proxmox upload API does not support the 'snippets' content type,
     so we write the file directly via SSH to the node's local storage.
     """
+    _validate_snippet_filename(filename)
     node_ip = _get_node_ip(proxmox, node_name)
     remote_path = f"{_SNIPPETS_DIR}/{filename}"
-    cmd = ["ssh", *_SSH_OPTS, f"root@{node_ip}", f"cat > {remote_path}"]
+    safe_path = shlex.quote(remote_path)
+    cmd = ["ssh", *_SSH_OPTS, f"root@{node_ip}", f"cat > {safe_path} && chmod 600 {safe_path}"]
     result = subprocess.run(cmd, input=content.encode(), capture_output=True, timeout=30)
     if result.returncode != 0:
         raise RuntimeError(
@@ -44,9 +59,11 @@ def write_snippet(proxmox, node_name, filename, content):
 
 def delete_snippet(proxmox, node_name, filename):
     """Delete a cloud-init snippet from a Proxmox node via SSH."""
+    _validate_snippet_filename(filename)
     node_ip = _get_node_ip(proxmox, node_name)
     remote_path = f"{_SNIPPETS_DIR}/{filename}"
-    cmd = ["ssh", *_SSH_OPTS, f"root@{node_ip}", f"rm -f {remote_path}"]
+    safe_path = shlex.quote(remote_path)
+    cmd = ["ssh", *_SSH_OPTS, f"root@{node_ip}", f"rm -f {safe_path}"]
     result = subprocess.run(cmd, capture_output=True, timeout=30)
     if result.returncode != 0:
         logger.warning(

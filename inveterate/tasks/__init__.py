@@ -21,6 +21,7 @@ from .maintenance import (  # noqa: F401
     cancel_service,
     cleanup_console_users,
     cleanup_orphaned_ips,
+    cleanup_stale_error_services,
     update_service_ssh_keys,
 )
 from .monitoring import (  # noqa: F401
@@ -67,6 +68,7 @@ __all__ = [
     "cancel_service",
     "cleanup_console_users",
     "cleanup_orphaned_ips",
+    "cleanup_stale_error_services",
     "update_service_ssh_keys",
     # monitoring
     "get_cluster_resources",

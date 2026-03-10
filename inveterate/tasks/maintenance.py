@@ -230,6 +230,28 @@ def cleanup_orphaned_ips():
         logger.info("No orphaned IPs found")
 
 
+@shared_task(name="inveterate.tasks.cleanup_stale_error_services", base=Singleton, lock_expiry=60 * 15)
+def cleanup_stale_error_services():
+    """Mark services stuck in 'error' status for over 24 hours as destroyed.
+
+    Error services consume inventory slots indefinitely. This task reclaims
+    capacity by destroying services that failed provisioning and were never
+    retried or resolved.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    cutoff = timezone.now() - timedelta(hours=24)
+    stale = Service.objects.filter(status="error", updated__lt=cutoff)
+    count = stale.count()
+    if count:
+        stale.update(status="destroyed", status_msg="Auto-destroyed: stuck in error state")
+        logger.info("Destroyed %d stale error services (older than 24h)", count)
+    else:
+        logger.info("No stale error services found")
+
+
 @shared_task(name="inveterate.tasks.cleanup_console_users", base=Singleton, lock_expiry=60 * 15)
 def cleanup_console_users():
     """

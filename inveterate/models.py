@@ -174,6 +174,16 @@ class AppProfile(models.Model):
     def __str__(self):
         return self.name
 
+    # Only these cloud-init directives are allowed in app profiles
+    ALLOWED_CLOUD_INIT_KEYS = frozenset({
+        "packages", "runcmd", "write_files", "package_update", "package_upgrade",
+        "apt", "snap", "hostname", "fqdn", "manage_etc_hosts",
+        "ssh_authorized_keys", "users", "groups",
+        "timezone", "locale", "ntp",
+        "swap", "disk_setup", "fs_setup", "mounts",
+        "final_message",
+    })
+
     def clean(self):
         import yaml
         from django.core.exceptions import ValidationError
@@ -185,6 +195,12 @@ class AppProfile(models.Model):
         if fragment is not None and not isinstance(fragment, dict):
             raise ValidationError({"cloud_init": "cloud-init must be a YAML mapping (key: value)."})
         if isinstance(fragment, dict):
+            disallowed = set(fragment.keys()) - self.ALLOWED_CLOUD_INIT_KEYS
+            if disallowed:
+                raise ValidationError({
+                    "cloud_init": f"Disallowed cloud-init directives: {', '.join(sorted(disallowed))}. "
+                    f"Allowed: {', '.join(sorted(self.ALLOWED_CLOUD_INIT_KEYS))}"
+                })
             for key in ('packages', 'runcmd', 'write_files'):
                 if key in fragment and not isinstance(fragment[key], list):
                     raise ValidationError({"cloud_init": f"'{key}' must be a list."})

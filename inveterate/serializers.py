@@ -217,7 +217,11 @@ class ServiceSerializer(serializers.ModelSerializer):
             if "owner" not in validated_data:
                 validated_data["owner"] = request.user
             if "node" not in validated_data:
-                inventory = models.Inventory.objects.filter(plan=plan, quantity__gt=0).first()
+                inventory = (
+                    models.Inventory.objects.select_for_update()
+                    .filter(plan=plan, quantity__gt=0)
+                    .first()
+                )
                 if not inventory:
                     raise serializers.ValidationError({"plan": "No available capacity for this plan."})
                 validated_data["node"] = inventory.node
@@ -365,6 +369,8 @@ class PortForwardSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("external_port must be between 1 and 65535.")
         return value
 
+    MAX_FORWARDS_PER_BLOCK = 50
+
     def validate(self, attrs):
         port_block = attrs.get('port_block') or (self.instance.port_block if self.instance else None)
         external_port = attrs.get('external_port', getattr(self.instance, 'external_port', None))
@@ -373,6 +379,13 @@ class PortForwardSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'external_port': f"Must be within port block range {port_block.port_start}-{port_block.port_end}."
                 })
+        # Limit port forwards per block
+        if port_block and not self.instance:
+            current_count = models.PortForward.objects.filter(port_block=port_block).count()
+            if current_count >= self.MAX_FORWARDS_PER_BLOCK:
+                raise serializers.ValidationError(
+                    f"Maximum of {self.MAX_FORWARDS_PER_BLOCK} port forwards per block reached."
+                )
         return attrs
 
     def create(self, validated_data):
@@ -395,8 +408,17 @@ class PortForwardSerializerClient(PortForwardSerializer):
                 service_network__service__owner=request.user
             )
 
+    def validate_port_block(self, value):
+        request = self.context.get('request')
+        if request and not request.user.is_staff:
+            if value.service_network.service.owner != request.user:
+                raise serializers.ValidationError("You do not own this port block's service.")
+        return value
+
 
 class DomainRouteSerializer(serializers.ModelSerializer):
+    MAX_ROUTES_PER_SERVICE = 20
+
     class Meta:
         model = models.DomainRoute
         fields = '__all__'
@@ -420,6 +442,13 @@ class DomainRouteSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'service': "Service must have an internal IP with a configured port gateway."
                 })
+            # Limit domain routes per service
+            if not self.instance:
+                current_count = models.DomainRoute.objects.filter(service=service).count()
+                if current_count >= self.MAX_ROUTES_PER_SERVICE:
+                    raise serializers.ValidationError(
+                        f"Maximum of {self.MAX_ROUTES_PER_SERVICE} domain routes per service reached."
+                    )
         return attrs
 
     def create(self, validated_data):
@@ -441,3 +470,10 @@ class DomainRouteSerializerClient(DomainRouteSerializer):
             self.fields['service'].queryset = models.Service.objects.filter(
                 owner=request.user
             ).exclude(status='destroyed')
+
+    def validate_service(self, value):
+        request = self.context.get('request')
+        if request and not request.user.is_staff:
+            if value.owner != request.user:
+                raise serializers.ValidationError("You do not own this service.")
+        return value
