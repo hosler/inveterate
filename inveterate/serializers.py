@@ -62,13 +62,17 @@ class ClusterSerializer(serializers.ModelSerializer):
 
 class NodeSerializer(serializers.ModelSerializer):
     __str__ = SerializerMethodField('display_name')
+    host = serializers.SerializerMethodField()
 
     def display_name(self, obj):
         return obj.name
 
+    def get_host(self, obj):
+        return obj.cluster.host if obj.cluster else None
+
     class Meta:
         model = models.Node
-        fields = ('id','name','size','ram','swap','bandwidth','cores', 'cluster','__str__')
+        fields = ('id', 'name', 'host', 'size', 'ram', 'swap', 'bandwidth', 'cores', 'cluster', '__str__')
 
 
 class NodeDiskSerializer(serializers.ModelSerializer):

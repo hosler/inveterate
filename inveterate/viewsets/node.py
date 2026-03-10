@@ -213,6 +213,39 @@ class NodeViewSet(DynamicPageModelViewSet):
             'errors': errors
         }, status=status.HTTP_201_CREATED if imported_nodes else status.HTTP_400_BAD_REQUEST)
 
+    @action(methods=['post'], detail=False)
+    def sync(self, request):
+        """Sync all node specs (cores, RAM, disk) from Proxmox"""
+        nodes = models.Node.objects.filter(cluster__isnull=False)
+        updated = []
+        errors = []
+
+        for node in nodes:
+            try:
+                proxmox = get_proxmox_connection(node.cluster, timeout=10)
+                node_status = proxmox.nodes(node.name).status.get()
+
+                cpu_info = node_status.get("cpuinfo", {})
+                cores = cpu_info.get("cores", 0) * cpu_info.get("sockets", 1)
+                ram = int(node_status.get("memory", {}).get("total", 0) / (1024**2))
+                size = int(node_status.get("rootfs", {}).get("total", 0) / (1024**3))
+
+                node.cores = cores
+                node.ram = ram
+                if size > 0:
+                    node.size = size
+                node.save(update_fields=["cores", "ram", "size"])
+
+                updated.append({"id": node.id, "name": node.name, "cores": cores, "ram": ram, "size": node.size})
+            except Exception as e:
+                errors.append(f"{node.name}: {e}")
+
+        return Response({
+            "success": len(updated) > 0,
+            "updated": updated,
+            "errors": errors,
+        })
+
     @action(methods=['get'], detail=True)
     def vms(self, request, pk=None):
         """Get VMs/LXCs running on this node"""
