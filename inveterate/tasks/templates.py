@@ -54,7 +54,7 @@ def sync_templates():
                         if item.get("content") == "vztmpl"
                     }
                 except ResourceException as e:
-                    logger.error(f"Cannot list storage on {node.name}: {e}")
+                    logger.error("Cannot list storage on %s: %s", node.name, e)
                     errors += 1
                     continue
 
@@ -69,45 +69,45 @@ def sync_templates():
                         available = proxmox.nodes(node.name).aplinfo.get()
                         match = next((t for t in available if t.get("template") == template.file), None)
                         if not match:
-                            logger.warning(f"Template '{template.file}' not found in appliance index for {node.name}")
+                            logger.warning("Template '%s' not found in appliance index for %s", template.file, node.name)
                             errors += 1
                             continue
 
-                        logger.info(f"Downloading '{template.file}' to {node.name}")
+                        logger.info("Downloading '%s' to %s", template.file, node.name)
                         proxmox.nodes(node.name).aplinfo.post(storage="local", template=template.file)
                         downloaded += 1
                     except ResourceException as e:
-                        logger.error(f"Failed to download '{template.file}' to {node.name}: {e}")
+                        logger.error("Failed to download '%s' to %s: %s", template.file, node.name, e)
                         errors += 1
 
         except ConnectionError as e:
-            logger.error(f"Cannot connect to cluster {cluster.name}: {e}")
+            logger.error("Cannot connect to cluster %s: %s", cluster.name, e)
             errors += 1
         except Exception as e:
-            logger.error(f"Error syncing templates on cluster {cluster.name}: {e}", exc_info=True)
+            logger.error("Error syncing templates on cluster %s: %s", cluster.name, e, exc_info=True)
             errors += 1
 
-    logger.info(f"Template sync completed: {downloaded} downloaded, {already_present} already present, {errors} errors")
+    logger.info("Template sync completed: %s downloaded, %s already present, %s errors", downloaded, already_present, errors)
 
 
 @shared_task(name="inveterate.tasks.import_kvm_template", base=Singleton, lock_expiry=60 * 30)
 def import_kvm_template(template_id):
     """Download a cloud image and create a KVM template VM in Proxmox."""
-    logger.info(f"Starting KVM template import for template {template_id}")
+    logger.info("Starting KVM template import for template %s", template_id)
     template = Template.objects.get(pk=template_id)
 
     if template.type != "kvm":
         template.status = "error"
         template.status_msg = "Only KVM templates can be imported"
         template.save()
-        logger.error(f"Template {template_id} is not KVM type")
+        logger.error("Template %s is not KVM type", template_id)
         return
 
     if not template.source_url:
         template.status = "error"
         template.status_msg = "source_url is required for cloud image import"
         template.save()
-        logger.error(f"Template {template_id} has no source_url")
+        logger.error("Template %s has no source_url", template_id)
         return
 
     template.status = "importing"
@@ -124,7 +124,7 @@ def import_kvm_template(template_id):
             template.status = "error"
             template.status_msg = "No nodes available"
             template.save()
-            logger.error(f"No nodes available for template {template_id}")
+            logger.error("No nodes available for template %s", template_id)
             return
         template.node = target_node
         template.save(update_fields=["node"])
@@ -158,12 +158,12 @@ def import_kvm_template(template_id):
         volid = f"{dl_stor}:import/{filename}"
         try:
             node.storage(dl_stor).content.delete(volid)
-            logger.info(f"Removed stale import file {volid}")
+            logger.info("Removed stale import file %s", volid)
         except ResourceException:
             pass
 
         # Download image to node storage
-        logger.info(f"Downloading {filename} to {target_node.name}:{dl_stor}")
+        logger.info("Downloading %s to %s:%s", filename, target_node.name, dl_stor)
         upid = node.storage(dl_stor)("download-url").post(
             content="import",
             filename=filename,
@@ -173,7 +173,7 @@ def import_kvm_template(template_id):
 
         # Reserve VMID
         vmid = proxmox.cluster.nextid.get()
-        logger.info(f"Creating template VM {vmid} on {target_node.name}")
+        logger.info("Creating template VM %s on %s", vmid, target_node.name)
 
         # Create VM with imported disk on primary storage.
         # Sanitise name -- Proxmox requires valid DNS hostname.
@@ -193,39 +193,39 @@ def import_kvm_template(template_id):
         _wait_for_proxmox_task(node, create_upid)
 
         # Convert to template
-        logger.info(f"Converting VM {vmid} to template")
+        logger.info("Converting VM %s to template", vmid)
         node.qemu(vmid).template.post()
 
         template.file = str(vmid)
         template.status = "ready"
         template.status_msg = ""
         template.save()
-        logger.info(f"KVM template {template_id} imported successfully as VMID {vmid}")
+        logger.info("KVM template %s imported successfully as VMID %s", template_id, vmid)
 
     except NodeDisk.DoesNotExist:
         error_msg = f"No primary storage disk configured for node {target_node.name}"
-        logger.error(f"Failed to import template {template_id}: {error_msg}")
+        logger.error("Failed to import template %s: %s", template_id, error_msg)
         template.status = "error"
         template.status_msg = error_msg
         template.save()
         raise
     except ConnectionError as e:
         error_msg = f"Cannot connect to Proxmox cluster at {cluster.host}"
-        logger.error(f"Failed to import template {template_id}: {error_msg} - {str(e)}")
+        logger.error("Failed to import template %s: %s - %s", template_id, error_msg, e)
         template.status = "error"
         template.status_msg = error_msg
         template.save()
         raise
     except ResourceException as e:
         error_msg = f"Proxmox API error: {str(e)}"
-        logger.error(f"Failed to import template {template_id}: {error_msg}")
+        logger.error("Failed to import template %s: %s", template_id, error_msg)
         template.status = "error"
         template.status_msg = error_msg
         template.save()
         raise
     except Exception as e:
         error_msg = f"Unexpected error during import: {str(e)}"
-        logger.error(f"Failed to import template {template_id}: {error_msg}", exc_info=True)
+        logger.error("Failed to import template %s: %s", template_id, error_msg, exc_info=True)
         template.status = "error"
         template.status_msg = str(e)
         template.save()
@@ -253,7 +253,7 @@ def sync_kvm_templates():
 
         # Retry pending/error templates
         if template.status in ("pending", "error"):
-            logger.info(f"Retrying import for template {template.id} ({template.name})")
+            logger.info("Retrying import for template %s (%s)", template.id, template.name)
             import_kvm_template.delay(template.id)
             reimported += 1
             continue
@@ -267,7 +267,8 @@ def sync_kvm_templates():
                 found = any(r["vmid"] == vmid for r in proxmox.cluster.resources.get(type="vm"))
                 if not found:
                     logger.warning(
-                        f"Template VM {vmid} missing for template {template.id} ({template.name}), re-importing"
+                        "Template VM %s missing for template %s (%s), re-importing",
+                        vmid, template.id, template.name,
                     )
                     template.file = ""
                     template.status = "pending"
@@ -276,10 +277,10 @@ def sync_kvm_templates():
                     import_kvm_template.delay(template.id)
                     reimported += 1
             except ConnectionError as e:
-                logger.error(f"Cannot connect to verify template {template.id}: {e}")
+                logger.error("Cannot connect to verify template %s: %s", template.id, e)
                 errors += 1
             except Exception as e:
-                logger.error(f"Error checking template {template.id}: {e}", exc_info=True)
+                logger.error("Error checking template %s: %s", template.id, e, exc_info=True)
                 errors += 1
 
-    logger.info(f"KVM template sync completed: {checked} checked, {reimported} re-imported, {errors} errors")
+    logger.info("KVM template sync completed: %s checked, %s re-imported, %s errors", checked, reimported, errors)

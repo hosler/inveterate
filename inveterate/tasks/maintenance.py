@@ -96,7 +96,7 @@ def calculate_inventory():
             inventory, created = Inventory.objects.get_or_create(plan=plan, node=node)
             inventory.quantity = lowest if lowest is not None else 0
             inventory.save()
-            logger.debug(f"Node {node.name}, Plan {plan.name}: {inventory.quantity} slots available")
+            logger.debug("Node %s, Plan %s: %s slots available", node.name, plan.name, inventory.quantity)
 
     # Cluster-level bandwidth cap
     for cluster in Cluster.objects.all():
@@ -122,7 +122,7 @@ def calculate_inventory():
                     if inv.quantity > bw_slots:
                         inv.quantity = bw_slots
                         inv.save()
-                        logger.debug(f"Node {node.name}, Plan {plan.name}: capped to {bw_slots} by cluster bandwidth")
+                        logger.debug("Node %s, Plan %s: capped to %s by cluster bandwidth", node.name, plan.name, bw_slots)
                 except Inventory.DoesNotExist:
                     pass
 
@@ -139,7 +139,7 @@ def calculate_inventory():
     max_retries=3,
 )
 def cancel_service(service_id):
-    logger.info(f"Cancelling service {service_id}")
+    logger.info("Cancelling service %s", service_id)
     # Import via the package so that tests can patch ``inveterate.tasks.delete_npm_*``
     import inveterate.tasks as _tasks
 
@@ -147,6 +147,11 @@ def cancel_service(service_id):
 
     delete_npm_stream = _tasks.delete_npm_stream
     delete_npm_proxy_host = _tasks.delete_npm_proxy_host
+
+    service = Service.objects.get(pk=service_id)
+    if service.status == "destroyed":
+        logger.warning("Service %s is already destroyed, skipping cancellation", service_id)
+        return
 
     machine, service = get_vm(service_id)
     if service.service_plan.type == "lxc":
@@ -174,7 +179,7 @@ def cancel_service(service_id):
         machine.delete()
 
     # Clean up cloud-init snippet if one was written
-    if service.service_plan and service.service_plan.type == "kvm" and service.machine_id:
+    if service.service_plan and service.service_plan.type == "kvm" and service.machine_id and service.node:
         try:
             proxmox = get_proxmox_connection(service.node.cluster)
             delete_snippet(proxmox, service.node.name, f"ci-{service.machine_id}.yml")
@@ -225,7 +230,7 @@ def cleanup_orphaned_ips():
     count = orphaned.count()
     if count:
         orphaned.delete()
-        logger.info(f"Cleaned up {count} orphaned ServiceNetwork records")
+        logger.info("Cleaned up %s orphaned ServiceNetwork records", count)
     else:
         logger.info("No orphaned IPs found")
 
@@ -284,7 +289,7 @@ def cleanup_console_users():
                 if service_id is not None:
                     if service_id not in active_service_ids:
                         proxmox.access.users(userid).delete()
-                        logger.info(f"Deleted orphaned console user: {userid}")
+                        logger.info("Deleted orphaned console user: %s", userid)
                         cleaned_up += 1
                     continue
 
@@ -293,70 +298,81 @@ def cleanup_console_users():
                 if owner_id is not None:
                     if owner_id not in active_owner_ids:
                         proxmox.access.users(userid).delete()
-                        logger.info(f"Deleted legacy console user: {userid}")
+                        logger.info("Deleted legacy console user: %s", userid)
                         cleaned_up += 1
 
         except ConnectionError as e:
-            logger.error(f"Cannot connect to cluster {cluster.name}: {str(e)}")
+            logger.error("Cannot connect to cluster %s: %s", cluster.name, e)
             errors += 1
         except ResourceException as e:
-            logger.error(f"Proxmox API error on cluster {cluster.name}: {str(e)}")
+            logger.error("Proxmox API error on cluster %s: %s", cluster.name, e)
             errors += 1
         except Exception as e:
-            logger.error(f"Failed to cleanup console users on cluster {cluster.name}: {str(e)}", exc_info=True)
+            logger.error("Failed to cleanup console users on cluster %s: %s", cluster.name, e, exc_info=True)
             errors += 1
 
-    logger.info(f"Console user cleanup completed: {cleaned_up} users removed, {errors} clusters with errors")
+    logger.info("Console user cleanup completed: %s users removed, %s clusters with errors", cleaned_up, errors)
 
 
-@shared_task(name="inveterate.tasks.update_service_ssh_keys")
+@shared_task(
+    name="inveterate.tasks.update_service_ssh_keys",
+    autoretry_for=(ConnectionError,),
+    retry_backoff=5,
+    retry_backoff_max=60,
+    max_retries=3,
+)
 def update_service_ssh_keys(service_id, ssh_keys):
     """Update SSH authorized keys on a KVM service via cloud-init snippet."""
     import urllib.parse
 
     from .provisioning import _SSH_KEY_PREFIXES, _compose_cloud_init
 
-    logger.info(f"Updating SSH keys for service {service_id}")
+    logger.info("Updating SSH keys for service %s", service_id)
     service = Service.objects.get(pk=service_id)
 
     if service.service_plan.type != "kvm":
-        logger.warning(f"SSH key update not supported for LXC service {service_id}")
+        logger.warning("SSH key update not supported for LXC service %s", service_id)
         return
 
     valid_keys = [k for k in ssh_keys if any(k.startswith(p) for p in _SSH_KEY_PREFIXES)]
     if not valid_keys:
-        logger.warning(f"No valid SSH keys provided for service {service_id}")
+        logger.warning("No valid SSH keys provided for service %s", service_id)
         return
 
-    proxmox = get_proxmox_connection(service.node.cluster)
-    node = proxmox.nodes(service.node)
-    machine = node.qemu(service.machine_id)
+    try:
+        proxmox = get_proxmox_connection(service.node.cluster)
+        node = proxmox.nodes(service.node)
+        machine = node.qemu(service.machine_id)
 
-    # Set SSH keys in VM config (used when cicustom is not set)
-    encoded_keys = urllib.parse.quote("\n".join(valid_keys), safe="")
-    machine.config.post(sshkeys=encoded_keys)
-    logger.info(f"Set {len(valid_keys)} SSH key(s) in VM config for service {service_id}")
+        # Set SSH keys in VM config (used when cicustom is not set)
+        encoded_keys = urllib.parse.quote("\n".join(valid_keys), safe="")
+        machine.config.post(sshkeys=encoded_keys)
+        logger.info("Set %s SSH key(s) in VM config for service %s", len(valid_keys), service_id)
 
-    # Regenerate cloud-init snippet with app profiles + SSH keys.
-    # When cicustom is set it replaces auto-generated user-data entirely,
-    # so we must include the user directive for keys to apply correctly.
-    ciuser = service.owner.email.split("@")[0]
-    snippet_name = f"ci-{service.machine_id}.yml"
-    ci_content = _compose_cloud_init(
-        service.service_plan.apps.all(),
-        ssh_keys=valid_keys,
-        user=ciuser,
-        hostname=service.hostname,
-        kvm=True,
-    )
-    if ci_content:
-        write_snippet(proxmox, service.node.name, snippet_name, ci_content)
-        machine.config.post(cicustom=f"user=local:snippets/{snippet_name}")
-    logger.info(f"Updated cloud-init snippet for service {service_id}")
+        # Regenerate cloud-init snippet with app profiles + SSH keys.
+        # When cicustom is set it replaces auto-generated user-data entirely,
+        # so we must include the user directive for keys to apply correctly.
+        ciuser = service.owner.email.split("@")[0]
+        snippet_name = f"ci-{service.machine_id}.yml"
+        ci_content = _compose_cloud_init(
+            service.service_plan.apps.all(),
+            ssh_keys=valid_keys,
+            user=ciuser,
+            hostname=service.hostname,
+            kvm=True,
+        )
+        if ci_content:
+            write_snippet(proxmox, service.node.name, snippet_name, ci_content)
+            machine.config.post(cicustom=f"user=local:snippets/{snippet_name}")
+        logger.info("Updated cloud-init snippet for service %s", service_id)
 
-    # Regenerate cloud-init drive and reboot to apply
-    machine.cloudinit.put()
-    logger.info(f"Regenerated cloud-init drive for service {service_id}")
+        # Regenerate cloud-init drive and reboot to apply
+        machine.cloudinit.put()
+        logger.info("Regenerated cloud-init drive for service %s", service_id)
 
-    machine.status.reboot.post()
-    logger.info(f"Rebooted service {service_id} to apply SSH key changes")
+        logger.warning("Rebooting service %s to apply SSH key changes", service_id)
+        machine.status.reboot.post()
+        logger.info("Rebooted service %s to apply SSH key changes", service_id)
+    except Exception as e:
+        Service.objects.filter(pk=service_id).update(status_msg=f"SSH key update failed: {e}")
+        raise

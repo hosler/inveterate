@@ -161,7 +161,7 @@ def get_cluster_resources(pk=None, query_type="node"):
     max_retries=3,
 )
 def suspend_service(service_id):
-    logger.info(f"Suspending service {service_id}")
+    logger.info("Suspending service %s", service_id)
     machine, service = get_vm(service_id)
     machine.status.suspend.post(todisk=1)
     service.status = "suspended"
@@ -178,7 +178,7 @@ def suspend_service(service_id):
     max_retries=3,
 )
 def reinstate_service(service_id):
-    logger.info(f"Reinstating service {service_id}")
+    logger.info("Reinstating service %s", service_id)
     machine, service = get_vm(service_id)
     machine.status.start.post()
     service.status = "active"
@@ -202,7 +202,7 @@ def meter_bandwidth():
         try:
             # Skip if no bandwidth tracking
             if not service.bw_renewal_dtm:
-                logger.debug(f"Service {service.id} has no bandwidth tracking, skipping")
+                logger.debug("Service %s has no bandwidth tracking, skipping", service.id)
                 continue
 
             node_name = service.node.name
@@ -215,7 +215,7 @@ def meter_bandwidth():
                 service.bw_renewal_dtm = now + relativedelta(months=1)
                 service.bw_stale += service.bw_usage
                 service.bw_banked = 0
-                logger.info(f"Renewed bandwidth for service {service.id}")
+                logger.info("Renewed bandwidth for service %s", service.id)
 
             # Get VM stats
             if service.service_plan.type == "lxc":
@@ -223,7 +223,7 @@ def meter_bandwidth():
             elif service.service_plan.type == "kvm":
                 machine = node.qemu(service.machine_id)
             else:
-                logger.warning(f"Unknown service type {service.service_plan.type} for service {service.id}")
+                logger.warning("Unknown service type %s for service %s", service.service_plan.type, service.id)
                 continue
 
             data = machine.status.current.get()
@@ -233,7 +233,7 @@ def meter_bandwidth():
                 try:
                     service.bw_usage = data["netin"] + data["netout"]
                 except KeyError as e:
-                    logger.warning(f"Missing network data for service {service.id}: {e}")
+                    logger.warning("Missing network data for service %s: %s", service.id, e)
             elif tick < service.bw_system_tick:
                 # VM was restarted
                 banked = service.bw_usage - service.bw_stale
@@ -243,17 +243,17 @@ def meter_bandwidth():
                 try:
                     service.bw_usage = data["netin"] + data["netout"]
                 except KeyError as e:
-                    logger.warning(f"Missing network data for service {service.id}: {e}")
+                    logger.warning("Missing network data for service %s: %s", service.id, e)
 
             service.bw_system_tick = tick
             services_to_update.append(service)
             services_processed += 1
 
         except ResourceException as e:
-            logger.error(f"Proxmox API error for service {service.id}: {str(e)}")
+            logger.error("Proxmox API error for service %s: %s", service.id, e)
             services_failed += 1
         except Exception as e:
-            logger.error(f"Failed to meter bandwidth for service {service.id}: {str(e)}", exc_info=True)
+            logger.error("Failed to meter bandwidth for service %s: %s", service.id, e, exc_info=True)
             services_failed += 1
 
     # Bulk update all service bandwidth records
@@ -262,7 +262,8 @@ def meter_bandwidth():
             services_to_update, ["bw_usage", "bw_stale", "bw_banked", "bw_system_tick", "bw_renewal_dtm"]
         )
         logger.info(
-            f"Bandwidth metering completed: {services_processed} services processed, {services_failed} failed, {len(services_to_update)} updated"
+            "Bandwidth metering completed: %s services processed, %s failed, %s updated",
+            services_processed, services_failed, len(services_to_update),
         )
     else:
         logger.info("No bandwidth data to update")

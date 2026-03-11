@@ -15,7 +15,7 @@ def _get_npm_client(gateway):
 @shared_task(name="inveterate.tasks.sync_port_forward", base=Singleton, lock_expiry=60 * 15)
 def sync_port_forward(port_forward_id):
     """Create or update the NPM stream for a PortForward record."""
-    logger.info(f"Syncing port forward {port_forward_id} to NPM")
+    logger.info("Syncing port forward %s to NPM", port_forward_id)
     pf = PortForward.objects.select_related("port_block__gateway", "port_block__service_network__ip").get(
         pk=port_forward_id
     )
@@ -35,7 +35,7 @@ def sync_port_forward(port_forward_id):
                 tcp_forwarding=tcp,
                 udp_forwarding=udp,
             )
-            logger.info(f"Updated NPM stream {pf.npm_stream_id} for port forward {pf.id}")
+            logger.info("Updated NPM stream %s for port forward %s", pf.npm_stream_id, pf.id)
         else:
             result = client.create_stream(
                 incoming_port=pf.external_port,
@@ -46,16 +46,16 @@ def sync_port_forward(port_forward_id):
             )
             pf.npm_stream_id = result["id"]
             pf.save(update_fields=["npm_stream_id"])
-            logger.info(f"Created NPM stream {pf.npm_stream_id} for port forward {pf.id}")
+            logger.info("Created NPM stream %s for port forward %s", pf.npm_stream_id, pf.id)
     except Exception as e:
-        logger.error(f"Failed to sync port forward {pf.id} to NPM: {e}")
+        logger.error("Failed to sync port forward %s to NPM: %s", pf.id, e)
         raise
 
 
 @shared_task(name="inveterate.tasks.sync_domain_route", base=Singleton, lock_expiry=60 * 15)
 def sync_domain_route(domain_route_id):
     """Create or update the NPM proxy host for a DomainRoute record."""
-    logger.info(f"Syncing domain route {domain_route_id} to NPM")
+    logger.info("Syncing domain route %s to NPM", domain_route_id)
     dr = DomainRoute.objects.select_related("service").get(pk=domain_route_id)
 
     # Find the internal IP and gateway for this service
@@ -66,7 +66,7 @@ def sync_domain_route(domain_route_id):
     )
 
     if not internal_sn or not hasattr(internal_sn, "port_block"):
-        logger.error(f"No internal IP with port block for domain route {dr.id}")
+        logger.error("No internal IP with port block for domain route %s", dr.id)
         return
 
     client = _get_npm_client(internal_sn.port_block.gateway)
@@ -81,7 +81,7 @@ def sync_domain_route(domain_route_id):
                 forward_port=dr.forward_port,
                 ssl_forced=dr.force_ssl,
             )
-            logger.info(f"Updated NPM proxy host {dr.npm_proxy_host_id} for domain route {dr.id}")
+            logger.info("Updated NPM proxy host %s for domain route %s", dr.npm_proxy_host_id, dr.id)
         else:
             result = client.create_proxy_host(
                 domain=dr.domain,
@@ -92,49 +92,49 @@ def sync_domain_route(domain_route_id):
             )
             dr.npm_proxy_host_id = result["id"]
             dr.save(update_fields=["npm_proxy_host_id"])
-            logger.info(f"Created NPM proxy host {dr.npm_proxy_host_id} for domain route {dr.id}")
+            logger.info("Created NPM proxy host %s for domain route %s", dr.npm_proxy_host_id, dr.id)
     except Exception as e:
-        logger.error(f"Failed to sync domain route {dr.id} to NPM: {e}")
+        logger.error("Failed to sync domain route %s to NPM: %s", dr.id, e)
         raise
 
 
 @shared_task(name="inveterate.tasks.delete_npm_stream", base=Singleton, lock_expiry=60 * 15)
 def delete_npm_stream(gateway_id, npm_stream_id):
     """Fire-and-forget cleanup of an NPM stream."""
-    logger.info(f"Deleting NPM stream {npm_stream_id} on gateway {gateway_id}")
+    logger.info("Deleting NPM stream %s on gateway %s", npm_stream_id, gateway_id)
     try:
         gw = PortGateway.objects.get(pk=gateway_id)
         client = _get_npm_client(gw)
         client.delete_stream(npm_stream_id)
-        logger.info(f"Deleted NPM stream {npm_stream_id}")
+        logger.info("Deleted NPM stream %s", npm_stream_id)
     except PortGateway.DoesNotExist:
-        logger.warning(f"Gateway {gateway_id} not found, cannot delete stream {npm_stream_id}")
+        logger.warning("Gateway %s not found, cannot delete stream %s", gateway_id, npm_stream_id)
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 404:
-            logger.info(f"NPM stream {npm_stream_id} already deleted (404)")
+            logger.info("NPM stream %s already deleted (404)", npm_stream_id)
         else:
-            logger.error(f"HTTP error deleting NPM stream {npm_stream_id}: {e}")
+            logger.error("HTTP error deleting NPM stream %s: %s", npm_stream_id, e)
             raise
     except Exception as e:
-        logger.error(f"Failed to delete NPM stream {npm_stream_id}: {e}")
+        logger.error("Failed to delete NPM stream %s: %s", npm_stream_id, e)
 
 
 @shared_task(name="inveterate.tasks.delete_npm_proxy_host", base=Singleton, lock_expiry=60 * 15)
 def delete_npm_proxy_host(gateway_id, npm_proxy_host_id):
     """Fire-and-forget cleanup of an NPM proxy host."""
-    logger.info(f"Deleting NPM proxy host {npm_proxy_host_id} on gateway {gateway_id}")
+    logger.info("Deleting NPM proxy host %s on gateway %s", npm_proxy_host_id, gateway_id)
     try:
         gw = PortGateway.objects.get(pk=gateway_id)
         client = _get_npm_client(gw)
         client.delete_proxy_host(npm_proxy_host_id)
-        logger.info(f"Deleted NPM proxy host {npm_proxy_host_id}")
+        logger.info("Deleted NPM proxy host %s", npm_proxy_host_id)
     except PortGateway.DoesNotExist:
-        logger.warning(f"Gateway {gateway_id} not found, cannot delete proxy host {npm_proxy_host_id}")
+        logger.warning("Gateway %s not found, cannot delete proxy host %s", gateway_id, npm_proxy_host_id)
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 404:
-            logger.info(f"NPM proxy host {npm_proxy_host_id} already deleted (404)")
+            logger.info("NPM proxy host %s already deleted (404)", npm_proxy_host_id)
         else:
-            logger.error(f"HTTP error deleting NPM proxy host {npm_proxy_host_id}: {e}")
+            logger.error("HTTP error deleting NPM proxy host %s: %s", npm_proxy_host_id, e)
             raise
     except Exception as e:
-        logger.error(f"Failed to delete NPM proxy host {npm_proxy_host_id}: {e}")
+        logger.error("Failed to delete NPM proxy host %s: %s", npm_proxy_host_id, e)

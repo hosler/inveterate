@@ -12,7 +12,7 @@ from requests.exceptions import ConnectionError
 from ..models import IP, IPPool, NodeDisk, PortBlock, PortGateway, Service, ServiceNetwork
 from ..provisioning_steps import progress_msg
 from ..proxmox import get_proxmox_connection
-from ._common import MAX_POLL_SECONDS, logger, write_snippet
+from ._common import MAX_POLL_SECONDS, delete_snippet, logger, write_snippet
 
 
 def _release_service_networking(service_id):
@@ -128,7 +128,7 @@ def _compose_cloud_init(apps, ssh_keys=None, user=None, hostname=None, password=
 
 @shared_task(name="inveterate.tasks.assign_ips", base=Singleton, lock_expiry=60 * 15)
 def assign_ips(service_id):
-    logger.info(f"Assigning IPs for service {service_id}")
+    logger.info("Assigning IPs for service %s", service_id)
     service = Service.objects.get(pk=service_id)
     service_plan = service.service_plan
     internal_ips = service_plan.internal_ips
@@ -468,9 +468,27 @@ def _setup_firewall(machine, service):
         machine.firewall.rules.post(type="group", action="inveterate", enable=1)
 
 
-@shared_task(name="inveterate.tasks.provision_service", base=Singleton, lock_expiry=60 * 15)
+def _cleanup_snippet_on_failure(proxmox, service):
+    """Best-effort cleanup of cloud-init snippet after a failed provisioning attempt."""
+    if service.machine_id:
+        try:
+            snippet_name = f"ci-{service.machine_id}.yml"
+            delete_snippet(proxmox, service.node.name, snippet_name)
+        except Exception:
+            logger.warning("Failed to clean up snippet for service %s", service.id)
+
+
+@shared_task(
+    name="inveterate.tasks.provision_service",
+    base=Singleton,
+    lock_expiry=60 * 15,
+    autoretry_for=(ConnectionError,),
+    retry_backoff=10,
+    retry_backoff_max=120,
+    max_retries=3,
+)
 def provision_service(service_id, password, ssh_keys=None):
-    logger.info(f"Starting provisioning for service {service_id}")
+    logger.info("Starting provisioning for service %s", service_id)
     service = Service.objects.get(pk=service_id)
 
     # Idempotency guard: skip if destroyed
@@ -478,7 +496,7 @@ def provision_service(service_id, password, ssh_keys=None):
         logger.warning("Service %s is destroyed, skipping provisioning", service_id)
         return
 
-    logger.info(f"Provisioning {service.service_plan.type} service '{service.hostname}' on node {service.node.name}")
+    logger.info("Provisioning %s service '%s' on node %s", service.service_plan.type, service.hostname, service.node.name)
 
     proxmox = get_proxmox_connection(service.node.cluster, timeout=600)
     node = proxmox.nodes(service.node)
@@ -540,34 +558,38 @@ def provision_service(service_id, password, ssh_keys=None):
         except ResourceException as e:
             if "already a pool member" not in str(e):
                 raise
-        logger.info(f"Successfully provisioned service {service_id} with machine_id {service.machine_id}")
+        logger.info("Successfully provisioned service %s with machine_id %s", service_id, service.machine_id)
     except NodeDisk.DoesNotExist:
         error_msg = f"No primary storage disk configured for node {service.node.name}"
-        logger.error(f"Failed to provision service {service_id}: {error_msg}")
+        logger.error("Failed to provision service %s: %s", service_id, error_msg)
         Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
         _release_service_networking(service_id)
+        _cleanup_snippet_on_failure(proxmox, service)
         raise
     except ConnectionError as e:
         error_msg = f"Cannot connect to Proxmox cluster at {service.node.cluster.host}"
-        logger.error(f"Failed to provision service {service_id}: {error_msg} - {str(e)}")
+        logger.error("Failed to provision service %s: %s - %s", service_id, error_msg, e)
         Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
         _release_service_networking(service_id)
+        _cleanup_snippet_on_failure(proxmox, service)
         raise
     except ResourceException as e:
         error_msg = f"Proxmox API error: {str(e)}"
-        logger.error(f"Failed to provision service {service_id}: {error_msg}")
+        logger.error("Failed to provision service %s: %s", service_id, error_msg)
         Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
         _release_service_networking(service_id)
+        _cleanup_snippet_on_failure(proxmox, service)
         raise
     except Exception as e:
         error_msg = f"Unexpected error during provisioning: {str(e)}"
-        logger.error(f"Failed to provision service {service_id}: {error_msg}", exc_info=True)
+        logger.error("Failed to provision service %s: %s", service_id, error_msg, exc_info=True)
         Service.objects.filter(pk=service_id).update(status="error", status_msg=str(e))
         _release_service_networking(service_id)
+        _cleanup_snippet_on_failure(proxmox, service)
         raise
     else:
         Service.objects.filter(pk=service_id).update(status="active", status_msg=None)
-        logger.info(f"Service {service_id} status updated to active")
+        logger.info("Service %s status updated to active", service_id)
 
     # Import via the package so that tests can patch ``inveterate.tasks.calculate_inventory``
     import inveterate.tasks as _tasks

@@ -65,7 +65,7 @@ def reset_vm_password(service_id, username, password):
     max_retries=3,
 )
 def start_vm(service_id):
-    logger.info(f"Starting VM for service {service_id}")
+    logger.info("Starting VM for service %s", service_id)
     machine, service = get_vm(service_id)
     machine.status.start.post()
 
@@ -80,7 +80,7 @@ def start_vm(service_id):
     max_retries=3,
 )
 def stop_vm(service_id):
-    logger.info(f"Stopping VM for service {service_id}")
+    logger.info("Stopping VM for service %s", service_id)
     machine, service = get_vm(service_id)
     machine.status.stop.post()
 
@@ -95,7 +95,7 @@ def stop_vm(service_id):
     max_retries=3,
 )
 def reset_vm(service_id):
-    logger.info(f"Resetting VM for service {service_id}")
+    logger.info("Resetting VM for service %s", service_id)
     machine, service = get_vm(service_id)
     machine.status.reset.post()
 
@@ -110,7 +110,7 @@ def reset_vm(service_id):
     max_retries=3,
 )
 def shutdown_vm(service_id):
-    logger.info(f"Shutting down VM for service {service_id}")
+    logger.info("Shutting down VM for service %s", service_id)
     machine, service = get_vm(service_id)
     machine.status.shutdown.post()
 
@@ -125,6 +125,6 @@ def shutdown_vm(service_id):
     max_retries=3,
 )
 def reboot_vm(service_id):
-    logger.info(f"Rebooting VM for service {service_id}")
+    logger.info("Rebooting VM for service %s", service_id)
     machine, service = get_vm(service_id)
     machine.status.reboot.post()
