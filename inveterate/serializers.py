@@ -241,7 +241,9 @@ class ServiceSerializer(serializers.ModelSerializer):
 
             if "owner" not in validated_data:
                 validated_data["owner"] = request.user
-            if "node" not in validated_data:
+            # node may be present-but-None (the admin serializer lists it as a
+            # writable field), so select from inventory whenever it's unset.
+            if not validated_data.get("node"):
                 inventory = (
                     models.Inventory.objects.select_for_update()
                     .filter(plan=plan, quantity__gt=0)
