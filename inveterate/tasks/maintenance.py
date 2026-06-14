@@ -1,5 +1,6 @@
 from celery import shared_task
 from celery_singleton import Singleton
+from django.conf import settings
 from django.db.models import Sum
 from proxmoxer.core import ResourceException
 from requests.exceptions import ConnectionError
@@ -23,6 +24,13 @@ def calculate_inventory():
     logger.info("Starting inventory calculation")
     plans = Plan.objects.all()
     nodes = Node.objects.all()
+    # Optional allowlist (e.g. dev limits provisioning to Ceph-capable nodes).
+    # Default unset = all nodes, so prod behaviour is unchanged.
+    allowed_nodes = getattr(settings, "INVETERATE_INVENTORY_NODES", None)
+    if allowed_nodes:
+        nodes = nodes.filter(name__in=allowed_nodes)
+        # Zero out excluded nodes so node selection never lands on them.
+        Inventory.objects.exclude(node__name__in=allowed_nodes).update(quantity=0)
     inventory_fields = ["cores", "ram"]
 
     # Precompute per-node resource usage in a single query

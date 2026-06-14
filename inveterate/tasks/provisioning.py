@@ -4,6 +4,7 @@ import yaml
 from celery import shared_task
 from celery_singleton import Singleton
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from proxmoxer.core import ResourceException
@@ -514,7 +515,10 @@ def provision_service(service_id, password, ssh_keys=None):
         with transaction.atomic():
             locked_svc = Service.objects.select_for_update().get(pk=service_id)
             if not locked_svc.machine_id:
-                candidate = int(f"1{locked_svc.id:06}")
+                # VMID = <prefix><zero-padded id>. Prefix is configurable so dev
+                # environments (prefix "9") never share VMID space with prod ("1").
+                vmid_prefix = getattr(settings, "INVETERATE_VMID_PREFIX", "1")
+                candidate = int(f"{vmid_prefix}{locked_svc.id:06}")
                 existing_vmids = {r["vmid"] for r in proxmox.cluster.resources.get(type="vm")}
                 existing_vmids.update(Service.objects.exclude(machine_id=None).values_list("machine_id", flat=True))
                 max_vmid = 999999999  # Proxmox VMID upper limit
