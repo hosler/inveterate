@@ -1,0 +1,10 @@
+{
+  "group": "inveterate",
+  "comment": "EXAMPLE customer-VM firewall rules. Copy to firewall_rules.json and edit for your own network — sync_firewall prefers firewall_rules.json and falls back to this example. Order matters: specific ACCEPT rules must precede blanket DROP rules. Addresses below use the RFC 5737 documentation ranges; replace them.",
+  "rules": [
+    {"type": "out", "action": "ACCEPT", "dest": "192.0.2.1", "comment": "example: upstream gateway / firewall", "enable": 1},
+    {"type": "in",  "action": "ACCEPT", "source": "198.51.100.10", "comment": "example: management host", "enable": 1},
+    {"type": "out", "action": "DROP",   "dest": "10.0.0.0/8", "comment": "no access to other internal VMs", "enable": 1},
+    {"type": "out", "action": "DROP",   "dest": "192.168.0.0/16", "comment": "no access to the management network", "enable": 1}
+  ]
+}

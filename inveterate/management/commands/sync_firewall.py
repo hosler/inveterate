@@ -9,7 +9,11 @@ from inveterate.proxmox import get_proxmox_connection
 
 
 class Command(BaseCommand):
-    help = "Sync the 'inveterate' firewall group to all Proxmox clusters from fixtures/firewall_rules.json."
+    help = (
+        "Sync the 'inveterate' firewall group to all Proxmox clusters. Reads "
+        "fixtures/firewall_rules.json (your own, gitignored) and falls back to "
+        "fixtures/firewall_rules.example.json."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -20,11 +24,16 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
-        fixture = Path(__file__).resolve().parent.parent.parent / "fixtures" / "firewall_rules.json"
+        fixtures_dir = Path(__file__).resolve().parent.parent.parent / "fixtures"
+        fixture = fixtures_dir / "firewall_rules.json"
+        if not fixture.exists():
+            fixture = fixtures_dir / "firewall_rules.example.json"
 
         if not fixture.exists():
-            self.stderr.write(f"Fixture not found: {fixture}")
+            self.stderr.write(f"No firewall rules found in {fixtures_dir}")
             return
+
+        self.stdout.write(f"Using rules from {fixture.name}")
 
         data = json.loads(fixture.read_text())
         group_name = data["group"]
