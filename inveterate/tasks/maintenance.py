@@ -162,29 +162,41 @@ def cancel_service(service_id):
         return
 
     machine, service = get_vm(service_id)
-    if service.service_plan.type == "lxc":
-        machine.delete(force=1)
-    else:
-        # KVM delete doesn't support force — stop the VM first if running
-        try:
-            status = machine.status.current.get()
-            if status.get("status") == "running":
-                machine.status.stop.post()
-                import time
 
-                from ._common import MAX_POLL_SECONDS
+    # The VM may already be gone (e.g. deleted manually in Proxmox). Treat a
+    # missing VM as already-deleted and fall through to the DB-side teardown so
+    # the service isn't stranded in the database with its IPs still allocated.
+    vm_exists = True
+    try:
+        machine.status.current.get()
+    except ResourceException:
+        vm_exists = False
+        logger.warning("VM for service %s not found on Proxmox; skipping VM delete", service_id)
 
-                poll_start = time.monotonic()
-                while True:
-                    if time.monotonic() - poll_start > MAX_POLL_SECONDS:
-                        raise TimeoutError(f"Stop timed out for service {service_id}")
-                    s = machine.status.current.get()
-                    if s.get("status") == "stopped":
-                        break
-                    time.sleep(2)
-        except ResourceException:
-            pass
-        machine.delete()
+    if vm_exists:
+        if service.service_plan.type == "lxc":
+            machine.delete(force=1)
+        else:
+            # KVM delete doesn't support force — stop the VM first if running
+            try:
+                status = machine.status.current.get()
+                if status.get("status") == "running":
+                    machine.status.stop.post()
+                    import time
+
+                    from ._common import MAX_POLL_SECONDS
+
+                    poll_start = time.monotonic()
+                    while True:
+                        if time.monotonic() - poll_start > MAX_POLL_SECONDS:
+                            raise TimeoutError(f"Stop timed out for service {service_id}")
+                        s = machine.status.current.get()
+                        if s.get("status") == "stopped":
+                            break
+                        time.sleep(2)
+            except ResourceException:
+                pass
+            machine.delete()
 
     # Clean up cloud-init snippet if one was written
     if service.service_plan and service.service_plan.type == "kvm" and service.machine_id and service.node:

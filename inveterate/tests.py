@@ -1408,6 +1408,44 @@ class TestCancelServiceIPRelease(TestCase):
         self.assertIsNone(ip1.owner)
         self.assertIsNone(ip2.owner)
 
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_cancel_service_when_vm_already_deleted(self, mock_cls):
+        """A VM deleted manually in Proxmox must not strand the service: cancel
+        skips the (impossible) VM delete and still tears down the DB record."""
+        from proxmoxer.core import ResourceException
+
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+        # The VM is gone: status lookups raise as Proxmox does for a missing VMID.
+        machine = mock_node.qemu.return_value
+        machine.status.current.get.side_effect = ResourceException(500, 'fail', 'no such VM')
+
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool = _ip_pool(node)
+        ip1 = IP.objects.create(pool=pool, value='10.0.0.10')
+
+        tpl = _template(type='kvm', file='100')
+        sp = _service_plan(template=tpl, storage=disk, type='kvm')
+        svc = _service(user, node, sp, machine_id=1000001)
+        sn1 = ServiceNetwork.objects.create(service=svc)
+        ip1.owner = sn1
+        ip1.save()
+
+        from .tasks import cancel_service
+        cancel_service(svc.id)
+
+        machine.delete.assert_not_called()
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'destroyed')
+        self.assertEqual(ServiceNetwork.objects.filter(service=svc).count(), 0)
+        ip1.refresh_from_db()
+        self.assertIsNone(ip1.owner)
+
 
 # ===================================================================
 # TestCleanupOrphanedIPs
