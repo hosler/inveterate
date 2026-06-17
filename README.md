@@ -1,105 +1,98 @@
 # Inveterate
 
-A Django application for VPS hosting providers, providing a REST API for managing Proxmox virtual machines and containers.
+[![PyPI](https://img.shields.io/pypi/v/django-inveterate.svg)](https://pypi.org/project/django-inveterate/)
+[![Python](https://img.shields.io/pypi/pyversions/django-inveterate.svg)](https://pypi.org/project/django-inveterate/)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE.txt)
 
-## Features
+**An open-source Proxmox provisioning engine for VPS & game-server hosts.**
+Inveterate is a Django app that turns a Proxmox cluster into a REST API: spin up
+KVM/LXC instances from cloud-init, hand customers a browser console, meter their
+bandwidth, and manage IPs and NAT port-forwarding — all in ~15 seconds per deploy.
 
-- **VM/LXC Provisioning** — Automated provisioning with cloud-init, cross-node cloning, and resource management
-- **App Profiles** — Pre-configured cloud-init templates (e.g., Docker, Nginx) selectable at provisioning time
-- **Networking** — IP pool management, NAT port forwarding via Nginx Proxy Manager, domain routing with SSL
-- **Console Access** — Browser-based terminal via WebSocket proxy to Proxmox VNC
-- **Inventory Management** — Automatic capacity calculation per plan/node (CPU, RAM, disk, IPs, bandwidth)
-- **Bandwidth Metering** — Per-service usage tracking with monthly renewal and overage suspension
-- **SSH Key Management** — Deploy and update SSH keys on running KVM services via cloud-init
-- **Multi-Cluster Support** — Manage multiple Proxmox clusters from a single installation
+![Inveterate API](docs/img/swagger.png)
 
-## Built With
+## Try it in 60 seconds
 
-- [Django](https://www.djangoproject.com/) + [Django REST Framework](https://www.django-rest-framework.org/)
-- [Celery](https://docs.celeryproject.org/) with [celery-singleton](https://github.com/steinitzu/celery-singleton)
-- [proxmoxer](https://github.com/proxmoxer/proxmoxer) for Proxmox VE API interaction
-- PostgreSQL + Redis
+No Proxmox required to look around — `docker compose up` boots the full stack
+(Postgres + Redis + Django + Celery) and seeds a demo catalog of plans, OS
+templates, and app profiles:
 
-## Getting Started
-
-### Prerequisites
-
-- Python 3.12+
-- PostgreSQL 14+
-- Redis 6+
-
-### Installation
-
-1. **Clone the repository**
 ```bash
 git clone https://github.com/hosler/inveterate.git
 cd inveterate
-```
-
-2. **Install dependencies**
-```bash
-pip install -r requirements.txt
-```
-
-3. **Configure environment variables**
-```bash
 cp .env.example .env
+docker compose up -d --build
 ```
 
-Required environment variables:
-```bash
-SECRET_KEY=your-secret-key-here
-DB_NAME=inveterate
-DB_USER=postgres
-DB_PASSWORD=your-password
-DB_HOST=localhost
-REDIS_HOST=localhost
-```
+Then open:
 
-4. **Setup database**
-```bash
-python manage.py migrate
-python manage.py createcachetable
-python manage.py createsuperuser
-```
+| URL | What |
+|-----|------|
+| <http://localhost:8000/api/v1/docs/> | Swagger UI — every endpoint, try-it-out |
+| <http://localhost:8000/api/v1/plans/> | Browsable API with the seeded catalog |
+| <http://localhost:8000/admin/> | Django admin — log in with `admin` / `admin` |
 
-5. **Run development server**
-```bash
-# Terminal 1: Django dev server
-python manage.py runserver
+![Browsable API](docs/img/browsable-api.png)
 
-# Terminal 2: Celery worker
-celery -A config worker -l INFO
+To actually provision VMs, point it at a Proxmox cluster (see
+[Connecting Proxmox](#connecting-proxmox) below).
 
-# Terminal 3: Celery beat (for scheduled tasks)
-celery -A config beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
-```
+## Features
 
-### As a Reusable Django App
+- **VM/LXC Provisioning** — automated cloud-init provisioning, cross-node cloning, resource management
+- **App Profiles** — pre-configured cloud-init templates (Docker, Nginx, …) selectable at deploy time
+- **Browser Console** — terminal in the browser via a WebSocket proxy to Proxmox VNC
+- **Networking** — IP pool management, NAT port-forwarding via Nginx Proxy Manager, domain routing with SSL
+- **Inventory** — automatic capacity calculation per plan/node (CPU, RAM, disk, IPs, bandwidth)
+- **Bandwidth Metering** — per-service usage tracking with monthly renewal and overage suspension
+- **SSH Keys** — deploy and update keys on running KVM services via cloud-init
+- **Multi-Cluster** — manage multiple Proxmox clusters from one installation
 
-Inveterate is designed to be installed as an editable dependency in a host Django project:
+## Connecting Proxmox
+
+Set the Proxmox variables in `.env`, then create the cluster record:
 
 ```bash
-pip install -e /path/to/inveterate
+# .env
+PROXMOX_HOST=pve.example.com
+PROXMOX_USER=root@pam
+PROXMOX_KEY=your-api-token-value
+
+docker compose exec web python manage.py init_cluster
 ```
 
-Add to `INSTALLED_APPS` and include the URL configuration:
+From there, add nodes, IP pools, and templates via the admin or API, then `POST
+/api/v1/services/` to provision. See the Swagger docs for the full surface.
+
+## Use as a Django app
+
+Inveterate is packaged as `django-inveterate` and can be embedded in an existing
+Django project instead of run standalone:
+
+```bash
+pip install django-inveterate
+```
+
 ```python
 # settings.py
 INSTALLED_APPS = [
     ...
-    'inveterate',
+    "inveterate",
 ]
 
 # urls.py
 urlpatterns = [
-    path('api/v1/', include('inveterate.urls')),
+    path("api/v1/", include("inveterate.urls")),
 ]
 ```
 
-## API Endpoints
+It requires Postgres, Redis, and a Celery worker. The optional extras pull in
+what each surface needs: `django-inveterate[docs]` (Swagger), `[cors]`,
+`[websocket]` (browser console), or `[all]`.
 
-### Public (anonymous access)
+## API Reference
+
+### Public (anonymous)
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/plans/` | GET | List available plans |
@@ -112,52 +105,46 @@ urlpatterns = [
 |----------|--------|-------------|
 | `/services/` | GET/POST | List or create services |
 | `/services/{id}/` | GET | Service detail |
-| `/services/{id}/start/` | POST | Start VM |
-| `/services/{id}/shutdown/` | POST | Graceful shutdown |
-| `/services/{id}/stop/` | POST | Force stop |
-| `/services/{id}/reboot/` | POST | Reboot |
-| `/services/{id}/cancel/` | POST | Destroy service |
+| `/services/{id}/{start,shutdown,stop,reboot,cancel}/` | POST | Power / lifecycle actions |
 | `/services/{id}/status/` | POST | Live VM status |
-| `/services/{id}/ips/` | GET | List assigned IPs |
 | `/services/{id}/console/` | GET | Console credentials |
 | `/services/{id}/ssh_keys/` | POST | Update SSH keys |
-| `/portblocks/` | GET | Port blocks for a service |
-| `/portforwards/` | GET/POST/DELETE | CRUD port forward rules |
+| `/portforwards/` | GET/POST/DELETE | CRUD NAT port-forward rules |
 | `/domainroutes/` | GET/POST/DELETE | CRUD domain routes |
 | `/tasks/{task_id}/` | GET | Poll async task status |
 
 ### Admin
-Full CRUD on all resources: clusters, nodes, node disks, IP pools, IPs, services, plans, templates, app profiles.
+Full CRUD on clusters, nodes, node disks, IP pools, IPs, services, plans,
+templates, and app profiles. Full interactive reference at `/api/v1/docs/`.
 
 ## Scheduled Tasks
 
-Configure these periodic tasks via `django-celery-beat`:
+Configure these periodic tasks via `django-celery-beat` (the `beat` service in
+the compose file runs the scheduler):
 
 | Task | Interval | Description |
 |------|----------|-------------|
-| `inveterate.tasks.meter_bandwidth` | 5-15 min | Track VM bandwidth usage |
+| `inveterate.tasks.meter_bandwidth` | 5–15 min | Track VM bandwidth usage |
 | `inveterate.tasks.calculate_inventory` | 1 hour | Update available capacity |
 | `inveterate.tasks.cleanup_console_users` | Daily | Remove orphaned Proxmox console users |
 | `inveterate.tasks.cleanup_orphaned_ips` | Daily | Release IPs from destroyed services |
 
-## Production Deployment
+## Production
 
-Use Gunicorn + Supervisor behind a reverse proxy:
+The included `Dockerfile` runs Gunicorn (gevent worker) by default. Run the web,
+`celery`, and `beat` services behind a reverse proxy, set a real `SECRET_KEY`,
+a generated `FIELD_ENCRYPTION_KEY`, and `DJANGO_SETTINGS_MODULE=config.settings.production`.
 
-```bash
-gunicorn -k gevent -b 127.0.0.1:8000 --worker-connections=1000 --timeout 60 --workers 4 config.wsgi:application
-celery -A config worker -l INFO --concurrency=4
-celery -A config beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
-```
+## Built With
 
-See the included `supervisord.conf` example or use systemd units.
-
-## Testing
-
-```bash
-python manage.py test inveterate
-```
+[Django](https://www.djangoproject.com/) + [Django REST Framework](https://www.django-rest-framework.org/) ·
+[Celery](https://docs.celeryq.dev/) ·
+[proxmoxer](https://github.com/proxmoxer/proxmoxer) · PostgreSQL · Redis
 
 ## License
 
-Distributed under the LGPLv3 License. See `LICENSE.txt` for more information.
+Inveterate is licensed under the **GNU AGPLv3** (see [`LICENSE.txt`](LICENSE.txt)).
+You can self-host it freely, including to run your own hosting business, as long
+as you comply with the AGPL's network-source-disclosure terms. A separate
+**commercial license** is available for proprietary / closed-source use — see
+[`COMMERCIAL.md`](COMMERCIAL.md).
