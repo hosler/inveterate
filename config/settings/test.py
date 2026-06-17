@@ -4,6 +4,9 @@ Uses SQLite in-memory, eager Celery, silenced logging.
 """
 from .base import *  # noqa: F401,F403
 
+# Fixed throwaway key so EncryptedCharField works without external config.
+FIELD_ENCRYPTION_KEY = "eu6XmlmFpkmCXOQvMTLVHVwbNcTh6Zaez3SZW1p9chc="
+
 # SQLite in-memory database
 DATABASES = {
     'default': {

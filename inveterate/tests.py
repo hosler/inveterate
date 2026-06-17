@@ -499,17 +499,35 @@ class TestProvisionService(TestCase):
         svc.refresh_from_db()
         self.assertEqual(svc.status, 'error')
 
+    @patch('inveterate.tasks.provisioning.time.sleep')
+    @patch('inveterate.tasks._common.subprocess.run')
     @patch('inveterate.tasks.calculate_inventory')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    def test_kvm_provisioning_calls_clone(self, mock_cls, _mock_inv):
+    def test_kvm_provisioning_calls_clone(self, mock_cls, _mock_inv, mock_run, _mock_sleep):
+        from proxmoxer.core import ResourceException
         mock_proxmox = MagicMock()
         mock_cls.return_value = mock_proxmox
         mock_node = MagicMock()
         mock_proxmox.nodes.return_value = mock_node
+        # Node IP resolution (for the SSH cloud-init snippet write)
+        mock_proxmox.cluster.status.get.return_value = [
+            {'type': 'node', 'name': 'pve1', 'ip': '192.0.2.10'}
+        ]
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'', stderr=b'')
         # Template pool lookup
         mock_proxmox.pools.return_value.get.return_value = {'members': []}
-        # clone + status polling
-        mock_node.qemu.return_value.status.current.get.return_value = {'status': 'stopped'}
+        # First status check is the "does the VM already exist?" guard — it must
+        # report absent so the clone runs; subsequent checks are the post-clone
+        # lock poll, which must report an unlocked VM so the loop exits.
+        _checks = {'n': 0}
+
+        def _status(*_a, **_k):
+            _checks['n'] += 1
+            if _checks['n'] == 1:
+                raise ResourceException(500, 'not found', 'no such VM')
+            return {'status': 'stopped'}
+
+        mock_node.qemu.return_value.status.current.get.side_effect = _status
         mock_node.qemu.return_value.firewall.rules.get.return_value = []
         mock_node.qemu.return_value.firewall.ipset.return_value.get.return_value = []
 
@@ -586,8 +604,9 @@ class TestProvisionServiceIdempotency(TestCase):
         svc.refresh_from_db()
         self.assertEqual(svc.status, 'active')
 
+    @patch('inveterate.tasks.calculate_inventory')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    def test_error_service_with_machine_id_skips(self, mock_cls):
+    def test_error_service_with_machine_id_skips(self, mock_cls, _mock_inv):
         """Service with status 'error' and existing machine_id should not re-provision
         (it would fail in setup anyway — tests the guard doesn't let it through)."""
         svc = self._setup_service(status='error')
