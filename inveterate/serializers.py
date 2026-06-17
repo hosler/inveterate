@@ -315,21 +315,22 @@ class TemplateSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('status', 'status_msg')
 
-
-class TemplateSerializerClient(serializers.ModelSerializer):
-    class Meta:
-        model = models.Template
-        fields = ('id', 'name', 'type', 'status', 'created')
-        read_only_fields = fields
-
     def create(self, validated_data):
         template = super().create(validated_data)
+        # Creating a KVM template from a cloud image URL kicks off an async import.
         if template.type == 'kvm' and template.source_url:
             template.status = 'pending'
             template.save(update_fields=['status'])
             from .tasks import import_kvm_template
             import_kvm_template.delay(template.id)
         return template
+
+
+class TemplateSerializerClient(serializers.ModelSerializer):
+    class Meta:
+        model = models.Template
+        fields = ('id', 'name', 'type', 'status', 'created')
+        read_only_fields = fields
 
 
 # ===================================================================
