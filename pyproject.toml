@@ -7,7 +7,8 @@ name = "django-inveterate"
 version = "1.0.0"
 description = "Django app for VPS hosting — manage Proxmox VMs and containers via REST API."
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE.txt"]
 requires-python = ">=3.11"
 authors = [
     { name = "hosler" },
@@ -18,7 +19,7 @@ classifiers = [
     "Framework :: Django",
     "Framework :: Django :: 5.2",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -61,6 +62,7 @@ all = [
 [project.urls]
 Homepage = "https://github.com/hosler/inveterate"
 Repository = "https://github.com/hosler/inveterate"
+Issues = "https://github.com/hosler/inveterate/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["inveterate"]
@@ -68,6 +70,6 @@ packages = ["inveterate"]
 [tool.hatch.build.targets.sdist]
 include = [
     "inveterate/",
-    "LICENSE",
+    "LICENSE.txt",
     "README.md",
 ]

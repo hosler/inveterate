@@ -1,19 +1,6 @@
 services:
-  traefik:
-    image: traefik:v3.3
-    command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --entrypoints.web.address=:80
-    ports:
-      - "80:80"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-
   db:
     image: postgres:16-alpine
-    ports:
-      - "5432:5432"
     environment:
       POSTGRES_DB: inveterate
       POSTGRES_USER: postgres
@@ -28,8 +15,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -38,39 +23,41 @@ services:
 
   web:
     build: .
-    command: python manage.py runserver 0.0.0.0:8000
+    # Migrate, create the demo admin + catalog, then serve. Idempotent on restart.
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py createsuperuser --noinput || true &&
+             python manage.py seed_demo &&
+             python manage.py runserver 0.0.0.0:8000"
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.dev
       DB_HOST: db
       REDIS_HOST: redis
-    dns: 192.168.1.1
+      # Demo-only Fernet key for encrypted fields. GENERATE YOUR OWN for anything real:
+      #   python -c "import os,base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+      FIELD_ENCRYPTION_KEY: S-lfkqFhHwZGIaAZYFeEJ1mB0d2Qs516_QaP31VAqBU=
+      # Demo admin (override for anything real)
+      DJANGO_SUPERUSER_USERNAME: admin
+      DJANGO_SUPERUSER_EMAIL: admin@example.com
+      DJANGO_SUPERUSER_PASSWORD: admin
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.web.rule=Host(`inveterate.hosnet.internal`)
-      - traefik.http.routers.web.entrypoints=web
-      - traefik.http.services.web.loadbalancer.server.port=8000
 
   celery:
     build: .
     command: celery -A config worker -l INFO
-    volumes:
-      - .:/app
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.dev
       DB_HOST: db
       REDIS_HOST: redis
-    dns: 192.168.1.1
+      FIELD_ENCRYPTION_KEY: S-lfkqFhHwZGIaAZYFeEJ1mB0d2Qs516_QaP31VAqBU=
     depends_on:
       db:
         condition: service_healthy
@@ -80,14 +67,12 @@ services:
   beat:
     build: .
     command: celery -A config beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
-    volumes:
-      - .:/app
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.dev
       DB_HOST: db
       REDIS_HOST: redis
-    dns: 192.168.1.1
+      FIELD_ENCRYPTION_KEY: S-lfkqFhHwZGIaAZYFeEJ1mB0d2Qs516_QaP31VAqBU=
     depends_on:
       db:
         condition: service_healthy
@@ -97,8 +82,6 @@ services:
   test:
     build: .
     command: python manage.py test inveterate
-    volumes:
-      - .:/app
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.test
     profiles:
