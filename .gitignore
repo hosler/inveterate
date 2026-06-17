@@ -19,6 +19,9 @@ env/
 *.swo
 *~
 
+# Site-specific firewall rules (use firewall_rules.example.json as a template)
+inveterate/fixtures/firewall_rules.json
+
 # Django
 *.log
 db.sqlite3

@@ -1,6 +1,8 @@
 """
 Development settings for Inveterate project.
 """
+import os
+
 from .base import *
 
 # Override for development
@@ -8,10 +10,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
-# Cookie domain for console access — lets PVEAuthCookie reach Proxmox
-# on sibling subdomains (e.g., taban.hosnet.internal).
-SESSION_COOKIE_DOMAIN = '.hosnet.internal'
-CSRF_COOKIE_DOMAIN = '.hosnet.internal'
+# Cookie domain. Leave unset for localhost (the default). If your console and
+# Proxmox live on sibling subdomains, set COOKIE_DOMAIN (e.g. ".example.com")
+# so the PVEAuthCookie can reach Proxmox.
+SESSION_COOKIE_DOMAIN = os.environ.get('COOKIE_DOMAIN') or None
+CSRF_COOKIE_DOMAIN = os.environ.get('COOKIE_DOMAIN') or None
 
 # Development-specific apps (optional, only if installed)
 try:
