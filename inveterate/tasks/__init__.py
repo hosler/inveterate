@@ -5,6 +5,7 @@ All public functions and tasks are re-exported here so that existing imports
 like ``from inveterate.tasks import provision_service`` continue to work.
 """
 
+from ..provisioning_steps import PROVISIONING_STEPS  # noqa: F401
 from .control import (  # noqa: F401
     get_cluster,
     get_service_node,
@@ -45,7 +46,7 @@ from .provisioning import (  # noqa: F401
     assign_ips,
     provision_service,
 )
-from ..provisioning_steps import PROVISIONING_STEPS  # noqa: F401
+from .resize import resize_service  # noqa: F401
 from .templates import (  # noqa: F401
     import_kvm_template,
     sync_kvm_templates,
@@ -88,6 +89,7 @@ __all__ = [
     "_compose_cloud_init",
     "assign_ips",
     "provision_service",
+    "resize_service",
     "PROVISIONING_STEPS",
     # templates
     "import_kvm_template",
