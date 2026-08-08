@@ -6,10 +6,49 @@ from ..models import DomainRoute, PortForward, PortGateway, ServiceNetwork
 from ._common import logger
 
 
+class NPMTransientError(Exception):
+    """Wraps a 5xx response from NPM itself.
+
+    Kept distinct from a generic ``requests.exceptions.HTTPError`` so that
+    ``autoretry_for`` can target "this is probably transient, try again"
+    failures (connection errors, timeouts, NPM 5xx) without also retrying a
+    genuine permanent rejection (e.g. a 4xx).
+    """
+
+
+# Exception types worth an automatic retry: the network/NPM hiccupped, not a
+# permanent rejection. A 404 on delete is handled separately as success (the
+# resource is already gone), never raised.
+_NPM_RETRYABLE_EXCEPTIONS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    NPMTransientError,
+)
+
+
 def _get_npm_client(gateway):
     from ..npm import NPMClient
 
     return NPMClient(gateway.host, gateway.admin_email, gateway.admin_password)
+
+
+def _raise_unless_already_gone(e, resource_desc):
+    """Classify an ``HTTPError`` from an NPM delete call.
+
+    * 404            -> resource is already gone; treated as success (returns).
+    * 5xx            -> likely transient; re-raised as ``NPMTransientError`` so
+                        ``autoretry_for`` retries it.
+    * anything else  -> permanent failure; re-raised as-is (no retry).
+    """
+    status = e.response.status_code if e.response is not None else None
+    if status == 404:
+        logger.info("%s already deleted (404)", resource_desc)
+        return
+    if status is not None and status >= 500:
+        logger.error("NPM returned a server error deleting %s: %s", resource_desc, e)
+        raise NPMTransientError(str(e)) from e
+    logger.error("HTTP error deleting %s: %s", resource_desc, e)
+    raise
 
 
 @shared_task(name="inveterate.tasks.sync_port_forward", base=Singleton, lock_expiry=60 * 15)
@@ -98,43 +137,65 @@ def sync_domain_route(domain_route_id):
         raise
 
 
-@shared_task(name="inveterate.tasks.delete_npm_stream", base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    name="inveterate.tasks.delete_npm_stream",
+    base=Singleton,
+    lock_expiry=60 * 15,
+    autoretry_for=_NPM_RETRYABLE_EXCEPTIONS,
+    retry_backoff=5,
+    retry_backoff_max=300,
+    max_retries=5,
+)
 def delete_npm_stream(gateway_id, npm_stream_id):
-    """Fire-and-forget cleanup of an NPM stream."""
+    """Cleanup of an NPM stream.
+
+    Transient failures (connection errors, timeouts, NPM 5xx) are retried
+    automatically via ``autoretry_for``. A 404 means the stream is already
+    gone and is treated as success. Any other failure propagates so this
+    task is marked failed instead of silently "succeeding" -- callers (e.g.
+    ``cancel_service``) rely on that to know when it's actually safe to
+    release the IP the stream was pointing at.
+    """
     logger.info("Deleting NPM stream %s on gateway %s", npm_stream_id, gateway_id)
     try:
         gw = PortGateway.objects.get(pk=gateway_id)
-        client = _get_npm_client(gw)
-        client.delete_stream(npm_stream_id)
-        logger.info("Deleted NPM stream %s", npm_stream_id)
     except PortGateway.DoesNotExist:
         logger.warning("Gateway %s not found, cannot delete stream %s", gateway_id, npm_stream_id)
+        return
+
+    client = _get_npm_client(gw)
+    try:
+        client.delete_stream(npm_stream_id)
+        logger.info("Deleted NPM stream %s", npm_stream_id)
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404:
-            logger.info("NPM stream %s already deleted (404)", npm_stream_id)
-        else:
-            logger.error("HTTP error deleting NPM stream %s: %s", npm_stream_id, e)
-            raise
-    except Exception as e:
-        logger.error("Failed to delete NPM stream %s: %s", npm_stream_id, e)
+        _raise_unless_already_gone(e, f"NPM stream {npm_stream_id}")
 
 
-@shared_task(name="inveterate.tasks.delete_npm_proxy_host", base=Singleton, lock_expiry=60 * 15)
+@shared_task(
+    name="inveterate.tasks.delete_npm_proxy_host",
+    base=Singleton,
+    lock_expiry=60 * 15,
+    autoretry_for=_NPM_RETRYABLE_EXCEPTIONS,
+    retry_backoff=5,
+    retry_backoff_max=300,
+    max_retries=5,
+)
 def delete_npm_proxy_host(gateway_id, npm_proxy_host_id):
-    """Fire-and-forget cleanup of an NPM proxy host."""
+    """Cleanup of an NPM proxy host.
+
+    Same success/retry/failure semantics as ``delete_npm_stream`` -- see its
+    docstring.
+    """
     logger.info("Deleting NPM proxy host %s on gateway %s", npm_proxy_host_id, gateway_id)
     try:
         gw = PortGateway.objects.get(pk=gateway_id)
-        client = _get_npm_client(gw)
-        client.delete_proxy_host(npm_proxy_host_id)
-        logger.info("Deleted NPM proxy host %s", npm_proxy_host_id)
     except PortGateway.DoesNotExist:
         logger.warning("Gateway %s not found, cannot delete proxy host %s", gateway_id, npm_proxy_host_id)
+        return
+
+    client = _get_npm_client(gw)
+    try:
+        client.delete_proxy_host(npm_proxy_host_id)
+        logger.info("Deleted NPM proxy host %s", npm_proxy_host_id)
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404:
-            logger.info("NPM proxy host %s already deleted (404)", npm_proxy_host_id)
-        else:
-            logger.error("HTTP error deleting NPM proxy host %s: %s", npm_proxy_host_id, e)
-            raise
-    except Exception as e:
-        logger.error("Failed to delete NPM proxy host %s: %s", npm_proxy_host_id, e)
+        _raise_unless_already_gone(e, f"NPM proxy host {npm_proxy_host_id}")

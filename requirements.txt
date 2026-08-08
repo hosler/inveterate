@@ -1,6 +1,9 @@
 # Editable install with all optional dependencies
 -e .[all]
 
+# DNS resolution for domain-ownership TXT-challenge verification
+dnspython>=2.8
+
 # Dev / deployment dependencies (not part of the app package)
 psycopg[binary]>=3.2
 gunicorn>=23.0

@@ -20,10 +20,12 @@ Inveterate is a standalone Django application (`django-inveterate`) for VPS host
 Tasks are split into modules under a package:
 - `_common.py` — Shared logger, constants, SSH-based snippet helpers (`write_snippet`, `delete_snippet`)
 - `control.py` — Power operations: start, stop, reboot, reset, shutdown
+- `domain_verify.py` — `verify_domain_route` DNS TXT ownership verification
 - `maintenance.py` — `calculate_inventory`, `cancel_service`, `cleanup_console_users`, `cleanup_orphaned_ips`, `update_service_ssh_keys`
 - `monitoring.py` — `get_vm_status`, `meter_bandwidth`, `suspend_service`, `reinstate_service`
 - `npm.py` — Nginx Proxy Manager integration: `sync_port_forward`, `sync_domain_route`, `delete_npm_stream`, `delete_npm_proxy_host`
 - `provisioning.py` — `assign_ips`, `provision_service`, `_compose_cloud_init`, `_wait_for_task`, `_wait_for_unlock`
+- `resize.py` — `resize_service` plan change executor (stop, apply CPU/RAM/disk, update snapshot, restart; disk shrink refused)
 - `templates.py` — `import_kvm_template`, `sync_kvm_templates`, `sync_templates`
 - `__init__.py` — Re-exports all public symbols for backward compatibility
 
@@ -43,8 +45,9 @@ All Celery tasks use `@shared_task(base=Singleton, lock_expiry=60 * 15)` via `ce
 - **ServiceNetwork**: Network interface for a service (has one IP, links to Service)
 - **PortBlock**: Allocated port range on a `PortGateway` for a service's internal IP
 - **PortForward**: Single forward rule within a port block
-- **DomainRoute**: Domain-to-service mapping with NPM proxy host integration
+- **DomainRoute**: Domain-to-service mapping with NPM proxy host integration and `verification_status` (`pending`, `verified`, `failed`)
 - **Inventory**: Calculated available capacity per plan on each node
+- **DispatchedTask**: Celery task ID-to-owner mapping used to protect task-status lookups
 
 **Console Proxy** (`inveterate/consumers.py`, `inveterate/views.py`)
 - WebSocket consumer bridges browser ↔ Proxmox VNC WebSocket
@@ -54,6 +57,17 @@ All Celery tasks use `@shared_task(base=Singleton, lock_expiry=60 * 15)` via `ce
 **NPM Integration** (`inveterate/npm.py`)
 - Manages Nginx Proxy Manager streams (port forwards) and proxy hosts (domain routes)
 - Async task-based sync for eventual consistency
+
+**Domain Route Verification** (`inveterate/domain_verification.py`, `inveterate/tasks/domain_verify.py`)
+- Uses an account-specific DNS TXT challenge at `_inveterate-verify.<domain>`
+- Routes remain unsynced to NPM until `verification_status == "verified"`; a successful check enqueues `sync_domain_route`
+- Owners can retry with `POST /api/v1/domainroutes/{id}/verify/`
+
+**Task Concurrency and Ownership** (`inveterate/task_ownership.py`)
+- `Service.operation_in_progress` serializes mutating provision, resize, power, and cancel operations
+- Dispatch mutating service tasks through `ServiceViewSet._guarded_dispatch`: it atomically claims the flag, returns 409 if busy, releases it on dispatch failure, and records task ownership
+- Every guarded task must clear `operation_in_progress` in `finally`
+- `DispatchedTask` records the requesting owner immediately after `.delay()`; non-staff task-status requests require that ownership record
 
 ### Provisioning Flow
 
@@ -79,7 +93,8 @@ inveterate/                        # Repository root
 │   ├── settings/
 │   │   ├── base.py
 │   │   ├── dev.py
-│   │   └── production.py
+│   │   ├── production.py
+│   │   └── test.py              # SQLite in-memory, eager Celery
 │   ├── urls.py
 │   ├── wsgi.py, asgi.py
 │   └── celery.py
@@ -90,10 +105,12 @@ inveterate/                        # Repository root
 │   │   ├── __init__.py            # Re-exports all tasks
 │   │   ├── _common.py             # Shared utilities (logger, SSH snippets)
 │   │   ├── control.py             # Power operations
+│   │   ├── domain_verify.py       # DNS TXT domain verification
 │   │   ├── maintenance.py         # Inventory, cleanup, cancel, SSH key update
 │   │   ├── monitoring.py          # Status, bandwidth, suspend/reinstate
 │   │   ├── npm.py                 # NPM integration
 │   │   ├── provisioning.py        # IP assignment, VM provisioning, cloud-init
+│   │   ├── resize.py              # Plan resize executor
 │   │   └── templates.py           # Template import/sync
 │   ├── viewsets/                   # API viewsets (split into modules)
 │   │   ├── base.py, cluster.py, node.py, service.py
@@ -118,9 +135,11 @@ inveterate/                        # Repository root
 
 ### Running Tests
 ```bash
-python manage.py test inveterate
-python manage.py test inveterate.tests.TestComposeCloudInit  # specific test class
+python manage.py test inveterate --settings=config.settings.test
+python manage.py test inveterate.tests.TestComposeCloudInit --settings=config.settings.test  # specific test class
 ```
+
+The default `manage.py` settings use the development PostgreSQL database; use `config.settings.test` for the self-contained SQLite test suite.
 
 When creating tests:
 - Add test cases to `inveterate/tests.py`
@@ -150,13 +169,13 @@ celery -A config beat -l INFO --scheduler django_celery_beat.schedulers:Database
 
 ### Adding a New VM Action
 
-1. Create task in appropriate `inveterate/tasks/*.py` module using `@shared_task(base=Singleton)`
+1. Create task in appropriate `inveterate/tasks/*.py` module using `@shared_task(base=Singleton, lock_expiry=60 * 15)`
 2. Add structured logging: `logger.info(f"Action description for service {service_id}")`
 3. Use `get_vm(service_id)` helper from `tasks/control.py` to retrieve Proxmox machine object
 4. Add error handling for `ConnectionError`, `ResourceException`, and general exceptions
 5. Export the task in `tasks/__init__.py`
 6. Add custom action to `ServiceViewSet` in `inveterate/viewsets/service.py` using `@action` decorator
-7. Call task asynchronously with `.delay()`, return task ID
+7. Dispatch mutating service tasks with `_guarded_dispatch`; otherwise call `.delay()`, immediately `record_task_owner(task.id, request.user)`, and return the task ID
 
 ### Proxmox API Authentication
 

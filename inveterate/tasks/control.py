@@ -66,8 +66,14 @@ def reset_vm_password(service_id, username, password):
 )
 def start_vm(service_id):
     logger.info("Starting VM for service %s", service_id)
-    machine, service = get_vm(service_id)
-    machine.status.start.post()
+    # operation_in_progress is set True by the dispatching viewset; the finally
+    # here guarantees it is cleared even if the power op raises (see models.py).
+    Service.objects.filter(pk=service_id).update(operation_in_progress=True)
+    try:
+        machine, service = get_vm(service_id)
+        machine.status.start.post()
+    finally:
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
 
 
 @shared_task(
@@ -81,8 +87,12 @@ def start_vm(service_id):
 )
 def stop_vm(service_id):
     logger.info("Stopping VM for service %s", service_id)
-    machine, service = get_vm(service_id)
-    machine.status.stop.post()
+    Service.objects.filter(pk=service_id).update(operation_in_progress=True)
+    try:
+        machine, service = get_vm(service_id)
+        machine.status.stop.post()
+    finally:
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
 
 
 @shared_task(
@@ -96,8 +106,12 @@ def stop_vm(service_id):
 )
 def reset_vm(service_id):
     logger.info("Resetting VM for service %s", service_id)
-    machine, service = get_vm(service_id)
-    machine.status.reset.post()
+    Service.objects.filter(pk=service_id).update(operation_in_progress=True)
+    try:
+        machine, service = get_vm(service_id)
+        machine.status.reset.post()
+    finally:
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
 
 
 @shared_task(
@@ -111,8 +125,12 @@ def reset_vm(service_id):
 )
 def shutdown_vm(service_id):
     logger.info("Shutting down VM for service %s", service_id)
-    machine, service = get_vm(service_id)
-    machine.status.shutdown.post()
+    Service.objects.filter(pk=service_id).update(operation_in_progress=True)
+    try:
+        machine, service = get_vm(service_id)
+        machine.status.shutdown.post()
+    finally:
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
 
 
 @shared_task(

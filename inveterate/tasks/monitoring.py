@@ -213,7 +213,12 @@ def meter_bandwidth():
             # Handle bandwidth renewal
             if now > service.bw_renewal_dtm:
                 service.bw_renewal_dtm = now + relativedelta(months=1)
-                service.bw_stale += service.bw_usage
+                # Rebaseline the live counter for the new period: bw_stale is the
+                # already-accounted baseline of bw_usage (see the restart branch,
+                # which banks bw_usage - bw_stale). Assign (not +=) so it tracks the
+                # current counter; += accumulates old baselines across unattended
+                # renewals and drives bw_banked negative on the next restart.
+                service.bw_stale = service.bw_usage
                 service.bw_banked = 0
                 logger.info("Renewed bandwidth for service %s", service.id)
 

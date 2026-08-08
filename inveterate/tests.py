@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 
+import requests.exceptions
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.test import TestCase, override_settings
@@ -13,8 +14,9 @@ from rest_framework.test import APIClient, APIRequestFactory
 from .models import (
     AppProfile, Cluster, Node, NodeDisk, Plan, ServicePlan, Service,
     Template, IPPool, IP, ServiceNetwork, Inventory,
-    PortGateway, PortBlock, PortForward, DomainRoute,
+    PortGateway, PortBlock, PortForward, DomainRoute, DispatchedTask,
 )
+from .task_ownership import record_task_owner, user_owns_task
 
 User = get_user_model()
 
@@ -833,6 +835,67 @@ class TestMeterBandwidth(TestCase):
         # Should remain unchanged
         self.assertEqual(svc.bw_usage, 0)
         self.assertEqual(svc.bw_system_tick, 0)
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_two_renewals_then_restart_banks_correctly(self, mock_cls):
+        """Two unattended monthly renewals with no reboot in between, then a
+        restart, must bank the actual since-last-renewal usage and never go
+        negative. With the old ``bw_stale += bw_usage`` accounting the baseline
+        accumulated across renewals and bw_banked went negative on restart.
+        """
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_machine = MagicMock()
+        mock_proxmox.nodes.return_value.lxc.return_value = mock_machine
+
+        user = _admin()
+        node = _node()
+        disk = _disk(node)
+        sp = _service_plan(storage=disk, type='lxc')
+        # Seed a live counter already carrying usage from the current period.
+        svc = _service(user, node, sp,
+                        bw_system_tick=100, bw_usage=5000, bw_stale=0, bw_banked=0,
+                        bw_renewal_dtm=timezone.now() - timedelta(days=1))
+
+        from .tasks import meter_bandwidth
+
+        # Renewal #1: counter is monotonic (no reboot). Baseline should follow
+        # the live counter, not accumulate on top of it.
+        mock_machine.status.current.get.return_value = {
+            'uptime': 200, 'netin': 4000, 'netout': 2000,
+        }
+        meter_bandwidth()
+        svc.refresh_from_db()
+        self.assertEqual(svc.bw_stale, 5000)   # = prior bw_usage, not += it
+        self.assertEqual(svc.bw_usage, 6000)
+        self.assertEqual(svc.bw_banked, 0)
+
+        # Force a second renewal (still no reboot).
+        Service.objects.filter(pk=svc.pk).update(bw_renewal_dtm=timezone.now() - timedelta(days=1))
+        mock_machine.status.current.get.return_value = {
+            'uptime': 300, 'netin': 4500, 'netout': 2500,
+        }
+        meter_bandwidth()
+        svc.refresh_from_db()
+        self.assertEqual(svc.bw_stale, 6000)   # tracks the counter at renewal #2
+        self.assertEqual(svc.bw_usage, 7000)
+        self.assertEqual(svc.bw_banked, 0)
+        # Unbanked usage this period stays sane (non-negative).
+        self.assertGreaterEqual(svc.bw_usage - svc.bw_stale, 0)
+
+        # Now the VM restarts (uptime drops below the last tick), no renewal.
+        mock_machine.status.current.get.return_value = {
+            'uptime': 10, 'netin': 30, 'netout': 20,
+        }
+        meter_bandwidth()
+        svc.refresh_from_db()
+        # banked = usage - stale = 7000 - 6000 = 1000 (real since-renewal usage),
+        # never negative. The old accounting produced a negative bank here.
+        self.assertEqual(svc.bw_banked, 1000)
+        self.assertGreaterEqual(svc.bw_banked, 0)
+        self.assertEqual(svc.bw_stale, 0)
+        self.assertEqual(svc.bw_usage, 50)
+        self.assertEqual(svc.bw_system_tick, 10)
 
 
 # ===================================================================
@@ -2021,6 +2084,63 @@ class TestDomainRouteValidation(TestCase):
         self.assertFalse(ser.is_valid())
         self.assertIn('service', ser.errors)
 
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_normal_customer_domain_accepted(self, mock_sync):
+        mock_sync.delay.return_value = MagicMock(id='task-1')
+        from .serializers import DomainRouteSerializer
+        data = {'service': self.svc.id, 'domain': 'app.customer-example.com', 'forward_port': 80}
+        ser = DomainRouteSerializer(data=data)
+        self.assertTrue(ser.is_valid(), ser.errors)
+
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_malformed_domain_rejected(self, mock_sync):
+        from .serializers import DomainRouteSerializer
+        for bad in ['not a domain', 'nodotatall', '-leadinghyphen.com', 'trailing-.com', '']:
+            data = {'service': self.svc.id, 'domain': bad, 'forward_port': 80}
+            ser = DomainRouteSerializer(data=data)
+            self.assertFalse(ser.is_valid(), f"expected {bad!r} to be rejected")
+            self.assertIn('domain', ser.errors)
+
+    @override_settings(INVETERATE_RESERVED_DOMAINS=['hosnet.dhos.me'])
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_reserved_provider_domain_rejected(self, mock_sync):
+        """A customer must not be able to squat the provider's own vhost
+        (or any subdomain of a reserved base domain) on their own service."""
+        from .serializers import DomainRouteSerializer
+        data = {'service': self.svc.id, 'domain': 'portal.hosnet.dhos.me', 'forward_port': 80}
+        ser = DomainRouteSerializer(data=data)
+        self.assertFalse(ser.is_valid())
+        self.assertIn('domain', ser.errors)
+
+    @override_settings(INVETERATE_RESERVED_DOMAINS=['hosnet.dhos.me'])
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_reserved_domain_exact_match_rejected(self, mock_sync):
+        from .serializers import DomainRouteSerializer
+        data = {'service': self.svc.id, 'domain': 'hosnet.dhos.me', 'forward_port': 80}
+        ser = DomainRouteSerializer(data=data)
+        self.assertFalse(ser.is_valid())
+        self.assertIn('domain', ser.errors)
+
+    @override_settings(INVETERATE_RESERVED_DOMAINS=['hosnet.dhos.me'])
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_domain_reservation_is_case_insensitive(self, mock_sync):
+        from .serializers import DomainRouteSerializer
+        data = {'service': self.svc.id, 'domain': 'Portal.HosNet.Dhos.ME', 'forward_port': 80}
+        ser = DomainRouteSerializer(data=data)
+        self.assertFalse(ser.is_valid())
+        self.assertIn('domain', ser.errors)
+
+    @override_settings(INVETERATE_RESERVED_DOMAINS=['hosnet.dhos.me'])
+    @patch('inveterate.serializers.sync_domain_route')
+    def test_unrelated_domain_not_blocked_by_reserved_list(self, mock_sync):
+        """Only the reserved base domain (and its subdomains) are blocked --
+        an unrelated domain that merely shares a substring must pass."""
+        mock_sync.delay.return_value = MagicMock(id='task-1')
+        from .serializers import DomainRouteSerializer
+        data = {'service': self.svc.id, 'domain': 'nothosnet.dhos.me', 'forward_port': 80}
+        ser = DomainRouteSerializer(data=data)
+        self.assertTrue(ser.is_valid(), ser.errors)
+
 
 # ===================================================================
 # TestDomainRouteViewSet
@@ -2057,9 +2177,11 @@ class TestDomainRouteViewSet(TestCase):
 
         self.client = APIClient()
 
+    @patch('inveterate.serializers.verify_domain_route')
     @patch('inveterate.serializers.sync_domain_route')
-    def test_user_creates_domain_route(self, mock_sync):
+    def test_user_creates_domain_route(self, mock_sync, mock_verify):
         mock_sync.delay.return_value = MagicMock(id='task-1')
+        mock_verify.delay.return_value = MagicMock(id='task-1')
         self.client.force_authenticate(user=self.user)
         resp = self.client.post('/api/v1/domainroutes/', {
             'service': self.user_svc.id,
@@ -2097,6 +2219,245 @@ class TestDomainRouteViewSet(TestCase):
             'forward_port': 80,
         })
         self.assertEqual(resp.status_code, 400)
+
+
+# ===================================================================
+# Domain-ownership verification (TXT challenge)
+# ===================================================================
+
+def _txt_answer(value):
+    """Build a fake dnspython TXT rdata whose `.strings` decodes to `value`."""
+    ans = MagicMock()
+    ans.strings = [value.encode()]
+    return ans
+
+
+class TestAccountToken(TestCase):
+
+    @override_settings(SECRET_KEY='fixed-secret', INVETERATE_DOMAIN_VERIFICATION_SALT='')
+    def test_deterministic_per_owner(self):
+        from .domain_verification import account_token
+        self.assertEqual(account_token(7), account_token(7))
+        self.assertTrue(account_token(7).startswith('inv-verify='))
+
+    @override_settings(SECRET_KEY='fixed-secret', INVETERATE_DOMAIN_VERIFICATION_SALT='')
+    def test_differs_across_owners(self):
+        from .domain_verification import account_token
+        self.assertNotEqual(account_token(7), account_token(8))
+
+    def test_changes_with_salt(self):
+        from .domain_verification import account_token
+        with override_settings(SECRET_KEY='fixed-secret', INVETERATE_DOMAIN_VERIFICATION_SALT='a'):
+            token_a = account_token(7)
+        with override_settings(SECRET_KEY='fixed-secret', INVETERATE_DOMAIN_VERIFICATION_SALT='b'):
+            token_b = account_token(7)
+        self.assertNotEqual(token_a, token_b)
+
+    @override_settings(INVETERATE_DOMAIN_VERIFICATION_LABEL='_inveterate-verify')
+    def test_record_name(self):
+        from .domain_verification import verification_record_name
+        self.assertEqual(
+            verification_record_name('app.example.com'),
+            '_inveterate-verify.app.example.com',
+        )
+
+
+class TestVerifyDomainRouteTask(TestCase):
+
+    def setUp(self):
+        self.user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        self.gw = _port_gateway(pools=[pool_int])
+        ip = IP.objects.create(pool=pool_int, value='192.168.0.10')
+        sp = _service_plan(storage=disk)
+        self.svc = _service(self.user, node, sp)
+        self.sn = ServiceNetwork.objects.create(service=self.svc)
+        ip.owner = self.sn
+        ip.save()
+        PortBlock.objects.create(
+            gateway=self.gw, service_network=self.sn, port_start=10000, port_end=10099,
+        )
+        self.dr = DomainRoute.objects.create(service=self.svc, domain='app.example.com')
+
+    @patch('inveterate.tasks.npm.sync_domain_route')
+    @patch('inveterate.tasks.domain_verify._public_resolver')
+    def test_matching_txt_verifies_and_syncs(self, mock_resolver, mock_sync):
+        from .domain_verification import account_token
+        from .tasks.domain_verify import verify_domain_route
+        token = account_token(self.svc.owner_id)
+        mock_resolver.return_value.resolve.return_value = [_txt_answer(token)]
+
+        verify_domain_route(self.dr.id)
+
+        self.dr.refresh_from_db()
+        self.assertEqual(self.dr.verification_status, 'verified')
+        self.assertIsNotNone(self.dr.verified_at)
+        mock_sync.delay.assert_called_once_with(self.dr.pk)
+
+    @patch('inveterate.tasks.npm.sync_domain_route')
+    @patch('inveterate.tasks.domain_verify._public_resolver')
+    def test_absent_txt_fails_and_no_sync(self, mock_resolver, mock_sync):
+        import dns.resolver
+        from .tasks.domain_verify import verify_domain_route
+        mock_resolver.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
+
+        verify_domain_route(self.dr.id)
+
+        self.dr.refresh_from_db()
+        self.assertEqual(self.dr.verification_status, 'failed')
+        self.assertIsNone(self.dr.verified_at)
+        mock_sync.delay.assert_not_called()
+
+    @patch('inveterate.tasks.npm.sync_domain_route')
+    @patch('inveterate.tasks.domain_verify._public_resolver')
+    def test_different_account_token_fails(self, mock_resolver, mock_sync):
+        from .domain_verification import account_token
+        from .tasks.domain_verify import verify_domain_route
+        # A token belonging to some other account must NOT verify this route.
+        other_token = account_token(self.svc.owner_id + 999)
+        mock_resolver.return_value.resolve.return_value = [_txt_answer(other_token)]
+
+        verify_domain_route(self.dr.id)
+
+        self.dr.refresh_from_db()
+        self.assertEqual(self.dr.verification_status, 'failed')
+        mock_sync.delay.assert_not_called()
+
+
+class TestDomainRouteVerificationSerializer(TestCase):
+
+    def setUp(self):
+        self.user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        self.gw = _port_gateway(pools=[pool_int])
+        ip = IP.objects.create(pool=pool_int, value='192.168.0.10')
+        sp = _service_plan(storage=disk)
+        self.svc = _service(self.user, node, sp)
+        self.sn = ServiceNetwork.objects.create(service=self.svc)
+        ip.owner = self.sn
+        ip.save()
+        PortBlock.objects.create(
+            gateway=self.gw, service_network=self.sn, port_start=10000, port_end=10099,
+        )
+
+    @patch('inveterate.serializers.sync_domain_route')
+    @patch('inveterate.serializers.verify_domain_route')
+    def test_create_enqueues_verify_not_sync(self, mock_verify, mock_sync):
+        mock_verify.delay.return_value = MagicMock(id='t')
+        from .serializers import DomainRouteSerializer
+        ser = DomainRouteSerializer(data={
+            'service': self.svc.id, 'domain': 'app.customer.com', 'forward_port': 80,
+        })
+        self.assertTrue(ser.is_valid(), ser.errors)
+        instance = ser.save()
+        self.assertEqual(instance.verification_status, 'pending')
+        mock_verify.delay.assert_called_once_with(instance.id)
+        mock_sync.delay.assert_not_called()
+
+    @patch('inveterate.serializers.verify_domain_route')
+    def test_verification_record_value_hidden_from_non_owner(self, mock_verify):
+        mock_verify.delay.return_value = MagicMock(id='t')
+        from .domain_verification import account_token
+        from .serializers import DomainRouteSerializer
+        dr = DomainRoute.objects.create(service=self.svc, domain='app.example.com')
+
+        factory = APIRequestFactory()
+        other = _user()
+
+        owner_req = factory.get('/')
+        owner_req.user = self.user
+        owner_data = DomainRouteSerializer(dr, context={'request': owner_req}).data
+        self.assertEqual(owner_data['verification_record_value'], account_token(self.svc.owner_id))
+        self.assertEqual(owner_data['verification_record_name'], '_inveterate-verify.app.example.com')
+
+        other_req = factory.get('/')
+        other_req.user = other
+        other_data = DomainRouteSerializer(dr, context={'request': other_req}).data
+        self.assertIsNone(other_data['verification_record_value'])
+
+
+class TestDomainRouteVerifyAction(TestCase):
+
+    def setUp(self):
+        self.admin = _admin()
+        self.user = _user()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        pool_int = _internal_pool(node)
+        self.gw = _port_gateway(pools=[pool_int])
+
+        ip1 = IP.objects.create(pool=pool_int, value='192.168.0.10')
+        sp1 = _service_plan(storage=disk)
+        self.admin_svc = _service(self.admin, node, sp1, hostname='admin.example.com')
+        sn1 = ServiceNetwork.objects.create(service=self.admin_svc)
+        ip1.owner = sn1
+        ip1.save()
+        PortBlock.objects.create(gateway=self.gw, service_network=sn1, port_start=10000, port_end=10099)
+
+        ip2 = IP.objects.create(pool=pool_int, value='192.168.0.11')
+        sp2 = _service_plan(storage=disk)
+        self.user_svc = _service(self.user, node, sp2, hostname='user.example.com')
+        sn2 = ServiceNetwork.objects.create(service=self.user_svc)
+        ip2.owner = sn2
+        ip2.save()
+        PortBlock.objects.create(gateway=self.gw, service_network=sn2, port_start=10100, port_end=10199)
+
+        self.user_route = DomainRoute.objects.create(service=self.user_svc, domain='user-app.example.com')
+        self.client = APIClient()
+
+    @patch('inveterate.viewsets.portforward.verify_domain_route')
+    def test_verify_action_returns_202(self, mock_verify):
+        mock_verify.delay.return_value = MagicMock(id='task-xyz')
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.post(f'/api/v1/domainroutes/{self.user_route.id}/verify/')
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.data['task_id'], 'task-xyz')
+        self.assertEqual(resp.data['verification_status'], 'pending')
+        mock_verify.delay.assert_called_once_with(self.user_route.pk)
+
+    @patch('inveterate.viewsets.portforward.verify_domain_route')
+    def test_verify_action_owner_scoped(self, mock_verify):
+        mock_verify.delay.return_value = MagicMock(id='task-xyz')
+        # A different user must not be able to trigger verify on this route.
+        self.client.force_authenticate(user=self.admin)
+        # admin is staff -> sees all; use a genuine non-owner non-staff user.
+        stranger = User.objects.create_user('stranger', 'stranger@test.com', 'pass')
+        self.client.force_authenticate(user=stranger)
+        resp = self.client.post(f'/api/v1/domainroutes/{self.user_route.id}/verify/')
+        self.assertEqual(resp.status_code, 404)
+        mock_verify.delay.assert_not_called()
+
+
+class TestDomainRouteBackfillMigration(TestCase):
+
+    def test_backfill_sets_existing_routes_verified(self):
+        import importlib
+        migration = importlib.import_module(
+            'inveterate.migrations.0017_domainroute_verification_status_and_more'
+        )
+        user = _admin()
+        node = _node()
+        sp = _service_plan()
+        svc = _service(user, node, sp)
+        dr = DomainRoute.objects.create(service=svc, domain='legacy.example.com')
+        # Simulate a row that predates the new fields (default pending, no ts).
+        DomainRoute.objects.filter(pk=dr.pk).update(
+            verification_status='pending', verified_at=None,
+        )
+
+        from django.apps import apps as global_apps
+        migration.backfill_existing_routes_verified(global_apps, None)
+
+        dr.refresh_from_db()
+        self.assertEqual(dr.verification_status, 'verified')
+        self.assertIsNotNone(dr.verified_at)
 
 
 # ===================================================================
@@ -2257,12 +2618,18 @@ class TestNPMSyncTasks(TestCase):
         dr.refresh_from_db()
         self.assertEqual(dr.npm_proxy_host_id, 99)
 
-    @patch('inveterate.npm.NPMClient')
     @patch('inveterate.proxmox.ProxmoxAPI')
-    @patch('inveterate.tasks.delete_npm_proxy_host')
-    @patch('inveterate.tasks.delete_npm_stream')
+    @patch('inveterate.tasks.maintenance.chain')
+    @patch('inveterate.tasks.maintenance.finalize_service_network_release')
+    @patch('inveterate.tasks.maintenance.delete_npm_proxy_host')
+    @patch('inveterate.tasks.maintenance.delete_npm_stream')
     def test_cancel_service_cleans_npm_resources(self, mock_del_stream, mock_del_proxy,
-                                                  mock_prox_cls, mock_client_cls):
+                                                  mock_finalize, mock_chain, mock_prox_cls):
+        """cancel_service must build the NPM-cleanup chain with the right
+        signatures and NOT release the internal IP/ServiceNetwork (or the
+        DomainRoute row) synchronously -- that only happens once
+        finalize_service_network_release actually runs, as the last link of
+        the chain, after NPM confirms the stream/proxy host is gone."""
         mock_proxmox = MagicMock()
         mock_prox_cls.return_value = mock_proxmox
         mock_node = MagicMock()
@@ -2283,8 +2650,192 @@ class TestNPMSyncTasks(TestCase):
 
         svc.refresh_from_db()
         self.assertEqual(svc.status, 'destroyed')
-        mock_del_stream.delay.assert_called_with(gw.id, 42)
-        mock_del_proxy.delay.assert_called_with(gw.id, 99)
+
+        # The right NPM cleanup signatures were built...
+        mock_del_stream.si.assert_called_with(gw.id, 42)
+        mock_del_proxy.si.assert_called_with(gw.id, 99)
+        mock_finalize.si.assert_called_with([sn.pk], [dr.id])
+        # ...and dispatched as a single chain (not fire-and-forget .delay()).
+        mock_chain.assert_called_once()
+        mock_chain.return_value.apply_async.assert_called_once()
+
+        # Nothing was released synchronously: the internal ServiceNetwork
+        # (and therefore its IP) and the DomainRoute row are still there,
+        # pending the chain's finalize step.
+        self.assertTrue(ServiceNetwork.objects.filter(pk=sn.pk).exists())
+        ip = IP.objects.get(pool=sn.ip.pool)
+        self.assertEqual(ip.owner_id, sn.pk)
+        self.assertTrue(DomainRoute.objects.filter(pk=dr.pk).exists())
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_cancel_service_releases_immediately_without_pending_npm(self, mock_prox_cls):
+        """When nothing was ever synced to NPM (no npm_stream_id / no
+        npm_proxy_host_id), there's nothing to leak, so cancel_service
+        releases the internal ServiceNetwork/IP right away without deferring
+        to a chain."""
+        mock_proxmox = MagicMock()
+        mock_prox_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+
+        svc, sn, pb, gw = self._setup_internal_service()
+        # Never-synced domain route: no npm_proxy_host_id.
+        dr = DomainRoute.objects.create(service=svc, domain='app.example.com', forward_port=80)
+
+        from .tasks import cancel_service
+        cancel_service(svc.id)
+
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'destroyed')
+        self.assertFalse(ServiceNetwork.objects.filter(pk=sn.pk).exists())
+        self.assertFalse(DomainRoute.objects.filter(pk=dr.pk).exists())
+
+    def test_finalize_service_network_release_deletes_domain_routes_and_releases_ip(self):
+        """Simulates the chain's callback firing after NPM confirms cleanup:
+        the DomainRoute rows and the ServiceNetwork must be deleted, freeing
+        the IP and the domain for reuse."""
+        svc, sn, pb, gw = self._setup_internal_service()
+        dr = DomainRoute.objects.create(
+            service=svc, domain='app.example.com', forward_port=80, npm_proxy_host_id=99,
+        )
+        ip = sn.ip
+
+        from .tasks.maintenance import finalize_service_network_release
+        finalize_service_network_release([sn.pk], [dr.id])
+
+        self.assertFalse(ServiceNetwork.objects.filter(pk=sn.pk).exists())
+        self.assertFalse(DomainRoute.objects.filter(pk=dr.pk).exists())
+        ip.refresh_from_db()
+        self.assertIsNone(ip.owner)
+
+    def test_cleanup_orphaned_ips_skips_pending_npm_cleanup(self):
+        """cleanup_orphaned_ips must not release a destroyed service's
+        internal ServiceNetwork while a PortForward under it still carries a
+        live npm_stream_id -- that would recreate the cross-tenant leak
+        cancel_service's deferred release is meant to prevent."""
+        svc, sn, pb, gw = self._setup_internal_service()
+        PortForward.objects.create(
+            port_block=pb, external_port=10001, internal_port=22,
+            protocol='tcp', npm_stream_id=42,
+        )
+        svc.status = 'destroyed'
+        svc.save(update_fields=['status'])
+
+        from .tasks import cleanup_orphaned_ips
+        cleanup_orphaned_ips()
+
+        self.assertTrue(ServiceNetwork.objects.filter(pk=sn.pk).exists())
+
+    def test_cleanup_orphaned_ips_skips_pending_domain_route_cleanup(self):
+        """Same as above, but gated on a still-live DomainRoute.npm_proxy_host_id."""
+        svc, sn, pb, gw = self._setup_internal_service()
+        DomainRoute.objects.create(
+            service=svc, domain='app.example.com', forward_port=80, npm_proxy_host_id=99,
+        )
+        svc.status = 'destroyed'
+        svc.save(update_fields=['status'])
+
+        from .tasks import cleanup_orphaned_ips
+        cleanup_orphaned_ips()
+
+        self.assertTrue(ServiceNetwork.objects.filter(pk=sn.pk).exists())
+
+
+# ===================================================================
+# TestNPMDeleteRetrySemantics
+# ===================================================================
+
+class TestNPMDeleteRetrySemantics(TestCase):
+    """delete_npm_stream / delete_npm_proxy_host must not silently
+    "succeed" on a transient failure -- only a 404 (already gone) counts as
+    success. Everything else must propagate so Celery's autoretry_for (for
+    transient errors) or plain task failure (for permanent ones) applies."""
+
+    def _http_error(self, status_code):
+        resp = MagicMock()
+        resp.status_code = status_code
+        err = requests.exceptions.HTTPError(response=resp)
+        return err
+
+    @patch('inveterate.tasks.npm._get_npm_client')
+    @patch('inveterate.tasks.npm.PortGateway')
+    def test_delete_stream_404_is_success(self, mock_pg, mock_get_client):
+        mock_pg.objects.get.return_value = MagicMock(pk=1)
+        client = MagicMock()
+        client.delete_stream.side_effect = self._http_error(404)
+        mock_get_client.return_value = client
+
+        from .tasks import delete_npm_stream
+        delete_npm_stream(1, 42)  # must not raise
+
+    @patch('inveterate.tasks.npm._get_npm_client')
+    @patch('inveterate.tasks.npm.PortGateway')
+    def test_delete_stream_connection_error_propagates(self, mock_pg, mock_get_client):
+        mock_pg.objects.get.return_value = MagicMock(pk=1)
+        client = MagicMock()
+        client.delete_stream.side_effect = requests.exceptions.ConnectionError('boom')
+        mock_get_client.return_value = client
+
+        from .tasks import delete_npm_stream
+        with self.assertRaises(requests.exceptions.ConnectionError):
+            delete_npm_stream(1, 42)
+
+    @patch('inveterate.tasks.npm._get_npm_client')
+    @patch('inveterate.tasks.npm.PortGateway')
+    def test_delete_stream_npm_5xx_raises_transient_error(self, mock_pg, mock_get_client):
+        from .tasks.npm import NPMTransientError
+
+        mock_pg.objects.get.return_value = MagicMock(pk=1)
+        client = MagicMock()
+        client.delete_stream.side_effect = self._http_error(503)
+        mock_get_client.return_value = client
+
+        from .tasks import delete_npm_stream
+        with self.assertRaises(NPMTransientError):
+            delete_npm_stream(1, 42)
+
+    @patch('inveterate.tasks.npm._get_npm_client')
+    @patch('inveterate.tasks.npm.PortGateway')
+    def test_delete_stream_permanent_4xx_raises_http_error(self, mock_pg, mock_get_client):
+        mock_pg.objects.get.return_value = MagicMock(pk=1)
+        client = MagicMock()
+        client.delete_stream.side_effect = self._http_error(400)
+        mock_get_client.return_value = client
+
+        from .tasks import delete_npm_stream
+        with self.assertRaises(requests.exceptions.HTTPError):
+            delete_npm_stream(1, 42)
+
+    def test_delete_stream_autoretry_configured_for_transient_failures(self):
+        from .tasks.npm import NPMTransientError, delete_npm_stream
+
+        retry_for = delete_npm_stream.autoretry_for
+        self.assertIn(requests.exceptions.ConnectionError, retry_for)
+        self.assertIn(requests.exceptions.Timeout, retry_for)
+        self.assertIn(NPMTransientError, retry_for)
+
+    @patch('inveterate.tasks.npm._get_npm_client')
+    @patch('inveterate.tasks.npm.PortGateway')
+    def test_delete_proxy_host_404_is_success(self, mock_pg, mock_get_client):
+        mock_pg.objects.get.return_value = MagicMock(pk=1)
+        client = MagicMock()
+        client.delete_proxy_host.side_effect = self._http_error(404)
+        mock_get_client.return_value = client
+
+        from .tasks import delete_npm_proxy_host
+        delete_npm_proxy_host(1, 99)  # must not raise
+
+    @patch('inveterate.tasks.npm._get_npm_client')
+    @patch('inveterate.tasks.npm.PortGateway')
+    def test_delete_proxy_host_timeout_propagates(self, mock_pg, mock_get_client):
+        mock_pg.objects.get.return_value = MagicMock(pk=1)
+        client = MagicMock()
+        client.delete_proxy_host.side_effect = requests.exceptions.Timeout('slow')
+        mock_get_client.return_value = client
+
+        from .tasks import delete_npm_proxy_host
+        with self.assertRaises(requests.exceptions.Timeout):
+            delete_npm_proxy_host(1, 99)
 
 
 # ===================================================================
@@ -2293,6 +2844,10 @@ class TestNPMSyncTasks(TestCase):
 
 class TestProxmoxHelpers(TestCase):
     """Unit tests for inveterate.proxmox utility functions."""
+
+    def setUp(self):
+        from .proxmox import _reset_console_cred_cache
+        _reset_console_cred_cache()
 
     def test_console_username_format(self):
         from .proxmox import console_username
@@ -2345,6 +2900,41 @@ class TestProxmoxHelpers(TestCase):
         proxmox.access.users('inv-s7@pve').delete.assert_called_once()
         self.assertEqual(proxmox.access.users.post.call_count, 2)
         proxmox.access.acl.put.assert_called_once()
+
+    def test_ensure_console_user_repeat_call_reuses_cached_credentials(self):
+        """A second call for the same service shortly after the first (e.g. a
+        racing "Reconnect" click during the in-flight credential fetch) must
+        return the exact same userid/password and must not touch Proxmox
+        again, since deleting/recreating the user would invalidate a ticket
+        already obtained with the first password."""
+        from .proxmox import ensure_console_user
+        proxmox = MagicMock()
+        svc = MagicMock(id=7)
+
+        userid1, password1 = ensure_console_user(proxmox, svc, 1000007)
+        userid2, password2 = ensure_console_user(proxmox, svc, 1000007)
+
+        self.assertEqual(userid1, userid2)
+        self.assertEqual(password1, password2)
+        proxmox.access.users.post.assert_called_once()
+        proxmox.access.acl.put.assert_called_once()
+
+    def test_ensure_console_user_rotates_after_cache_expires(self):
+        """Once the cached credentials expire, the next call rotates the
+        password (still hitting Proxmox), so passwords aren't cached forever."""
+        from .proxmox import ensure_console_user
+        proxmox = MagicMock()
+        svc = MagicMock(id=7)
+
+        with patch('inveterate.proxmox.time.monotonic', return_value=1000.0):
+            userid1, password1 = ensure_console_user(proxmox, svc, 1000007)
+
+        with patch('inveterate.proxmox.time.monotonic', return_value=1000.0 + 3600):
+            userid2, password2 = ensure_console_user(proxmox, svc, 1000007)
+
+        self.assertEqual(userid1, userid2)
+        self.assertNotEqual(password1, password2)
+        self.assertEqual(proxmox.access.users.post.call_count, 2)
 
     def test_ensure_console_user_reraises_other_error(self):
         from .proxmox import ensure_console_user, ProxmoxConsoleError
@@ -2657,6 +3247,73 @@ class TestConsoleProxyConsumer(TestCase):
         self.assertTrue(connected)
         await communicator.disconnect()
 
+    async def test_auth_rejects_control_chars_in_csrf_without_connecting(self):
+        """CRLF (or any control char) in the client-supplied `csrf` field
+        must be rejected before websockets.connect() is ever called, since
+        `csrf` is passed verbatim as an unescaped HTTP header value to the
+        upstream Proxmox connection."""
+        admin = await database_sync_to_async(_admin)()
+        cluster = await database_sync_to_async(_cluster)()
+        node = await database_sync_to_async(_node)(cluster=cluster)
+        await database_sync_to_async(_disk)(node)
+        sp = await database_sync_to_async(_service_plan)(type='lxc')
+        svc = await database_sync_to_async(_service)(admin, node, sp, machine_id=1000001)
+
+        communicator = self._get_communicator(svc.id, user=admin)
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        with patch('inveterate.consumers.websockets.connect') as mock_connect:
+            await communicator.send_to(text_data=__import__('json').dumps({
+                'type': 'auth',
+                'ticket': 'PVE:tok',
+                'csrf': '635C8B2A:abcdef\r\nX-Injected-Header: evil',
+                'username': 'root@pam',
+                'port': 5900,
+                'vncticket': 'vnc-tok',
+            }))
+            response = await communicator.receive_from()
+            data = __import__('json').loads(response)
+            self.assertEqual(data['type'], 'error')
+
+            close_event = await communicator.receive_output()
+            self.assertEqual(close_event['type'], 'websocket.close')
+            self.assertEqual(close_event.get('code'), 4003)
+
+            mock_connect.assert_not_called()
+
+        await communicator.disconnect()
+
+    async def test_auth_rejects_control_chars_in_username(self):
+        """Same protection for `username` (written into the termproxy auth
+        line sent over the upstream socket)."""
+        admin = await database_sync_to_async(_admin)()
+        cluster = await database_sync_to_async(_cluster)()
+        node = await database_sync_to_async(_node)(cluster=cluster)
+        await database_sync_to_async(_disk)(node)
+        sp = await database_sync_to_async(_service_plan)(type='lxc')
+        svc = await database_sync_to_async(_service)(admin, node, sp, machine_id=1000001)
+
+        communicator = self._get_communicator(svc.id, user=admin)
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        with patch('inveterate.consumers.websockets.connect') as mock_connect:
+            await communicator.send_to(text_data=__import__('json').dumps({
+                'type': 'auth',
+                'ticket': 'PVE:tok',
+                'csrf': '635C8B2A:abcdef',
+                'username': 'root@pam\r\nHost: evil',
+                'port': 5900,
+                'vncticket': 'vnc-tok',
+            }))
+            response = await communicator.receive_from()
+            data = __import__('json').loads(response)
+            self.assertEqual(data['type'], 'error')
+            mock_connect.assert_not_called()
+
+        await communicator.disconnect()
+
     async def test_auth_message_required_first(self):
         admin = await database_sync_to_async(_admin)()
         cluster = await database_sync_to_async(_cluster)()
@@ -2675,3 +3332,370 @@ class TestConsoleProxyConsumer(TestCase):
         data = __import__('json').loads(response)
         self.assertEqual(data['type'], 'error')
         await communicator.disconnect()
+
+
+# ===================================================================
+# TestTaskStatusView / task_ownership
+# ===================================================================
+
+class TestTaskOwnershipHelper(TestCase):
+    """Unit tests for inveterate.task_ownership (used by TaskStatusView)."""
+
+    def setUp(self):
+        self.user = _user()
+        self.other = User.objects.create_user('user2', 'user2@test.com', 'pass')
+
+    def test_record_and_check_ownership(self):
+        record_task_owner('11111111-1111-1111-1111-111111111111', self.user)
+        self.assertTrue(user_owns_task('11111111-1111-1111-1111-111111111111', self.user))
+        self.assertFalse(user_owns_task('11111111-1111-1111-1111-111111111111', self.other))
+
+    def test_record_task_owner_noops_for_anonymous(self):
+        from django.contrib.auth.models import AnonymousUser
+        result = record_task_owner('some-task-id', AnonymousUser())
+        self.assertIsNone(result)
+        self.assertEqual(DispatchedTask.objects.count(), 0)
+
+    def test_record_task_owner_noops_for_none_user(self):
+        result = record_task_owner('some-task-id', None)
+        self.assertIsNone(result)
+
+    def test_record_task_owner_is_idempotent_per_task_id(self):
+        record_task_owner('dup-task-id', self.user)
+        record_task_owner('dup-task-id', self.other)
+        self.assertEqual(DispatchedTask.objects.filter(task_id='dup-task-id').count(), 1)
+        self.assertTrue(user_owns_task('dup-task-id', self.other))
+        self.assertFalse(user_owns_task('dup-task-id', self.user))
+
+    def test_user_owns_task_false_when_no_record(self):
+        self.assertFalse(user_owns_task('never-recorded', self.user))
+
+
+class TestTaskStatusView(TestCase):
+    """IDOR regression tests for GET /api/v1/tasks/<task_id>/."""
+
+    def setUp(self):
+        self.owner = _user()
+        self.stranger = User.objects.create_user('user2', 'user2@test.com', 'pass')
+        self.admin = _admin()
+        self.task_id = '22222222-2222-2222-2222-222222222222'
+        record_task_owner(self.task_id, self.owner)
+        self.url = f'/api/v1/tasks/{self.task_id}/'
+
+    def test_owner_can_read_task_status(self):
+        client = APIClient()
+        client.force_authenticate(user=self.owner)
+        resp = client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['task_id'], self.task_id)
+
+    def test_non_owner_gets_404(self):
+        client = APIClient()
+        client.force_authenticate(user=self.stranger)
+        resp = client.get(self.url)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_staff_can_read_any_task_status(self):
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        resp = client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_unrecorded_task_id_gets_404_for_non_staff(self):
+        client = APIClient()
+        client.force_authenticate(user=self.stranger)
+        resp = client.get('/api/v1/tasks/33333333-3333-3333-3333-333333333333/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_unauthenticated_gets_401_or_403(self):
+        client = APIClient()
+        resp = client.get(self.url)
+        self.assertIn(resp.status_code, (401, 403))
+
+
+# ===================================================================
+# TestOperationInProgressFlag
+# ===================================================================
+
+class TestOperationInProgressFlag(TestCase):
+    """operation_in_progress is set at the start of a mutating task and always
+    cleared in a finally block — even when the task raises — so a crash never
+    leaves a service permanently locked."""
+
+    def _setup_service(self, svc_type='lxc', **kw):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        tpl = _template(type=svc_type, file='100' if svc_type == 'kvm' else 'debian.tar.zst')
+        sp = _service_plan(template=tpl, storage=disk, type=svc_type, ipv4_ips=0)
+        return _service(user, node, sp, machine_id=1000001, **kw)
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_power_task_sets_and_clears_flag(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        svc = self._setup_service('lxc')
+
+        seen = {}
+
+        def _record(*_a, **_k):
+            seen['during'] = Service.objects.get(pk=svc.id).operation_in_progress
+
+        mock_proxmox.nodes.return_value.lxc.return_value.status.start.post.side_effect = _record
+
+        from .tasks import start_vm
+        start_vm(svc.id)
+
+        self.assertTrue(seen['during'])  # flag held while the op runs
+        svc.refresh_from_db()
+        self.assertFalse(svc.operation_in_progress)  # cleared afterwards
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_power_task_clears_flag_on_exception(self, mock_cls):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_proxmox.nodes.return_value.lxc.return_value.status.stop.post.side_effect = RuntimeError("boom")
+        svc = self._setup_service('lxc')
+
+        from .tasks import stop_vm
+        with self.assertRaises(RuntimeError):
+            stop_vm(svc.id)
+
+        svc.refresh_from_db()
+        self.assertFalse(svc.operation_in_progress)
+
+    @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_provision_clears_flag_on_success(self, mock_cls, _mock_inv):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+        mock_node.lxc.return_value.firewall.rules.get.return_value = []
+        mock_node.lxc.return_value.firewall.ipset.return_value.get.return_value = []
+        svc = self._setup_service('lxc', status='pending')
+
+        from .tasks import provision_service
+        provision_service(svc.id, 'testpass')
+
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'active')
+        self.assertFalse(svc.operation_in_progress)
+
+    @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_provision_clears_flag_on_exception(self, mock_cls, _mock_inv):
+        mock_proxmox = MagicMock()
+        mock_cls.return_value = mock_proxmox
+        mock_node = MagicMock()
+        mock_proxmox.nodes.return_value = mock_node
+        mock_node.lxc.create.side_effect = ConnectionError("refused")
+        svc = self._setup_service('lxc', status='pending')
+
+        from .tasks import provision_service
+        with self.assertRaises(ConnectionError):
+            provision_service(svc.id, 'testpass')
+
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'error')
+        self.assertFalse(svc.operation_in_progress)
+
+    @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_resize_clears_flag_on_validation_error(self, mock_cls, _mock_inv):
+        # A resize that raises before touching Proxmox (disk shrink) must still
+        # clear the flag via the finally block.
+        mock_cls.return_value = MagicMock()
+        svc = self._setup_service('lxc')  # ServicePlan size defaults to 10
+        target = _plan(size=5)  # smaller disk -> ValueError
+
+        from .tasks import resize_service
+        with self.assertRaises(ValueError):
+            resize_service(svc.id, target.id)
+
+        svc.refresh_from_db()
+        self.assertFalse(svc.operation_in_progress)
+
+
+# ===================================================================
+# TestResizeService
+# ===================================================================
+
+class TestResizeService(TestCase):
+
+    def _setup(self, svc_type='kvm'):
+        user = _admin()
+        cluster = _cluster()
+        node = _node(cluster=cluster)
+        disk = _disk(node)
+        tpl = _template(type=svc_type, file='100' if svc_type == 'kvm' else 'debian.tar.zst')
+        sp = _service_plan(
+            template=tpl, storage=disk, type=svc_type, size=10, ram=1024,
+            cores=1, swap=256, ipv4_ips=0,
+        )
+        svc = _service(user, node, sp, machine_id=1000001, status='active')
+        target = _plan(name='VPS-2', size=20, ram=2048, cores=2, swap=512, ipv4_ips=0)
+        return svc, target
+
+    @patch('inveterate.tasks.resize.time.sleep')
+    @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_successful_resize_waits_and_updates_snapshot(self, mock_cls, mock_inventory, _mock_sleep):
+        proxmox = MagicMock()
+        mock_cls.return_value = proxmox
+        node = proxmox.nodes.return_value
+        machine = node.qemu.return_value
+        machine.status.current.get.side_effect = [
+            {'status': 'running'}, {'status': 'stopped'}, {'status': 'stopped'},
+            {'status': 'stopped'}, {'status': 'running'},
+        ]
+        machine.status.shutdown.post.return_value = 'UPID:shutdown'
+        machine.config.post.return_value = 'UPID:config'
+        machine.resize.put.return_value = 'UPID:disk'
+        machine.status.start.post.return_value = 'UPID:start'
+        node.tasks.return_value.status.get.return_value = {'status': 'stopped', 'exitstatus': 'OK'}
+        svc, target = self._setup()
+
+        from .tasks import resize_service
+        resize_service(svc.id, target.id)
+
+        svc.service_plan.refresh_from_db()
+        self.assertEqual(svc.service_plan.size, target.size)
+        self.assertEqual(svc.service_plan.ram, target.ram)
+        self.assertEqual(svc.service_plan.cores, target.cores)
+        self.assertEqual(node.tasks.call_count, 4)
+        mock_inventory.delay.assert_called_once()
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'active')
+        self.assertIsNone(svc.status_msg)
+        self.assertFalse(svc.operation_in_progress)
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_shrink_is_rejected_before_proxmox(self, mock_cls):
+        svc, target = self._setup()
+        target.size = 5
+        target.save(update_fields=('size',))
+
+        from .tasks import resize_service
+        with self.assertRaises(ValueError):
+            resize_service(svc.id, target.id)
+
+        mock_cls.assert_not_called()
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'error')
+        self.assertIn('Cannot shrink disk', svc.status_msg)
+
+    @patch('inveterate.tasks.resize.time.sleep')
+    @patch('inveterate.tasks.calculate_inventory')
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_disk_failure_persists_only_applied_cpu_and_ram(self, mock_cls, mock_inventory, _mock_sleep):
+        proxmox = MagicMock()
+        mock_cls.return_value = proxmox
+        node = proxmox.nodes.return_value
+        machine = node.qemu.return_value
+        machine.status.current.get.side_effect = [
+            {'status': 'running'}, {'status': 'stopped'}, {'status': 'stopped'}, {'status': 'running'},
+        ]
+        node.tasks.return_value.status.get.return_value = {'status': 'stopped', 'exitstatus': 'OK'}
+        machine.resize.put.side_effect = RuntimeError('disk resize failed')
+        svc, target = self._setup()
+
+        from .tasks import resize_service
+        with self.assertRaisesRegex(RuntimeError, 'disk resize failed'):
+            resize_service(svc.id, target.id)
+
+        svc.service_plan.refresh_from_db()
+        self.assertEqual(svc.service_plan.ram, target.ram)
+        self.assertEqual(svc.service_plan.cores, target.cores)
+        self.assertEqual(svc.service_plan.size, 10)
+        self.assertNotEqual(svc.service_plan.name, target.name)
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'error')
+        self.assertIn('disk resize failed', svc.status_msg)
+        mock_inventory.delay.assert_not_called()
+
+    @patch('inveterate.proxmox.ProxmoxAPI')
+    def test_missing_vm_sets_error_status(self, mock_cls):
+        from proxmoxer.core import ResourceException
+
+        proxmox = MagicMock()
+        mock_cls.return_value = proxmox
+        proxmox.nodes.return_value.qemu.return_value.status.current.get.side_effect = ResourceException(
+            500, 'fail', 'no such VM'
+        )
+        svc, target = self._setup()
+
+        from .tasks import resize_service
+        with self.assertRaises(ResourceException):
+            resize_service(svc.id, target.id)
+
+        svc.refresh_from_db()
+        self.assertEqual(svc.status, 'error')
+        self.assertIn('Resize failed', svc.status_msg)
+        self.assertFalse(svc.operation_in_progress)
+
+
+# ===================================================================
+# TestOperationLockGuard
+# ===================================================================
+
+class TestOperationLockGuard(TestCase):
+    """Viewset actions return 409 when an operation is already in progress and
+    claim the lock (compare-and-set) before dispatching a task."""
+
+    def setUp(self):
+        self.admin = _admin()
+        self.cluster = _cluster()
+        self.node = _node(cluster=self.cluster)
+        self.disk = _disk(self.node)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+
+    def _service(self, **kw):
+        sp = _service_plan(type='lxc')
+        return _service(self.admin, self.node, sp, machine_id=1000001, **kw)
+
+    @patch('inveterate.viewsets.service.start_vm')
+    def test_start_returns_409_when_operation_in_progress(self, mock_start):
+        svc = self._service(operation_in_progress=True)
+        resp = self.client.post(f'/api/v1/services/{svc.id}/start/')
+        self.assertEqual(resp.status_code, 409)
+        mock_start.delay.assert_not_called()
+        svc.refresh_from_db()
+        self.assertTrue(svc.operation_in_progress)  # left untouched
+
+    @patch('inveterate.viewsets.service.start_vm')
+    def test_start_claims_flag_before_dispatch(self, mock_start):
+        mock_start.delay.return_value = MagicMock(id='abc-123')
+        svc = self._service()
+        resp = self.client.post(f'/api/v1/services/{svc.id}/start/')
+        self.assertEqual(resp.status_code, 202)
+        mock_start.delay.assert_called_once_with(svc.id)
+        # The viewset sets the flag True right before dispatch; the task is
+        # mocked here so it stays True (the real task would clear it in finally).
+        svc.refresh_from_db()
+        self.assertTrue(svc.operation_in_progress)
+
+    @patch('inveterate.viewsets.service.provision_service')
+    def test_provision_returns_409_when_operation_in_progress(self, mock_prov):
+        svc = self._service(operation_in_progress=True, status='pending')
+        resp = self.client.post(f'/api/v1/services/{svc.id}/provision/')
+        self.assertEqual(resp.status_code, 409)
+        mock_prov.delay.assert_not_called()
+
+    @patch('inveterate.viewsets.service.cancel_service')
+    def test_cancel_returns_409_while_resize_operation_in_progress(self, mock_cancel):
+        svc = self._service(operation_in_progress=True)
+        resp = self.client.post(f'/api/v1/services/{svc.id}/cancel/')
+        self.assertEqual(resp.status_code, 409)
+        mock_cancel.delay.assert_not_called()
+
+    @patch('inveterate.viewsets.service.start_vm')
+    def test_flag_released_when_dispatch_fails(self, mock_start):
+        mock_start.delay.side_effect = RuntimeError("broker down")
+        svc = self._service()
+        with self.assertRaises(RuntimeError):
+            self.client.post(f'/api/v1/services/{svc.id}/start/')
+        svc.refresh_from_db()
+        self.assertFalse(svc.operation_in_progress)  # released on dispatch failure

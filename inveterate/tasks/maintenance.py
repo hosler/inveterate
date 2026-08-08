@@ -1,4 +1,4 @@
-from celery import shared_task
+from celery import chain, shared_task
 from celery_singleton import Singleton
 from django.conf import settings
 from django.db.models import Sum
@@ -8,15 +8,18 @@ from requests.exceptions import ConnectionError
 from ..models import (
     IP,
     Cluster,
+    DomainRoute,
     Inventory,
     IPPool,
     Node,
     Plan,
+    PortForward,
     Service,
     ServiceNetwork,
 )
 from ..proxmox import get_proxmox_connection, is_console_user, is_legacy_console_user
 from ._common import delete_snippet, logger, write_snippet
+from .npm import delete_npm_proxy_host, delete_npm_stream
 
 
 @shared_task(name="inveterate.tasks.calculate_inventory", base=Singleton, lock_expiry=60 * 15)
@@ -148,14 +151,16 @@ def calculate_inventory():
 )
 def cancel_service(service_id):
     logger.info("Cancelling service %s", service_id)
-    # Import via the package so that tests can patch ``inveterate.tasks.delete_npm_*``
-    import inveterate.tasks as _tasks
-
     from .control import get_vm
 
-    delete_npm_stream = _tasks.delete_npm_stream
-    delete_npm_proxy_host = _tasks.delete_npm_proxy_host
+    Service.objects.filter(pk=service_id).update(operation_in_progress=True)
+    try:
+        return _cancel_service(service_id, get_vm)
+    finally:
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
 
+
+def _cancel_service(service_id, get_vm):
     service = Service.objects.get(pk=service_id)
     if service.status == "destroyed":
         logger.warning("Service %s is already destroyed, skipping cancellation", service_id)
@@ -206,36 +211,107 @@ def cancel_service(service_id):
         except Exception:
             logger.warning("Failed to delete cloud-init snippet for service %s", service_id, exc_info=True)
 
-    # Collect NPM cleanup info before deleting ServiceNetwork records
+    # Collect NPM cleanup info before deleting ServiceNetwork records.
+    # ``pending_release_sn_ids`` tracks which ServiceNetwork(s) still have a
+    # live NPM stream/proxy host pointing at their IP -- those must NOT be
+    # deleted (and their IP must NOT be released) until NPM confirms the
+    # stream/proxy host is actually gone. Releasing the IP first and cleaning
+    # up NPM after is a cross-tenant leak waiting to happen: if the async NPM
+    # delete fails or lags, `assign_ips` could hand the freed IP to a brand
+    # new customer while the stale NPM stream/proxy host still forwards
+    # traffic to it.
     npm_streams_to_delete = []
     npm_proxy_hosts_to_delete = []
+    pending_release_sn_ids = set()
 
     for sn in service.service_network.all():
         if hasattr(sn, "port_block"):
             gateway_id = sn.port_block.gateway_id
-            for pf in sn.port_block.forwards.filter(npm_stream_id__isnull=False):
-                npm_streams_to_delete.append((gateway_id, pf.npm_stream_id))
+            stream_ids = list(
+                sn.port_block.forwards.filter(npm_stream_id__isnull=False).values_list(
+                    "npm_stream_id", flat=True
+                )
+            )
+            if stream_ids:
+                pending_release_sn_ids.add(sn.pk)
+                npm_streams_to_delete.extend((gateway_id, stream_id) for stream_id in stream_ids)
 
-    # Collect domain route NPM proxy hosts
+    # Collect domain route NPM proxy hosts (always tied to the internal IP).
+    domain_route_ids_pending_npm = []
     internal_sn = service.service_network.filter(ip__pool__internal=True).first()
     if internal_sn and hasattr(internal_sn, "port_block"):
         gateway_id = internal_sn.port_block.gateway_id
-        for dr in service.domain_routes.filter(npm_proxy_host_id__isnull=False):
-            npm_proxy_hosts_to_delete.append((gateway_id, dr.npm_proxy_host_id))
+        for dr_id, proxy_host_id in service.domain_routes.filter(
+            npm_proxy_host_id__isnull=False
+        ).values_list("id", "npm_proxy_host_id"):
+            npm_proxy_hosts_to_delete.append((gateway_id, proxy_host_id))
+            domain_route_ids_pending_npm.append(dr_id)
+        if domain_route_ids_pending_npm:
+            pending_release_sn_ids.add(internal_sn.pk)
 
-    # Release IPs back to the pool by deleting ServiceNetwork records.
-    # IP.owner is a OneToOneField with on_delete=SET_NULL, so deleting
-    # the ServiceNetwork automatically sets IP.owner = NULL.
-    service.service_network.all().delete()
+    # DomainRoute rows that were never synced to NPM (no npm_proxy_host_id)
+    # have nothing to clean up remotely, so free their `domain` for reuse
+    # immediately instead of waiting on the NPM chain below.
+    service.domain_routes.filter(npm_proxy_host_id__isnull=True).delete()
 
-    # Fire async NPM cleanup tasks after data is safely collected
-    for gateway_id, npm_stream_id in npm_streams_to_delete:
-        delete_npm_stream.delay(gateway_id, npm_stream_id)
-    for gateway_id, npm_proxy_host_id in npm_proxy_hosts_to_delete:
-        delete_npm_proxy_host.delay(gateway_id, npm_proxy_host_id)
+    if pending_release_sn_ids:
+        # Release every OTHER ServiceNetwork (e.g. external IPv4/IPv6) right
+        # away -- they carry no NPM state, so there's nothing to leak.
+        service.service_network.exclude(pk__in=pending_release_sn_ids).delete()
+
+        stream_sigs = [delete_npm_stream.si(gw_id, stream_id) for gw_id, stream_id in npm_streams_to_delete]
+        proxy_sigs = [
+            delete_npm_proxy_host.si(gw_id, proxy_id) for gw_id, proxy_id in npm_proxy_hosts_to_delete
+        ]
+        finalize_sig = finalize_service_network_release.si(
+            list(pending_release_sn_ids), domain_route_ids_pending_npm
+        )
+        # A celery chain: if any delete task fails permanently (non-404,
+        # non-transient), the chain stops and the finalize step never runs,
+        # so the IP stays reserved rather than being handed out while NPM
+        # still forwards to it. Transient failures are retried by the delete
+        # tasks themselves (see tasks/npm.py autoretry_for).
+        chain(*stream_sigs, *proxy_sigs, finalize_sig).apply_async()
+        logger.warning(
+            "Service %s: deferring release of %s internal ServiceNetwork(s) until NPM cleanup "
+            "is confirmed (%s stream(s), %s proxy host(s) pending)",
+            service_id, len(pending_release_sn_ids), len(npm_streams_to_delete), len(npm_proxy_hosts_to_delete),
+        )
+    else:
+        # Nothing was ever synced to NPM for this service -- safe to release
+        # every IP (including internal) right away by deleting the
+        # ServiceNetwork records. IP.owner is a OneToOneField with
+        # on_delete=SET_NULL, so deleting the ServiceNetwork automatically
+        # sets IP.owner = NULL.
+        service.service_network.all().delete()
 
     service.status = "destroyed"
     service.save()
+
+
+@shared_task(
+    name="inveterate.tasks.finalize_service_network_release",
+    base=Singleton,
+    lock_expiry=60 * 15,
+)
+def finalize_service_network_release(service_network_ids, domain_route_ids):
+    """Release ServiceNetwork(s) (and therefore their IP) back to the pool.
+
+    This is only ever invoked as the final link of the NPM-cleanup chain
+    kicked off by ``cancel_service`` -- i.e. only after the NPM stream(s)/
+    proxy host(s) pointing at these IPs have been confirmed deleted (or were
+    already gone). Deletes the now-safe-to-drop DomainRoute rows first
+    (freeing their unique `domain` values for reuse), then deletes the
+    ServiceNetwork record(s), which cascades to any PortBlock/PortForward
+    rows and frees the IP via IP.owner's on_delete=SET_NULL.
+    """
+    logger.info(
+        "NPM cleanup confirmed; releasing ServiceNetwork(s) %s (domain routes: %s)",
+        service_network_ids, domain_route_ids,
+    )
+    if domain_route_ids:
+        DomainRoute.objects.filter(id__in=domain_route_ids).delete()
+    ServiceNetwork.objects.filter(pk__in=service_network_ids).delete()
 
 
 @shared_task(name="inveterate.tasks.cleanup_orphaned_ips", base=Singleton, lock_expiry=60 * 15)
@@ -244,9 +320,33 @@ def cleanup_orphaned_ips():
     Safety-net task to release IPs orphaned by past bugs or edge cases.
     Finds ServiceNetwork records belonging to destroyed services and deletes
     them, which auto-nulls IP.owner via the SET_NULL cascade.
+
+    ``cancel_service`` intentionally leaves a destroyed service's internal
+    ServiceNetwork in place (undeleted) while NPM cleanup for its stream(s)/
+    proxy host(s) is still pending confirmation -- see
+    ``finalize_service_network_release``. Those ServiceNetwork rows must be
+    excluded here: releasing their IP before NPM confirms the stream/proxy
+    host is gone would recreate the exact cross-tenant leak that deferred
+    release exists to prevent. A live ``npm_stream_id``/``npm_proxy_host_id``
+    on a still-attached PortForward/DomainRoute is the signal that cleanup
+    hasn't been confirmed yet.
     """
     logger.info("Starting orphaned IP cleanup")
     orphaned = ServiceNetwork.objects.filter(service__status="destroyed")
+
+    pending_stream_sn_ids = PortForward.objects.filter(
+        npm_stream_id__isnull=False,
+        port_block__service_network__in=orphaned,
+    ).values_list("port_block__service_network_id", flat=True)
+    pending_domain_route_service_ids = DomainRoute.objects.filter(
+        npm_proxy_host_id__isnull=False,
+        service__service_network__in=orphaned,
+    ).values_list("service_id", flat=True)
+
+    orphaned = orphaned.exclude(pk__in=pending_stream_sn_ids).exclude(
+        service_id__in=pending_domain_route_service_ids
+    )
+
     count = orphaned.count()
     if count:
         orphaned.delete()

@@ -34,6 +34,7 @@ from .monitoring import (  # noqa: F401
     reinstate_service,
     suspend_service,
 )
+from .domain_verify import verify_domain_route  # noqa: F401
 from .npm import (  # noqa: F401
     delete_npm_proxy_host,
     delete_npm_stream,
@@ -79,6 +80,8 @@ __all__ = [
     "meter_bandwidth",
     "reinstate_service",
     "suspend_service",
+    # domain verification
+    "verify_domain_route",
     # npm
     "delete_npm_proxy_host",
     "delete_npm_stream",

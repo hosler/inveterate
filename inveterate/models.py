@@ -235,6 +235,11 @@ class Service(models.Model):
     owner = models.ForeignKey(UserModel, on_delete=models.CASCADE)
     status = models.CharField(max_length=255, default='pending', choices=STATUS_CHOICES)
     status_msg = models.CharField(max_length=255, null=True, blank=True)
+    # Serializes mutating operations (provision/resize/power) on this service.
+    # Set True by the viewset/dispatch path before enqueueing a task and cleared
+    # False in the task's finally block, so concurrent plan-changes, resizes and
+    # power ops can't desync Stripe, the ServicePlan snapshot and the real VM.
+    operation_in_progress = models.BooleanField(default=False)
     hostname = models.CharField(max_length=255)
     username = models.CharField(max_length=32, blank=True, default="")
     machine_id = models.IntegerField(null=True, blank=True)
@@ -388,6 +393,11 @@ class PortForward(models.Model):
 
 
 class DomainRoute(models.Model):
+    class VerificationStatus(models.TextChoices):
+        PENDING = "pending", "Pending verification"
+        VERIFIED = "verified", "Verified"
+        FAILED = "failed", "Verification failed"
+
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='domain_routes')
     domain = models.CharField(max_length=255, unique=True)
     forward_port = models.IntegerField(default=80)
@@ -395,6 +405,12 @@ class DomainRoute(models.Model):
     force_ssl = models.BooleanField(default=True)
     enabled = models.BooleanField(default=True)
     npm_proxy_host_id = models.IntegerField(null=True, blank=True)
+    verification_status = models.CharField(
+        max_length=16,
+        choices=VerificationStatus.choices,
+        default=VerificationStatus.PENDING,
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -403,5 +419,25 @@ class DomainRoute(models.Model):
 
     def __str__(self):
         return self.domain
+
+
+class DispatchedTask(models.Model):
+    """Maps a dispatched Celery task_id to the user who dispatched it.
+
+    Written at `.delay()` call sites (see `task_ownership.record_task_owner`)
+    so that `TaskStatusView` can reject cross-user task-status lookups
+    (task_id is an opaque UUID with no owner info of its own).
+    """
+    task_id = models.CharField(max_length=255, unique=True, db_index=True)
+    owner = models.ForeignKey(
+        UserModel, on_delete=models.CASCADE, related_name='dispatched_tasks',
+    )
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created']
+
+    def __str__(self):
+        return f"{self.task_id} ({self.owner})"
 
 

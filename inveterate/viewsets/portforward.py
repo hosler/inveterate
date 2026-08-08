@@ -1,10 +1,13 @@
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.response import Response
 
 from .base import DynamicPageModelViewSet, MultiSerializerViewSetMixin
 from .. import models
 from .. import serializers
 from ..permissions import ReadOnly
-from ..tasks import delete_npm_stream, delete_npm_proxy_host
+from ..task_ownership import record_task_owner
+from ..tasks import delete_npm_stream, delete_npm_proxy_host, verify_domain_route
 
 
 class PortGatewayViewSet(DynamicPageModelViewSet):
@@ -97,6 +100,17 @@ class DomainRouteViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         if self.request.user.is_staff:
             return qs
         return qs.filter(service__owner=self.request.user)
+
+    @action(methods=['post'], detail=True)
+    def verify(self, request, pk=None):
+        # get_object() is scoped by get_queryset(), so a non-owner gets 404.
+        dr = self.get_object()
+        task = verify_domain_route.delay(dr.pk)
+        record_task_owner(task.id, request.user)
+        return Response(
+            {'task_id': task.id, 'verification_status': dr.verification_status},
+            status=202,
+        )
 
     def perform_destroy(self, instance):
         if instance.npm_proxy_host_id:

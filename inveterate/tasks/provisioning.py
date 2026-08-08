@@ -490,112 +490,122 @@ def _cleanup_snippet_on_failure(proxmox, service):
 )
 def provision_service(service_id, password, ssh_keys=None):
     logger.info("Starting provisioning for service %s", service_id)
-    service = Service.objects.get(pk=service_id)
-
-    # Idempotency guard: skip if destroyed
-    if service.status == "destroyed":
-        logger.warning("Service %s is destroyed, skipping provisioning", service_id)
-        return
-
-    logger.info("Provisioning %s service '%s' on node %s", service.service_plan.type, service.hostname, service.node.name)
-
-    proxmox = get_proxmox_connection(service.node.cluster, timeout=600)
-    node = proxmox.nodes(service.node)
-    service_type = service.service_plan.type
+    # operation_in_progress is set True by the dispatching viewset before enqueue;
+    # the outer finally guarantees it is cleared on every path (early return,
+    # error, success) so a crash never leaves the service bricked. See models.py.
+    Service.objects.filter(pk=service_id).update(operation_in_progress=True)
     try:
-        proxmox.pools.post(poolid="inveterate")
-    except ResourceException:
-        pass
+        service = Service.objects.get(pk=service_id)
 
-    if not service.service_plan.storage:
-        service.service_plan.storage = NodeDisk.objects.get(node=service.node, primary=True)
+        # Idempotency guard: skip if destroyed
+        if service.status == "destroyed":
+            logger.warning("Service %s is destroyed, skipping provisioning", service_id)
+            return
 
-    # Generate machine_id, avoiding collisions
-    if not service.machine_id:
-        with transaction.atomic():
-            locked_svc = Service.objects.select_for_update().get(pk=service_id)
-            if not locked_svc.machine_id:
-                # VMID = <prefix><zero-padded id>. Prefix is configurable so dev
-                # environments (prefix "9") never share VMID space with prod ("1").
-                vmid_prefix = getattr(settings, "INVETERATE_VMID_PREFIX", "1")
-                candidate = int(f"{vmid_prefix}{locked_svc.id:06}")
-                existing_vmids = {r["vmid"] for r in proxmox.cluster.resources.get(type="vm")}
-                existing_vmids.update(Service.objects.exclude(machine_id=None).values_list("machine_id", flat=True))
-                max_vmid = 999999999  # Proxmox VMID upper limit
-                while candidate in existing_vmids:
-                    candidate += 1
-                    if candidate > max_vmid:
-                        raise RuntimeError("VMID allocation exhausted — no available IDs below %d" % max_vmid)
-                locked_svc.machine_id = candidate
-                locked_svc.save(update_fields=["machine_id"])
-            service.machine_id = locked_svc.machine_id
+        logger.info(
+            "Provisioning %s service '%s' on node %s",
+            service.service_plan.type, service.hostname, service.node.name,
+        )
 
-    try:
-        _update_progress(service_id, "assign_ips")
-        assign_ips(service_id)
-
-        if service_type == "kvm":
-            vm_data = _provision_kvm(service, node, proxmox, password, ssh_keys)
-        else:
-            _update_progress(service_id, "configure")
-            vm_data = _build_lxc_config(service, password)
-
-        _update_progress(service_id, "network")
-        _build_network_config(service, service_type, vm_data)
-
-        if not service.bw_renewal_dtm:
-            service.bw_renewal_dtm = timezone.now() + relativedelta(months=1)
-            service.save()
-
-        _update_progress(service_id, "configure")
-        if service_type == "kvm":
-            machine = _apply_kvm_config(node, service, vm_data)
-        else:
-            machine = _create_or_update_lxc(node, service, vm_data)
-
-        _update_progress(service_id, "firewall")
-        _setup_firewall(machine, service)
-
-        _update_progress(service_id, "finalize")
+        proxmox = get_proxmox_connection(service.node.cluster, timeout=600)
+        node = proxmox.nodes(service.node)
+        service_type = service.service_plan.type
         try:
-            proxmox.pools("inveterate").put(vms=service.machine_id)
+            proxmox.pools.post(poolid="inveterate")
+        except ResourceException:
+            pass
+
+        if not service.service_plan.storage:
+            service.service_plan.storage = NodeDisk.objects.get(node=service.node, primary=True)
+
+        # Generate machine_id, avoiding collisions
+        if not service.machine_id:
+            with transaction.atomic():
+                locked_svc = Service.objects.select_for_update().get(pk=service_id)
+                if not locked_svc.machine_id:
+                    # VMID = <prefix><zero-padded id>. Prefix is configurable so dev
+                    # environments (prefix "9") never share VMID space with prod ("1").
+                    vmid_prefix = getattr(settings, "INVETERATE_VMID_PREFIX", "1")
+                    candidate = int(f"{vmid_prefix}{locked_svc.id:06}")
+                    existing_vmids = {r["vmid"] for r in proxmox.cluster.resources.get(type="vm")}
+                    existing_vmids.update(Service.objects.exclude(machine_id=None).values_list("machine_id", flat=True))
+                    max_vmid = 999999999  # Proxmox VMID upper limit
+                    while candidate in existing_vmids:
+                        candidate += 1
+                        if candidate > max_vmid:
+                            raise RuntimeError("VMID allocation exhausted — no available IDs below %d" % max_vmid)
+                    locked_svc.machine_id = candidate
+                    locked_svc.save(update_fields=["machine_id"])
+                service.machine_id = locked_svc.machine_id
+
+        try:
+            _update_progress(service_id, "assign_ips")
+            assign_ips(service_id)
+
+            if service_type == "kvm":
+                vm_data = _provision_kvm(service, node, proxmox, password, ssh_keys)
+            else:
+                _update_progress(service_id, "configure")
+                vm_data = _build_lxc_config(service, password)
+
+            _update_progress(service_id, "network")
+            _build_network_config(service, service_type, vm_data)
+
+            if not service.bw_renewal_dtm:
+                service.bw_renewal_dtm = timezone.now() + relativedelta(months=1)
+                service.save()
+
+            _update_progress(service_id, "configure")
+            if service_type == "kvm":
+                machine = _apply_kvm_config(node, service, vm_data)
+            else:
+                machine = _create_or_update_lxc(node, service, vm_data)
+
+            _update_progress(service_id, "firewall")
+            _setup_firewall(machine, service)
+
+            _update_progress(service_id, "finalize")
+            try:
+                proxmox.pools("inveterate").put(vms=service.machine_id)
+            except ResourceException as e:
+                if "already a pool member" not in str(e):
+                    raise
+            logger.info("Successfully provisioned service %s with machine_id %s", service_id, service.machine_id)
+        except NodeDisk.DoesNotExist:
+            error_msg = f"No primary storage disk configured for node {service.node.name}"
+            logger.error("Failed to provision service %s: %s", service_id, error_msg)
+            Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
+            _release_service_networking(service_id)
+            _cleanup_snippet_on_failure(proxmox, service)
+            raise
+        except ConnectionError as e:
+            error_msg = f"Cannot connect to Proxmox cluster at {service.node.cluster.host}"
+            logger.error("Failed to provision service %s: %s - %s", service_id, error_msg, e)
+            Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
+            _release_service_networking(service_id)
+            _cleanup_snippet_on_failure(proxmox, service)
+            raise
         except ResourceException as e:
-            if "already a pool member" not in str(e):
-                raise
-        logger.info("Successfully provisioned service %s with machine_id %s", service_id, service.machine_id)
-    except NodeDisk.DoesNotExist:
-        error_msg = f"No primary storage disk configured for node {service.node.name}"
-        logger.error("Failed to provision service %s: %s", service_id, error_msg)
-        Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
-        _release_service_networking(service_id)
-        _cleanup_snippet_on_failure(proxmox, service)
-        raise
-    except ConnectionError as e:
-        error_msg = f"Cannot connect to Proxmox cluster at {service.node.cluster.host}"
-        logger.error("Failed to provision service %s: %s - %s", service_id, error_msg, e)
-        Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
-        _release_service_networking(service_id)
-        _cleanup_snippet_on_failure(proxmox, service)
-        raise
-    except ResourceException as e:
-        error_msg = f"Proxmox API error: {str(e)}"
-        logger.error("Failed to provision service %s: %s", service_id, error_msg)
-        Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
-        _release_service_networking(service_id)
-        _cleanup_snippet_on_failure(proxmox, service)
-        raise
-    except Exception as e:
-        error_msg = f"Unexpected error during provisioning: {str(e)}"
-        logger.error("Failed to provision service %s: %s", service_id, error_msg, exc_info=True)
-        Service.objects.filter(pk=service_id).update(status="error", status_msg=str(e))
-        _release_service_networking(service_id)
-        _cleanup_snippet_on_failure(proxmox, service)
-        raise
-    else:
-        Service.objects.filter(pk=service_id).update(status="active", status_msg=None)
-        logger.info("Service %s status updated to active", service_id)
+            error_msg = f"Proxmox API error: {str(e)}"
+            logger.error("Failed to provision service %s: %s", service_id, error_msg)
+            Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
+            _release_service_networking(service_id)
+            _cleanup_snippet_on_failure(proxmox, service)
+            raise
+        except Exception as e:
+            error_msg = f"Unexpected error during provisioning: {str(e)}"
+            logger.error("Failed to provision service %s: %s", service_id, error_msg, exc_info=True)
+            Service.objects.filter(pk=service_id).update(status="error", status_msg=str(e))
+            _release_service_networking(service_id)
+            _cleanup_snippet_on_failure(proxmox, service)
+            raise
+        else:
+            Service.objects.filter(pk=service_id).update(status="active", status_msg=None)
+            logger.info("Service %s status updated to active", service_id)
 
-    # Import via the package so that tests can patch ``inveterate.tasks.calculate_inventory``
-    import inveterate.tasks as _tasks
+        # Import via the package so that tests can patch ``inveterate.tasks.calculate_inventory``
+        import inveterate.tasks as _tasks
 
-    _tasks.calculate_inventory.delay()
+        _tasks.calculate_inventory.delay()
+    finally:
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False)

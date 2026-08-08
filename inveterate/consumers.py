@@ -15,6 +15,7 @@ Proxmox termproxy protocol (after auth):
 import asyncio
 import json
 import logging
+import re
 import ssl
 from urllib.parse import quote
 
@@ -32,6 +33,28 @@ logger = logging.getLogger(__name__)
 
 # Timeout (seconds) waiting for Proxmox "OK" after sending auth.
 _AUTH_OK_TIMEOUT = 10
+
+# Any ASCII control character (including CR/LF) anywhere in a client-supplied
+# auth field is rejected outright. This is the primary defense: it closes off
+# CRLF/header and request-line injection into the upstream Proxmox connection
+# regardless of the exact token format assumptions below.
+_CONTROL_CHAR_RE = re.compile(r'[\x00-\x1f\x7f]')
+
+# Defense-in-depth format check for the Proxmox CSRFPreventionToken, which is
+# an unescaped header value (unlike ticket/vncticket, which are quote()'d).
+# Known Proxmox format is "<decimal-ctime>:<hex-hmac>" (PVE::AccessControl
+# assemble_csrf_prevention_token / compute_csrf_hash). The pattern below is a
+# deliberately permissive superset (alnum ":" alnum, plus base64 padding
+# chars) to avoid false-positive rejections if the exact charset assumption
+# is slightly off; it still rejects whitespace, control chars, and anything
+# that isn't a simple two-part token. NOTE: this has not been verified
+# against a live Proxmox cluster (none is available in this environment) —
+# if it ever proves too strict/loose, re-derive from an actual ticket.
+_CSRF_TOKEN_RE = re.compile(r'^[0-9A-Za-z]+:[0-9A-Za-z+/=]+$')
+
+
+def _has_control_chars(value):
+    return bool(_CONTROL_CHAR_RE.search(value))
 
 
 class ConsoleProxyConsumer(AsyncWebsocketConsumer):
@@ -137,8 +160,56 @@ class ConsoleProxyConsumer(AsyncWebsocketConsumer):
             except websockets.exceptions.ConnectionClosed:
                 await self.close()
 
+    @staticmethod
+    def _validate_auth_fields(data):
+        """Reject unsafe client-supplied auth fields before they are used to
+        build the upstream Proxmox request (headers, WS URL, or the
+        termproxy auth line).
+
+        `csrf` is passed verbatim as an HTTP header value to
+        websockets.connect() (unlike ticket/vncticket, which are
+        quote()-escaped), so a CR/LF or other control char in it can smuggle
+        a second, attacker-chosen request onto Django's connection to
+        pveproxy. `port` is interpolated directly into the WS URL, and
+        `username` is written into the termproxy auth line sent over the
+        upstream socket. All are validated here, before any connection is
+        made.
+
+        Returns True if `data` is safe to use, False otherwise.
+        """
+        for field in ('ticket', 'csrf', 'username', 'vncticket'):
+            value = data.get(field)
+            if not isinstance(value, str) or not value or _has_control_chars(value):
+                return False
+
+        if not _CSRF_TOKEN_RE.match(data['csrf']):
+            return False
+
+        port = data.get('port')
+        if isinstance(port, bool):
+            return False
+        if isinstance(port, str):
+            if not port.isdigit():
+                return False
+            port = int(port)
+        elif not isinstance(port, int):
+            return False
+        if not (1 <= port <= 65535):
+            return False
+
+        return True
+
     async def handle_auth(self, data):
         """Establish upstream connection to Proxmox VNC WebSocket."""
+        if not self._validate_auth_fields(data):
+            logger.warning(
+                "Rejecting console auth for service %s: invalid/unsafe auth field",
+                self.service_id,
+            )
+            await self._send_error('Invalid authentication data')
+            await self.close(code=4003)
+            return
+
         details = await self.get_service_details(self.service)
         host = details['host']
         node = details['node']

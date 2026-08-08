@@ -1,13 +1,18 @@
 import ipaddress
 import re
 
+from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 from rest_framework.serializers import raise_errors_on_nested_writes, SerializerMethodField
 
 from . import models
-from .tasks import provision_service, sync_port_forward, sync_domain_route, delete_npm_stream, delete_npm_proxy_host
+from .domain_verification import account_token, verification_record_name
+from .tasks import (
+    provision_service, sync_port_forward, sync_domain_route,
+    delete_npm_stream, delete_npm_proxy_host, verify_domain_route,
+)
 
 
 from django.contrib.auth import get_user_model
@@ -447,14 +452,83 @@ class PortForwardSerializerClient(PortForwardSerializer):
 class DomainRouteSerializer(serializers.ModelSerializer):
     MAX_ROUTES_PER_SERVICE = 20
 
+    verification_record_name = serializers.SerializerMethodField()
+    verification_record_value = serializers.SerializerMethodField()
+
     class Meta:
         model = models.DomainRoute
         fields = '__all__'
-        read_only_fields = ('npm_proxy_host_id',)
+        read_only_fields = ('npm_proxy_host_id', 'verification_status', 'verified_at')
+
+    def get_verification_record_name(self, obj):
+        if not obj.domain:
+            return None
+        return verification_record_name(obj.domain)
+
+    def _is_owner_or_staff(self, obj):
+        request = self.context.get('request')
+        if not request or not getattr(request, 'user', None):
+            return False
+        user = request.user
+        if getattr(user, 'is_staff', False):
+            return True
+        return bool(obj.service_id) and obj.service.owner_id == user.id
+
+    def get_verification_record_value(self, obj):
+        # The token is per-account; never leak another tenant's token. Only the
+        # route's owner (or staff) may see the value they need to publish.
+        if not self._is_owner_or_staff(obj):
+            return None
+        return account_token(obj.service.owner_id)
 
     def validate_forward_port(self, value):
         if not 1 <= value <= 65535:
             raise serializers.ValidationError("forward_port must be between 1 and 65535.")
+        return value
+
+    def validate_domain(self, value):
+        value = (value or '').strip().lower()
+
+        # Reuse the same character-class rules ServiceSerializer applies to
+        # Service.hostname, plus a couple of DomainRoute-specific
+        # requirements: a domain route is a public FQDN (must contain a dot),
+        # not a bare hostname.
+        if (
+            not value
+            or len(value) > 253
+            or '.' not in value
+            or not ServiceSerializer.hostname_pattern.match(value)
+        ):
+            raise serializers.ValidationError(
+                "Domain must be a well-formed fully-qualified domain name (e.g. app.example.com)."
+            )
+
+        # Reserved/base domains the provider itself uses (e.g. its own portal
+        # or infra vhosts) can never be claimed by a customer's domain route.
+        # Configure via INVETERATE_RESERVED_DOMAINS (list of base domains;
+        # exact matches and any subdomain of a reserved entry are blocked).
+        # Defaults to empty so this is a no-op until the host project opts in
+        # by setting the list to its own domain(s).
+        reserved_domains = getattr(settings, "INVETERATE_RESERVED_DOMAINS", ())
+        for reserved in reserved_domains:
+            reserved = (reserved or '').strip().lower().lstrip('.')
+            if not reserved:
+                continue
+            if value == reserved or value.endswith('.' + reserved):
+                raise serializers.ValidationError(
+                    f"The domain '{value}' is reserved and cannot be used for a customer domain route."
+                )
+
+        # TODO: this only blocks domains under the provider's own reserved
+        # base domain(s) above. It does NOT verify that the requesting
+        # customer actually controls `value` for domains outside that list --
+        # nothing stops one customer from pointing a route at a domain owned
+        # by another customer (or any third party). Real DNS-ownership
+        # verification (e.g. a TXT-record challenge that must be satisfied
+        # before the route is activated / before Let's Encrypt is attempted
+        # via sync_domain_route) is a separate, larger feature and is still
+        # required before this endpoint is safe for arbitrary customer-
+        # supplied domains.
         return value
 
     def validate(self, attrs):
@@ -480,13 +554,32 @@ class DomainRouteSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        # A new route starts inert (pending): NPM sync (and thus the LE
+        # attempt) is gated on the TXT challenge. The first verify attempt
+        # usually fails immediately -- expected; the user then adds the record
+        # and re-triggers via the /verify action.
         instance = super().create(validated_data)
-        sync_domain_route.delay(instance.id)
+        verify_domain_route.delay(instance.id)
         return instance
 
     def update(self, instance, validated_data):
+        old_domain = instance.domain
+        new_domain = validated_data.get('domain', old_domain)
+        domain_changed = new_domain != old_domain
+
+        if domain_changed:
+            validated_data['verification_status'] = models.DomainRoute.VerificationStatus.PENDING
+            validated_data['verified_at'] = None
+
         instance = super().update(instance, validated_data)
-        sync_domain_route.delay(instance.id)
+
+        if domain_changed:
+            # New domain must be re-proven before it activates.
+            verify_domain_route.delay(instance.id)
+        elif instance.verification_status == models.DomainRoute.VerificationStatus.VERIFIED:
+            # Same, already-verified domain (e.g. forward_port change) -> the
+            # ownership proof still holds, so re-sync directly.
+            sync_domain_route.delay(instance.id)
         return instance
 
 

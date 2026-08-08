@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
 from ..proxmox import get_proxmox_connection, ensure_console_user, ProxmoxConsoleError
+from ..task_ownership import record_task_owner
 
 
 class ServiceActionThrottle(ScopedRateThrottle):
@@ -90,35 +91,56 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         'metadata': serializers.ServiceSerializerClient,
     }
 
+    def _guarded_dispatch(self, service, task, *args, **kwargs):
+        """Serialize mutating operations on a service.
+
+        Atomically claim the service's operation lock (compare-and-set on
+        ``operation_in_progress``) before enqueueing ``task``. Returns HTTP 409
+        if an operation is already in progress. The flag is set True here — right
+        before ``.delay()`` — so a rapid second request sees it; the Celery task
+        clears it False in its finally block. If dispatch itself fails we clear
+        the flag so the service isn't left permanently locked.
+        """
+        claimed = models.Service.objects.filter(
+            pk=service.pk, operation_in_progress=False,
+        ).update(operation_in_progress=True)
+        if not claimed:
+            return Response(
+                {"detail": "An operation is already in progress for this service."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        try:
+            task_result = task.delay(*args, **kwargs)
+        except Exception:
+            models.Service.objects.filter(pk=service.pk).update(operation_in_progress=False)
+            raise
+        record_task_owner(task_result.id, self.request.user)
+        return Response({"task_id": task_result.id}, status=202)
+
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def start(self, request, pk=None):
         service = self.get_object()
-        task = start_vm.delay(service.pk)
-        return Response({"task_id": task.id}, status=202)
+        return self._guarded_dispatch(service, start_vm, service.pk)
 
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def shutdown(self, request, pk=None):
         service = self.get_object()
-        task = shutdown_vm.delay(service.pk)
-        return Response({"task_id": task.id}, status=202)
+        return self._guarded_dispatch(service, shutdown_vm, service.pk)
 
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def reset(self, request, pk=None):
         service = self.get_object()
-        task = reset_vm.delay(service.pk)
-        return Response({"task_id": task.id}, status=202)
+        return self._guarded_dispatch(service, reset_vm, service.pk)
 
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def stop(self, request, pk=None):
         service = self.get_object()
-        task = stop_vm.delay(service.pk)
-        return Response({"task_id": task.id}, status=202)
+        return self._guarded_dispatch(service, stop_vm, service.pk)
 
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def reboot(self, request, pk=None):
         service = self.get_object()
-        task = reboot_vm.delay(service.pk)
-        return Response({"task_id": task.id}, status=202)
+        return self._guarded_dispatch(service, reboot_vm, service.pk)
 
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def status(self, request, pk=None):
@@ -131,14 +153,15 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def cancel(self, request, pk=None):
         service = self.get_object()
-        task = cancel_service.delay(service.pk)
-        return Response({"task_id": task.id}, status=202)
+        return self._guarded_dispatch(service, cancel_service, service.pk)
 
     @action(methods=['post'], detail=True, throttle_classes=[ServiceActionThrottle])
     def provision(self, request, pk=None):
         service = self.get_object()
-        task = provision_service.delay(service_id=service.pk, password=None)
-        return Response({"task_id": task.id}, status=202)
+        # 409 if an operation is already running — this also closes the
+        # double-provision-after-lock-expiry race (a rapid second POST sees the
+        # flag already claimed instead of enqueueing a duplicate provision).
+        return self._guarded_dispatch(service, provision_service, service_id=service.pk, password=None)
 
     @action(methods=['get'], detail=True)
     def ips(self, request, pk=None):
@@ -184,6 +207,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         if service.service_plan.type != 'kvm':
             return Response({'detail': 'SSH key updates are only supported for KVM services.'}, status=400)
         task = update_service_ssh_keys.delay(service.id, ssh_keys)
+        record_task_owner(task.id, request.user)
         return Response({'task_id': task.id}, status=202)
 
     @action(methods=['get'], detail=True)
@@ -206,6 +230,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         if service.service_plan.type != 'kvm':
             return Response({'detail': 'Password reset is only supported for KVM services.'}, status=400)
         task = reset_vm_password.delay(service.pk, username, password)
+        record_task_owner(task.id, request.user)
         return Response({'task_id': task.id}, status=202)
 
     @action(methods=['post'], detail=False, permission_classes=[IsAdminUser])
