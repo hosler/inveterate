@@ -20,6 +20,11 @@ from django.contrib.auth import get_user_model
 UserModel = get_user_model()
 
 
+class ServiceOperationConflict(serializers.ValidationError):
+    status_code = 409
+    default_detail = "An operation is already in progress for this service."
+
+
 class IPPoolSerializer(serializers.ModelSerializer):
     generate_ips = serializers.BooleanField(default=True, write_only=True, required=False)
     start_address = serializers.CharField(max_length=255, write_only=True, required=False)
@@ -200,11 +205,64 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
+        ssh_keys = validated_data.pop("ssh_keys", None)
+        apps = validated_data.pop("apps", None)
+        plan = validated_data.pop("plan", None)
+        template = validated_data.pop("template", None)
         raise_errors_on_nested_writes('update', self, validated_data)
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        provision_service.delay(instance.id, password)
+
+        relevant = password is not None or ssh_keys is not None
+        relevant = relevant or any(
+            attr in validated_data and getattr(instance, attr) != value
+            for attr, value in validated_data.items()
+            if attr in {'hostname', 'username', 'node'}
+        )
+        if apps is not None:
+            relevant = relevant or set(instance.service_plan.apps.all()) != set(apps)
+        if plan is not None:
+            plan_fields = [f.name for f in models.PlanBase._meta.fields if f.name != 'id']
+            relevant = relevant or instance.service_plan.name != plan.name or any(
+                getattr(instance.service_plan, field) != getattr(plan, field)
+                for field in plan_fields
+            )
+        if template is not None:
+            relevant = relevant or instance.service_plan.template_id != template.id
+
+        with transaction.atomic():
+            if relevant:
+                if not models.Service.claim_operation(instance.pk):
+                    raise ServiceOperationConflict()
+                # claim_operation updates the DB row; mirror it in memory so
+                # the full-field save below does not write the flag back to False
+                instance.operation_in_progress = True
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            instance.save()
+            if apps is not None:
+                instance.service_plan.apps.set(apps)
+            if plan is not None:
+                for field in plan_fields:
+                    setattr(instance.service_plan, field, getattr(plan, field))
+                instance.service_plan.name = plan.name
+            if template is not None:
+                instance.service_plan.template = template
+                instance.service_plan.type = template.type
+            if plan is not None or template is not None:
+                instance.service_plan.save()
+
+            if relevant:
+                service_id = instance.id
+
+                def dispatch():
+                    try:
+                        provision_service.delay(service_id, password, ssh_keys=ssh_keys)
+                    except Exception:
+                        models.Service.objects.filter(pk=service_id).update(
+                            operation_in_progress=False,
+                        )
+                        raise
+
+                transaction.on_commit(dispatch)
         return instance
 
     def validate(self, attrs):
@@ -269,7 +327,13 @@ class ServiceSerializer(serializers.ModelSerializer):
             service.save()
 
         # IP assignment happens inside provision_service task (outside transaction)
-        provision_service.delay(service.id, password, ssh_keys=ssh_keys)
+        service_id = service.id
+        service_password = password
+        transaction.on_commit(
+            lambda: provision_service.delay(
+                service_id, service_password, ssh_keys=ssh_keys
+            )
+        )
         return service
 
 

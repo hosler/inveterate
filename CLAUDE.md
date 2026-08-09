@@ -124,7 +124,7 @@ inveterate/                        # Repository root
 │   ├── urls.py, urls_web.py       # URL routing
 │   ├── routing.py                 # WebSocket routing
 │   ├── admin.py                   # Django admin
-│   ├── tests.py                   # Test suite
+│   ├── tests/                    # Test suite package (grouped by subject)
 │   └── migrations/
 ├── tests/                         # Additional test files
 ├── requirements.txt
@@ -136,16 +136,16 @@ inveterate/                        # Repository root
 ### Running Tests
 ```bash
 python manage.py test inveterate --settings=config.settings.test
-python manage.py test inveterate.tests.TestComposeCloudInit --settings=config.settings.test  # specific test class
+python manage.py test inveterate.tests.test_provisioning.TestComposeCloudInit --settings=config.settings.test  # specific test class
 ```
 
 The default `manage.py` settings use the development PostgreSQL database; use `config.settings.test` for the self-contained SQLite test suite.
 
 When creating tests:
-- Add test cases to `inveterate/tests.py`
+- Add test cases to the appropriate subject module in `inveterate/tests/`
 - Mock `ProxmoxAPI` from `proxmoxer` for unit tests
 - Mock `write_snippet`/`delete_snippet` for snippet tests
-- Use `task.apply()` for synchronous Celery task execution in tests
+- Call tasks directly as plain functions (e.g. `cancel_service(svc.id)`) — never `task.apply()`, which runs the celery-singleton tracer and needs a live Redis
 
 ### Database Migrations
 ```bash

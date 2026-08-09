@@ -101,10 +101,7 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         clears it False in its finally block. If dispatch itself fails we clear
         the flag so the service isn't left permanently locked.
         """
-        claimed = models.Service.objects.filter(
-            pk=service.pk, operation_in_progress=False,
-        ).update(operation_in_progress=True)
-        if not claimed:
+        if not models.Service.claim_operation(service.pk):
             return Response(
                 {"detail": "An operation is already in progress for this service."},
                 status=status.HTTP_409_CONFLICT,

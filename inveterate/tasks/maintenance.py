@@ -20,6 +20,7 @@ from ..models import (
 from ..proxmox import get_proxmox_connection, is_console_user, is_legacy_console_user
 from ._common import delete_snippet, logger, write_snippet
 from .npm import delete_npm_proxy_host, delete_npm_stream
+from .provisioning import _wait_for_task
 
 
 @shared_task(name="inveterate.tasks.calculate_inventory", base=Singleton, lock_expiry=60 * 15)
@@ -180,7 +181,7 @@ def _cancel_service(service_id, get_vm):
 
     if vm_exists:
         if service.service_plan.type == "lxc":
-            machine.delete(force=1)
+            delete_upid = machine.delete(force=1)
         else:
             # KVM delete doesn't support force — stop the VM first if running
             try:
@@ -201,7 +202,22 @@ def _cancel_service(service_id, get_vm):
                         time.sleep(2)
             except ResourceException:
                 pass
-            machine.delete()
+            delete_upid = machine.delete()
+
+        try:
+            proxmox = get_proxmox_connection(service.node.cluster)
+            node = proxmox.nodes(service.node)
+            _wait_for_task(node, delete_upid, service_id, "delete")
+        except ConnectionError:
+            # Transient connectivity mid-poll: let the task-level
+            # autoretry_for=(ConnectionError,) handle it instead of
+            # stranding the service in a terminal error state.
+            raise
+        except Exception as exc:
+            error_msg = str(exc)
+            Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
+            logger.error("Service %s deletion was not confirmed: %s", service_id, error_msg)
+            return
 
     # Clean up cloud-init snippet if one was written
     if service.service_plan and service.service_plan.type == "kvm" and service.machine_id and service.node:

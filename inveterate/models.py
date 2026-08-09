@@ -268,6 +268,13 @@ class Service(models.Model):
         if self.service_plan:
             self.service_plan.delete()
 
+    @classmethod
+    def claim_operation(cls, service_id):
+        """Atomically claim the mutating-operation flag for a service."""
+        return bool(cls.objects.filter(
+            pk=service_id, operation_in_progress=False,
+        ).update(operation_in_progress=True))
+
     def __str__(self):
         return f"{self.id} ({self.hostname})"
 
@@ -287,6 +294,9 @@ class ServiceNetwork(models.Model):
     def save(self, *args, **kwargs):
         if self.net_id is None:
             with transaction.atomic():
+                # Existing child rows cannot serialize two concurrent first
+                # inserts, so lock the stable parent row first.
+                Service.objects.select_for_update().get(pk=self.service_id)
                 existing_qs = ServiceNetwork.objects.filter(service=self.service).select_for_update()
                 if self.pk:
                     existing_qs = existing_qs.exclude(pk=self.pk)
@@ -439,5 +449,4 @@ class DispatchedTask(models.Model):
 
     def __str__(self):
         return f"{self.task_id} ({self.owner})"
-
 

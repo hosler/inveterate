@@ -155,13 +155,19 @@ def assign_ips(service_id):
         if not matching_pools:
             return False
         for pool in matching_pools:
-            with transaction.atomic():
-                ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
-                if ip:
-                    service_network = ServiceNetwork.objects.create(service=service)
-                    ip.owner = service_network
-                    ip.save()
-                    return True
+            for attempt in range(3):
+                try:
+                    with transaction.atomic():
+                        ip = IP.objects.select_for_update(skip_locked=True).filter(owner=None, pool=pool).first()
+                        if ip:
+                            service_network = ServiceNetwork.objects.create(service=service)
+                            ip.owner = service_network
+                            ip.save()
+                            return True
+                        break
+                except IntegrityError:
+                    if attempt == 2:
+                        raise
         raise RuntimeError(f"All {label} IP pools exhausted for service {service_id}")
 
     with transaction.atomic():
@@ -197,22 +203,26 @@ def assign_ips(service_id):
                 try:
                     with transaction.atomic():
                         # Lock gateway's port blocks to find next available slot
-                        existing_starts = set(
+                        existing_ranges = list(
                             PortBlock.objects.select_for_update().filter(gateway=gw).values_list(
-                                "port_start", flat=True
+                                "port_start", "port_end"
                             )
                         )
                         port = gw.port_range_start
                         while port + gw.block_size - 1 <= gw.port_range_end:
-                            if port not in existing_starts:
+                            port_end = port + gw.block_size - 1
+                            if not any(
+                                port <= existing_end and port_end >= existing_start
+                                for existing_start, existing_end in existing_ranges
+                            ):
                                 PortBlock.objects.create(
                                     gateway=gw,
                                     service_network=sn,
                                     port_start=port,
-                                    port_end=port + gw.block_size - 1,
+                                    port_end=port_end,
                                 )
                                 logger.info(
-                                    f"Allocated port block {port}-{port + gw.block_size - 1} "
+                                    f"Allocated port block {port}-{port_end} "
                                     f"on {gw.name} for service {service_id}"
                                 )
                                 allocated = True
@@ -487,13 +497,15 @@ def _cleanup_snippet_on_failure(proxmox, service):
     retry_backoff=10,
     retry_backoff_max=120,
     max_retries=3,
+    bind=True,
 )
-def provision_service(service_id, password, ssh_keys=None):
+def provision_service(self, service_id, password, ssh_keys=None):
     logger.info("Starting provisioning for service %s", service_id)
     # operation_in_progress is set True by the dispatching viewset before enqueue;
-    # the outer finally guarantees it is cleared on every path (early return,
-    # error, success) so a crash never leaves the service bricked. See models.py.
+    # the outer finally clears it on success and terminal failure. A retryable
+    # connection failure keeps it claimed across Celery's backoff window.
     Service.objects.filter(pk=service_id).update(operation_in_progress=True)
+    preserve_for_retry = False
     try:
         service = Service.objects.get(pk=service_id)
 
@@ -579,6 +591,13 @@ def provision_service(service_id, password, ssh_keys=None):
             _cleanup_snippet_on_failure(proxmox, service)
             raise
         except ConnectionError as e:
+            preserve_for_retry = self.request.retries < self.max_retries
+            if preserve_for_retry:
+                logger.warning(
+                    "Provisioning connection failed for service %s; preserving state for retry",
+                    service_id,
+                )
+                raise
             error_msg = f"Cannot connect to Proxmox cluster at {service.node.cluster.host}"
             logger.error("Failed to provision service %s: %s - %s", service_id, error_msg, e)
             Service.objects.filter(pk=service_id).update(status="error", status_msg=error_msg)
@@ -608,4 +627,5 @@ def provision_service(service_id, password, ssh_keys=None):
 
         _tasks.calculate_inventory.delay()
     finally:
-        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
+        if not preserve_for_retry:
+            Service.objects.filter(pk=service_id).update(operation_in_progress=False)
