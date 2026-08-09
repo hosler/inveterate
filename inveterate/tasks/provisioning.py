@@ -628,4 +628,6 @@ def provision_service(self, service_id, password, ssh_keys=None):
         _tasks.calculate_inventory.delay()
     finally:
         if not preserve_for_retry:
-            Service.objects.filter(pk=service_id).update(operation_in_progress=False)
+            Service.objects.filter(pk=service_id).update(
+                operation_in_progress=False, operation_started_at=None,
+            )

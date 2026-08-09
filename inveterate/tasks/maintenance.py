@@ -158,7 +158,9 @@ def cancel_service(service_id):
     try:
         return _cancel_service(service_id, get_vm)
     finally:
-        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
+        Service.objects.filter(pk=service_id).update(
+            operation_in_progress=False, operation_started_at=None,
+        )
 
 
 def _cancel_service(service_id, get_vm):

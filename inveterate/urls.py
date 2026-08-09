@@ -24,6 +24,7 @@ router.register(r'portgateways', viewsets.PortGatewayViewSet)
 router.register(r'portblocks', viewsets.PortBlockViewSet, basename='portblock')
 router.register(r'portforwards', viewsets.PortForwardViewSet, basename='portforward')
 router.register(r'domainroutes', viewsets.DomainRouteViewSet, basename='domainroute')
+router.register(r'driftfindings', viewsets.DriftFindingViewSet, basename='driftfinding')
 
 urlpatterns = [
     path('tasks/<str:task_id>/', TaskStatusView.as_view(), name='api-task-status'),

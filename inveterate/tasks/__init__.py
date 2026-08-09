@@ -48,6 +48,7 @@ from .provisioning import (  # noqa: F401
     provision_service,
 )
 from .resize import resize_service  # noqa: F401
+from .reconcile import reconcile_db_drift, reconcile_proxmox_drift  # noqa: F401
 from .templates import (  # noqa: F401
     import_kvm_template,
     sync_kvm_templates,
@@ -93,6 +94,8 @@ __all__ = [
     "assign_ips",
     "provision_service",
     "resize_service",
+    "reconcile_db_drift",
+    "reconcile_proxmox_drift",
     "PROVISIONING_STEPS",
     # templates
     "import_kvm_template",

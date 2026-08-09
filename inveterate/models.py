@@ -1,5 +1,6 @@
 from django.db import models, transaction
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from .fields import EncryptedCharField
 
@@ -247,6 +248,7 @@ class Service(models.Model):
     # False in the task's finally block, so concurrent plan-changes, resizes and
     # power ops can't desync Stripe, the ServicePlan snapshot and the real VM.
     operation_in_progress = models.BooleanField(default=False)
+    operation_started_at = models.DateTimeField(null=True, blank=True)
     hostname = models.CharField(max_length=255)
     username = models.CharField(max_length=32, blank=True, default="")
     machine_id = models.IntegerField(null=True, blank=True)
@@ -280,7 +282,7 @@ class Service(models.Model):
         """Atomically claim the mutating-operation flag for a service."""
         return bool(cls.objects.filter(
             pk=service_id, operation_in_progress=False,
-        ).update(operation_in_progress=True))
+        ).update(operation_in_progress=True, operation_started_at=timezone.now()))
 
     def __str__(self):
         return f"{self.id} ({self.hostname})"
@@ -456,3 +458,36 @@ class DispatchedTask(models.Model):
 
     def __str__(self):
         return f"{self.task_id} ({self.owner})"
+
+
+class DriftFinding(models.Model):
+    KIND_CHOICES = (
+        ("ghost-service", "Ghost service"),
+        ("orphan-vm", "Orphan VM"),
+        ("config-drift", "Configuration drift"),
+        ("power-drift", "Power drift"),
+        ("stuck-operation", "Stuck operation"),
+        ("stuck-pending", "Stuck pending service"),
+        ("stranded-ip", "Stranded IP"),
+        ("stranded-npm", "Stranded NPM resource"),
+        ("unsynced-domain", "Unsynced domain"),
+        ("paying-no-service", "Paying subscription without service"),
+        ("service-no-billing", "Service without billing"),
+        ("price-drift", "Price drift"),
+        ("zombie-order", "Zombie order"),
+    )
+    SEVERITY_CHOICES = (
+        ("critical", "Critical"),
+        ("warning", "Warning"),
+    )
+
+    kind = models.CharField(max_length=64, choices=KIND_CHOICES)
+    severity = models.CharField(max_length=16, choices=SEVERITY_CHOICES)
+    fingerprint = models.CharField(max_length=255, unique=True)
+    details = models.JSONField()
+    first_seen = models.DateTimeField(default=timezone.now)
+    last_seen = models.DateTimeField(default=timezone.now)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-last_seen"]

@@ -16,6 +16,7 @@ from .portforward import (
     PortForwardViewSet,
     DomainRouteViewSet,
 )
+from .drift import DriftFindingViewSet
 
 __all__ = [
     'AppProfileViewSet',
@@ -35,4 +36,5 @@ __all__ = [
     'PortBlockViewSet',
     'PortForwardViewSet',
     'DomainRouteViewSet',
+    'DriftFindingViewSet',
 ]

@@ -109,7 +109,9 @@ class ServiceViewSet(MultiSerializerViewSetMixin, DynamicPageModelViewSet):
         try:
             task_result = task.delay(*args, **kwargs)
         except Exception:
-            models.Service.objects.filter(pk=service.pk).update(operation_in_progress=False)
+            models.Service.objects.filter(pk=service.pk).update(
+                operation_in_progress=False, operation_started_at=None,
+            )
             raise
         record_task_owner(task_result.id, self.request.user)
         return Response({"task_id": task_result.id}, status=202)

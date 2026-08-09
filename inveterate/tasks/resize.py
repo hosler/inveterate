@@ -192,4 +192,6 @@ def resize_service(service_id, target_plan_id):
         Service.objects.filter(pk=service_id).update(status="error", status_msg=f"Resize failed: {e}"[:255])
         raise
     finally:
-        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
+        Service.objects.filter(pk=service_id).update(
+            operation_in_progress=False, operation_started_at=None,
+        )

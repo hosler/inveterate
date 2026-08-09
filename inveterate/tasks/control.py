@@ -73,7 +73,7 @@ def start_vm(service_id):
         machine, service = get_vm(service_id)
         machine.status.start.post()
     finally:
-        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False, operation_started_at=None)
 
 
 @shared_task(
@@ -92,7 +92,7 @@ def stop_vm(service_id):
         machine, service = get_vm(service_id)
         machine.status.stop.post()
     finally:
-        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False, operation_started_at=None)
 
 
 @shared_task(
@@ -111,7 +111,7 @@ def reset_vm(service_id):
         machine, service = get_vm(service_id)
         machine.status.reset.post()
     finally:
-        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False, operation_started_at=None)
 
 
 @shared_task(
@@ -130,7 +130,7 @@ def shutdown_vm(service_id):
         machine, service = get_vm(service_id)
         machine.status.shutdown.post()
     finally:
-        Service.objects.filter(pk=service_id).update(operation_in_progress=False)
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False, operation_started_at=None)
 
 
 @shared_task(

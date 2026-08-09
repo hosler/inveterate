@@ -235,6 +235,9 @@ class ServiceSerializer(serializers.ModelSerializer):
                 # claim_operation updates the DB row; mirror it in memory so
                 # the full-field save below does not write the flag back to False
                 instance.operation_in_progress = True
+                instance.operation_started_at = models.Service.objects.values_list(
+                    "operation_started_at", flat=True,
+                ).get(pk=instance.pk)
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
             instance.save()
@@ -259,6 +262,7 @@ class ServiceSerializer(serializers.ModelSerializer):
                     except Exception:
                         models.Service.objects.filter(pk=service_id).update(
                             operation_in_progress=False,
+                            operation_started_at=None,
                         )
                         raise
 
@@ -662,3 +666,13 @@ class DomainRouteSerializerClient(DomainRouteSerializer):
             if value.owner != request.user:
                 raise serializers.ValidationError("You do not own this service.")
         return value
+
+
+class DriftFindingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.DriftFinding
+        fields = (
+            "id", "kind", "severity", "fingerprint", "details",
+            "first_seen", "last_seen", "resolved_at",
+        )
+        read_only_fields = fields
