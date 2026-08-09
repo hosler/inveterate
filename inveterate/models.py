@@ -121,8 +121,15 @@ class Cluster(models.Model):
 
 
 class Node(PlanBase):
+    STATUS_CHOICES = (
+        ('online', 'Online'),
+        ('offline', 'Offline'),
+        ('unknown', 'Unknown'),
+    )
+
     name = models.CharField(max_length=255)
     cluster = models.ForeignKey(Cluster, on_delete=models.SET_NULL, null=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='unknown')
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -449,4 +456,3 @@ class DispatchedTask(models.Model):
 
     def __str__(self):
         return f"{self.task_id} ({self.owner})"
-

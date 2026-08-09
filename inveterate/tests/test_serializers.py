@@ -4,6 +4,18 @@ from .helpers import (  # noqa: F401
     _plan, _port_gateway, _service, _service_plan, _template, _txt_answer, _user,
 )
 
+
+class TestNodeSerializer(TestCase):
+
+    def test_includes_status_with_unknown_default(self):
+        from ..serializers import NodeSerializer
+
+        node = _node()
+
+        self.assertEqual(node.status, 'unknown')
+        self.assertEqual(NodeSerializer(node).data['status'], 'unknown')
+
+
 class TestServiceSerializer(TestCase):
 
     def setUp(self):
@@ -280,4 +292,3 @@ class TestServiceSerializerApps(TestCase):
 # ===================================================================
 # TestCancelServiceIPRelease
 # ===================================================================
-

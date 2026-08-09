@@ -82,7 +82,7 @@ class NodeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Node
-        fields = ('id', 'name', 'host', 'size', 'ram', 'swap', 'bandwidth', 'cores', 'cluster', '__str__')
+        fields = ('id', 'name', 'host', 'size', 'ram', 'swap', 'bandwidth', 'cores', 'cluster', 'status', '__str__')
 
 
 class NodeDiskSerializer(serializers.ModelSerializer):
