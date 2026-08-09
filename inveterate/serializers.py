@@ -200,7 +200,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'plan_name', 'owner', 'password', 'template', 'machine_id', 'hostname', 'username', 'plan',
             'node', 'status', 'service_plan', 'status_msg', 'apps', 'ssh_keys',
-            'bw_usage', 'bw_banked', 'bw_stale', 'bw_renewal_dtm', '__str__'
+            'bw_usage', 'bw_banked', 'bw_stale', 'bw_renewal_dtm', 'created', '__str__'
         )
 
     def update(self, instance, validated_data):
