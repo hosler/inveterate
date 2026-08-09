@@ -4,7 +4,7 @@ from datetime import timedelta
 from celery import shared_task
 from celery_singleton import Singleton
 from django.utils import timezone
-from requests.exceptions import ConnectionError
+from requests.exceptions import RequestException
 
 from ..models import Cluster, DomainRoute, DriftFinding, IP, PortForward, Service
 from ..proxmox import get_proxmox_connection
@@ -35,7 +35,7 @@ def reconcile_proxmox_drift():
     for cluster in Cluster.objects.all():
         try:
             resources = get_proxmox_connection(cluster).cluster.resources.get(type="vm")
-        except ConnectionError:
+        except RequestException:
             logger.warning("Skipping reconciliation for unreachable cluster %s", cluster.id)
             # Preserve this scope's active incidents while other clusters reconcile.
             seen.update(DriftFinding.objects.filter(
@@ -90,9 +90,17 @@ def reconcile_proxmox_drift():
                     "maxmem": service.service_plan.ram * 1024 * 1024,
                 }
                 actual = {key: int(vm.get(key, 0)) for key in expected}
-                if actual != expected:
+                maxdisk = vm.get("maxdisk")
+                if maxdisk:
+                    expected["maxdisk"] = service.service_plan.size * 1024 ** 3
+                    actual["maxdisk"] = int(maxdisk)
+                drifted = any(
+                    abs(actual[key] - value) >= value * 0.01
+                    for key, value in expected.items()
+                )
+                if drifted:
                     _emit(seen, "config-drift", "warning", f"config-drift:service:{service.id}", {
-                        **base, "summary": "Proxmox CPU or memory differs from the service plan",
+                        **base, "summary": "Proxmox configuration differs from the service plan",
                         "expected": expected, "actual": actual,
                     })
                 if service.status == "active" and vm.get("status") != "running":

@@ -144,5 +144,9 @@ def shutdown_vm(service_id):
 )
 def reboot_vm(service_id):
     logger.info("Rebooting VM for service %s", service_id)
-    machine, service = get_vm(service_id)
-    machine.status.reboot.post()
+    Service.objects.filter(pk=service_id).update(operation_in_progress=True)
+    try:
+        machine, service = get_vm(service_id)
+        machine.status.reboot.post()
+    finally:
+        Service.objects.filter(pk=service_id).update(operation_in_progress=False, operation_started_at=None)

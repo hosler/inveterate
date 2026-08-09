@@ -63,7 +63,7 @@ Stripe checker writes to the same DriftFinding model (imported from inveterate).
 
 ### Surfacing
 
-Generalize nascent's `alert_error_services` into `alert_operational_issues`: same cadence and cache-dedup, now also including unresolved `critical` DriftFindings. Admin SPA table over `/api/v1/driftfindings/` (admin-only viewset, read-only) can come later.
+Generalize nascent's `alert_error_services` into `alert_operational_issues`: same cadence and cache-dedup, now also including unresolved `critical` DriftFindings. Known accepted behavior: the 7-day fingerprint dedup means a finding that resolves and re-fires within 7 days does not re-alert. Revisit if flapping findings become common (would need per-incident rows or a refire timestamp). Admin SPA table over `/api/v1/driftfindings/` (admin-only viewset, read-only) can come later.
 
 ### Testing
 
